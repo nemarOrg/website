@@ -56,6 +56,60 @@ export const GEOMETRY_INDEX_SCHEMA = "nemar-ieeg-geometry-index";
 export const GEOMETRY_INDEX_VERSION = 1;
 /** The schema's largest mesh: a larger answer is refused before it is read. */
 export const MAX_MESH_BYTES = 1_500_000;
+/** The index is small text; a larger one is refused before it is parsed. */
+export const MAX_INDEX_BYTES = 1_000_000;
+/** More entries than any dataset has subjects and sessions; a longer list is not this index. */
+export const MAX_INDEX_ENTRIES = 2000;
+
+/**
+ * A check failed on bytes that arrived: the length, the hash, the decoder or the counts. The file
+ * is wrong, not the network, so asking again cannot help and the panel gives the surface up.
+ * Everything else that goes wrong in a fetch (a rejected request, any non-200 answer) is a
+ * transport failure and is retried like the template's.
+ */
+export class IntegrityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "IntegrityError";
+  }
+}
+
+/**
+ * Read a body of at most `limit` bytes. A declared length over the limit is refused before a byte
+ * is read, and a body without one is streamed and cut off as it passes the limit.
+ */
+async function readCapped(res: Response, limit: number, what: string): Promise<Uint8Array> {
+  const declared = res.headers.get("content-length");
+  if (declared !== null && Number(declared) > limit && !res.headers.get("content-encoding")) {
+    throw new IntegrityError(`subject-anatomy: ${what} declares ${declared} bytes, over ${limit}`);
+  }
+  if (!res.body) {
+    const all = new Uint8Array(await res.arrayBuffer());
+    if (all.byteLength > limit)
+      throw new IntegrityError(`subject-anatomy: ${what} is over ${limit} bytes`);
+    return all;
+  }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel();
+      throw new IntegrityError(`subject-anatomy: ${what} is over ${limit} bytes`);
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out;
+}
 
 const HEMISPHERES: readonly Hemisphere[] = ["L", "R"];
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -150,6 +204,9 @@ export function parseGeometryIndex(json: unknown): IndexParse {
     };
   }
   if (!Array.isArray(json.entries)) return { ok: false, why: "the index has no entries list" };
+  if (json.entries.length > MAX_INDEX_ENTRIES) {
+    return { ok: false, why: `the index lists more than ${MAX_INDEX_ENTRIES} entries` };
+  }
   const entries: SubjectEntry[] = [];
   const dropped: string[] = [];
   for (const raw of json.entries) {
@@ -173,7 +230,7 @@ export function entryFor(
 // Words
 // ---------------------------------------------------------------------------
 
-export const SUBJECT_ANATOMY_LABEL = "This subject's anatomy";
+export const SUBJECT_ANATOMY_LABEL = "Subject anatomy";
 export const SUBJECT_LABEL = "This subject's anatomy, from the dataset's own surfaces";
 const APPROXIMATE_SENTENCE = "approximate alignment (depth contacts)";
 
@@ -238,8 +295,10 @@ export async function fetchGeometryIndex(
   if (!res.ok) throw new Error(`subject-anatomy: ${url} answered ${res.status}`);
   let json: unknown;
   try {
-    json = await res.json();
+    const bytes = await readCapped(res, MAX_INDEX_BYTES, "the index");
+    json = JSON.parse(new TextDecoder().decode(bytes));
   } catch (err) {
+    if (!(err instanceof IntegrityError) && !(err instanceof SyntaxError)) throw err;
     warnOnce(`${datasetId}: the index is not JSON`, err);
     return { kind: "invalid", why: "the index is not JSON" };
   }
@@ -277,8 +336,8 @@ export function forgetSubjectLoads(): void {
   meshLoads.clear();
 }
 
-async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
@@ -294,18 +353,30 @@ async function loadHemisphere(
 ): Promise<BrainMesh> {
   const res = await doFetch(`${base}${ref.path}`);
   if (!res.ok) throw new Error(`subject-anatomy: the ${h} mesh answered ${res.status}`);
-  const bytes = await res.arrayBuffer();
+  // The index names the length: a different declared length is wrong before any byte is read.
+  const declared = res.headers.get("content-length");
+  if (declared !== null && !res.headers.get("content-encoding") && Number(declared) !== ref.bytes) {
+    throw new IntegrityError(
+      `subject-anatomy: the ${h} mesh declares ${declared} bytes, not ${ref.bytes}`,
+    );
+  }
+  const bytes = await readCapped(res, ref.bytes, `the ${h} mesh`);
   if (bytes.byteLength !== ref.bytes) {
-    throw new Error(
+    throw new IntegrityError(
       `subject-anatomy: the ${h} mesh is ${bytes.byteLength} bytes, not ${ref.bytes}`,
     );
   }
   if ((await sha256Hex(bytes)) !== ref.sha256) {
-    throw new Error(`subject-anatomy: the ${h} mesh does not match its SHA-256`);
+    throw new IntegrityError(`subject-anatomy: the ${h} mesh does not match its SHA-256`);
   }
-  const mesh = decodeBrainMesh(bytes);
+  let mesh: BrainMesh;
+  try {
+    mesh = decodeBrainMesh(bytes);
+  } catch (err) {
+    throw new IntegrityError(`subject-anatomy: the ${h} mesh does not decode: ${String(err)}`);
+  }
   if (mesh.positions.length / 3 !== ref.vertices || mesh.indices.length / 3 !== ref.faces) {
-    throw new Error(`subject-anatomy: the ${h} mesh counts disagree with the index`);
+    throw new IntegrityError(`subject-anatomy: the ${h} mesh counts disagree with the index`);
   }
   return mesh;
 }

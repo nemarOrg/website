@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { nodeFs, repoPath } from "../../../test/node";
 import {
+  IntegrityError,
+  MAX_INDEX_BYTES,
+  MAX_INDEX_ENTRIES,
   SUBJECT_LABEL,
   type SubjectEntry,
   entryFor,
@@ -233,3 +236,99 @@ describe("outlines from the subject's own mesh", () => {
 function encodeToMesh() {
   return { positions: new Float32Array(0), indices: new Uint16Array(0) };
 }
+
+describe("integrity and transport failures", () => {
+  const first = async () => {
+    const found = await fetchGeometryIndex("on004473", { fetch: server() });
+    if (found.kind !== "found") throw new Error("fixture index");
+    return found.entries[0];
+  };
+
+  it("hashes before decoding: garbage of the right length fails on the SHA-256, not the decoder", async () => {
+    const entry = await first();
+    const garbage = async (url: string) => {
+      const real = await server()(url);
+      return new Response(new Uint8Array((await real.arrayBuffer()).byteLength).fill(7));
+    };
+    const err = await loadSubjectSurface("on004473", entry, { fetch: garbage }).catch((e) => e);
+    expect(err).toBeInstanceOf(IntegrityError);
+    expect(String(err.message)).toMatch(/SHA-256/);
+  });
+
+  it("refuses a different byte length, declared or streamed", async () => {
+    const entry = await first();
+    const short = async (url: string) =>
+      new Response((await (await server()(url)).arrayBuffer()).slice(0, 100));
+    const e1 = await loadSubjectSurface("on004473", entry, { fetch: short }).catch((e) => e);
+    expect(e1).toBeInstanceOf(IntegrityError);
+    expect(String(e1.message)).toMatch(/bytes/);
+    const declared = async (url: string) => {
+      const real = await server()(url);
+      return new Response(await real.arrayBuffer(), { headers: { "content-length": "5" } });
+    };
+    const e2 = await loadSubjectSurface("on004473", entry, { fetch: declared }).catch((e) => e);
+    expect(e2).toBeInstanceOf(IntegrityError);
+    expect(String(e2.message)).toMatch(/declares 5 bytes/);
+    // No declared length and too many bytes: cut off at the entry's size.
+    const long = async (url: string) => {
+      const real = await (await server()(url)).arrayBuffer();
+      const bigger = new Uint8Array(real.byteLength + 1000);
+      bigger.set(new Uint8Array(real));
+      return new Response(bigger);
+    };
+    const e3 = await loadSubjectSurface("on004473", entry, { fetch: long }).catch((e) => e);
+    expect(e3).toBeInstanceOf(IntegrityError);
+    expect(String(e3.message)).toMatch(/over/);
+  });
+
+  it("refuses counts that disagree with the index after a clean hash", async () => {
+    const entry = await first();
+    const L = entry.meshes.L;
+    if (!L) throw new Error("fixture");
+    const wrong: SubjectEntry = {
+      ...entry,
+      meshes: { L: { ...L, vertices: L.vertices + 1 } },
+      hemispheres: ["L"],
+    };
+    const err = await loadSubjectSurface("on004473", wrong, { fetch: server() }).catch((e) => e);
+    expect(err).toBeInstanceOf(IntegrityError);
+    expect(String(err.message)).toMatch(/counts disagree/);
+  });
+
+  it("a 503, a 403 or a rejected request on a mesh is a transport failure, not integrity", async () => {
+    const entry = await first();
+    for (const respond of [
+      async () => new Response("", { status: 503 }),
+      async () => new Response("", { status: 403 }),
+      async () => {
+        throw new TypeError("network down");
+      },
+    ]) {
+      const err = await loadSubjectSurface("on004473", entry, { fetch: respond }).catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err).not.toBeInstanceOf(IntegrityError);
+    }
+  });
+
+  it("refuses a hemispheres list that disagrees with the meshes and a path that climbs out", () => {
+    const a = realIndex();
+    a.entries[0].hemispheres = ["R"];
+    expect(parseGeometryIndex(a)).toMatchObject({ ok: true, entries: [] });
+    const b = realIndex();
+    b.entries[0].meshes.L.path = `../${b.entries[0].meshes.L.path}`;
+    expect(parseGeometryIndex(b)).toMatchObject({ ok: true, entries: [] });
+    const c = realIndex();
+    c.entries[0].meshes.L.path = `meshes/../${b.entries[0].meshes.L.path.slice(3)}`;
+    expect(parseGeometryIndex(c)).toMatchObject({ ok: true, entries: [] });
+  });
+
+  it("caps the index's size and its entry count", async () => {
+    const big = async () => new Response(`{"pad":"${"x".repeat(MAX_INDEX_BYTES)}"}`);
+    expect((await fetchGeometryIndex("x", { fetch: big })).kind).toBe("invalid");
+    const many = {
+      ...realIndex(),
+      entries: Array.from({ length: MAX_INDEX_ENTRIES + 1 }, () => ({})),
+    };
+    expect(parseGeometryIndex(many).ok).toBe(false);
+  });
+});

@@ -7,6 +7,10 @@
  * nothing is uploaded beside the Zarr copy yet. It needs the network and a dev server; run it with
  * `E2E_PORT=4410 PUBLIC_DATA_BASE_URL=https://data.nemar.org bun run test:e2e e2e/ieeg-subject-anatomy.spec.ts`.
  *
+ * The geometry host is served from committed real pipeline output until card P3 uploads it beside
+ * the Zarr copy: the `page.route` below must be re-pointed at (or removed in favor of) the real
+ * host then, and the spec re-run against it.
+ *
  * What it asserts:
  * - while the panel is closed, no request goes to the geometry directory;
  * - once open, one request for index.json, the Frame selector offers and selects "This subject's
@@ -38,6 +42,28 @@ async function serveGeometry(page: Page, requests: string[], missing = false): P
   });
 }
 
+/**
+ * Counts contact-colored pixels (warm amber over a gray or blue-gray surface) in the 3D canvas: a surface
+ * drawn too opaque tints them toward gray and the count collapses. Decoded in the page from a
+ * screenshot of the canvas, since the drawing buffer is not preserved.
+ */
+async function contactPixels(page: Page): Promise<number> {
+  const shot = await page.locator("[data-spatial-stage] canvas").screenshot();
+  return page.evaluate(async (b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const bmp = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    const c = new OffscreenCanvas(bmp.width, bmp.height);
+    const ctx = c.getContext("2d") as OffscreenCanvasRenderingContext2D;
+    ctx.drawImage(bmp, 0, 0);
+    const d = ctx.getImageData(0, 0, bmp.width, bmp.height).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] - d[i + 2] > 40 && d[i] > d[i + 1] && d[i + 1] > d[i + 2]) n++;
+    }
+    return n;
+  }, shot.toString("base64"));
+}
+
 async function openBrain(page: Page): Promise<void> {
   await page.goto("/dataset/on004473/embed");
   await page.waitForSelector(TOGGLE, { state: "attached", timeout: 90_000 });
@@ -64,11 +90,24 @@ test("the Brain panel draws the subject's own surface with its label", async ({ 
     { timeout: 60_000 },
   );
   const frame = page.locator("[data-spatial-frame]");
-  await expect(frame.locator("option:checked")).toContainText("This subject's anatomy");
+  await expect(frame.locator("option:checked")).toHaveText("ACPC: Subject anatomy");
+  // The view controls stay on the Frame row at the panel's normal width.
+  const selBox = await frame.boundingBox();
+  const ctlBox = await page.locator("[data-spatial-view-controls]").boundingBox();
+  expect(selBox && ctlBox && Math.abs(selBox.y - ctlBox.y) < 25).toBe(true);
+  await page.screenshot({
+    path: "test-results/subject-anatomy-frame-row.png",
+    clip: { x: 880, y: 100, width: 400, height: 80 },
+  });
   await expect(page.locator("[data-spatial-panel]")).toContainText("Subject surfaces:");
   expect(requests.filter((r) => r === "index.json")).toHaveLength(1);
   expect(requests.filter((r) => r.startsWith("meshes/"))).toHaveLength(2);
   await expect(page.locator("[data-spatial-panel]")).not.toContainText("No brain surface");
+  const visible = await contactPixels(page);
+  test.info().annotations.push({ type: "contact-pixels-light", description: String(visible) });
+  // The surface must not hide the contacts: drawn two-sided at the template's alpha (the first
+  // version) this counted 332 pixels in light mode, with the subject's own style 699.
+  expect(visible).toBeGreaterThan(500);
   await page.screenshot({ path: "test-results/subject-anatomy-3d.png" });
 
   await page.getByRole("button", { name: /2D views/ }).click();
@@ -102,6 +141,8 @@ test.describe("dark mode", () => {
         timeout: 60_000,
       },
     );
+    // The first version counted 110 in dark mode, the subject style 379.
+    expect(await contactPixels(page)).toBeGreaterThan(250);
     await page.screenshot({ path: "test-results/subject-anatomy-3d-dark.png" });
     await page.getByRole("button", { name: /2D views/ }).click();
     await expect(page.locator("[data-spatial-views] path[data-template-outline]")).toHaveCount(3, {

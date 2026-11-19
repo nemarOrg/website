@@ -71,6 +71,8 @@ import {
   type BrainTheme,
   MAX_CONTACTS,
   MIN_PICK_PX,
+  SUBJECT_MESH_STYLE,
+  TEMPLATE_MESH_STYLE,
   createBrainRenderer,
   parseColor,
 } from "./brain-gl";
@@ -125,6 +127,7 @@ import {
   unlocatedChannelName,
 } from "./name-refusal";
 import {
+  IntegrityError,
   SUBJECT_ANATOMY_LABEL,
   type SubjectEntry,
   entryFor,
@@ -838,7 +841,12 @@ export interface SubjectsState {
   status: TemplateStatus;
   entries: readonly SubjectEntry[];
   rejected: readonly string[];
+  /** The index took longer than `SUBJECTS_WAIT_MS`: the surface no longer waits for it. */
+  timedOut: boolean;
 }
+
+/** How long the first surface waits for the geometry index before it loads the template anyway. */
+export const SUBJECTS_WAIT_MS = 2000;
 
 export interface PanelState {
   recording: RecordingRef | null;
@@ -901,7 +909,7 @@ export function initialState(): PanelState {
     activity: idleActivity(),
     template: "idle",
     outlines: "idle",
-    subjects: { status: "idle", entries: [], rejected: [] },
+    subjects: { status: "idle", entries: [], rejected: [], timedOut: false },
     anatomy: "subject",
     surfaceKey: null,
     disposed: false,
@@ -935,8 +943,10 @@ export type PanelEvent =
   | { type: "outlines_loaded"; key?: string }
   | { type: "outlines_failed"; key?: string }
   /** The dataset's geometry index arrived (possibly with no usable entry), or could not be read. */
-  | { type: "subjects_loaded"; datasetId: string; entries: readonly SubjectEntry[] }
-  | { type: "subjects_failed"; datasetId: string }
+  | { type: "subjects_loaded"; datasetId?: string; entries: readonly SubjectEntry[] }
+  | { type: "subjects_failed"; datasetId?: string }
+  /** The index has not answered within `SUBJECTS_WAIT_MS`. */
+  | { type: "subjects_timeout"; datasetId?: string }
   /** A subject surface failed a check or a read: its option is hidden from now on. */
   | { type: "subject_rejected"; electrodes: string }
   | { type: "disposed" };
@@ -1281,6 +1291,7 @@ function reduceCore(state: PanelState, event: PanelEvent): Transition {
     case "outlines_failed":
     case "subjects_loaded":
     case "subjects_failed":
+    case "subjects_timeout":
     case "subject_rejected":
       // Decided by `reduce`, which owns the template's status.
       return same(state);
@@ -1432,7 +1443,10 @@ export function reduce(state: PanelState, event: PanelEvent): Transition {
     return same({ ...state, outlines: event.type === "outlines_loaded" ? "ready" : "failed" });
   }
   if (event.type === "subjects_loaded" || event.type === "subjects_failed") {
-    if (state.subjects.status !== "loading" || state.recording?.datasetId !== event.datasetId) {
+    if (
+      state.subjects.status !== "loading" ||
+      (event.datasetId !== undefined && state.recording?.datasetId !== event.datasetId)
+    ) {
       return same(state);
     }
     const subjects: SubjectsState =
@@ -1440,6 +1454,15 @@ export function reduce(state: PanelState, event: PanelEvent): Transition {
         ? { ...state.subjects, status: "ready", entries: event.entries }
         : { ...state.subjects, status: "failed" };
     return startLoads({ ...state, subjects }, []);
+  }
+  if (event.type === "subjects_timeout") {
+    if (
+      state.subjects.status !== "loading" ||
+      (event.datasetId !== undefined && state.recording?.datasetId !== event.datasetId)
+    ) {
+      return same(state);
+    }
+    return startLoads({ ...state, subjects: { ...state.subjects, timedOut: true } }, []);
   }
   if (event.type === "subject_rejected") {
     if (state.subjects.rejected.includes(event.electrodes)) return same(state);
@@ -1496,6 +1519,17 @@ function startLoads(from: PanelState, carried: PanelEffect[]): Transition {
   ) {
     next = { ...next, subjects: { ...next.subjects, status: "loading" } };
     effects = [...effects, { type: "load_subjects", datasetId }];
+  }
+  // While the index is still to answer, nothing is loaded or drawn: the template would flash and
+  // be replaced. A 404, an invalid index, a failure or two seconds end the wait.
+  const waiting =
+    next.open &&
+    (next.subjects.status === "idle" || next.subjects.status === "loading") &&
+    !next.subjects.timedOut;
+  if (waiting) {
+    return next === from && effects === carried
+      ? { state: from, effects: carried }
+      : { state: next, effects };
   }
   const key = surfaceKeyOf(next);
   const subject = subjectEntryOf(next);
@@ -1773,7 +1807,7 @@ function statusLine(state: PanelState): string | null {
 
 const SUBJECT_LOADING_SENTENCE = "Loading this subject's anatomy...";
 const SUBJECT_FAILED_SENTENCE =
-  "This subject's anatomy could not be loaded, so the contacts are shown without it.";
+  "This subject's anatomy could not be loaded, so the contacts are shown without it. Close and reopen this panel to try again.";
 
 /** What the notice under a drawn template says, in plain words; the live box links its two parts. */
 export const TEMPLATE_NOTICE_PREFIX = "Template surface: ";
@@ -2827,6 +2861,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   let templateMesh: BrainMesh | null = null;
   /** A `load_template` effect waits for a renderer: no WebGL2, no fetch. */
   let templateRequested: { key: string; subject: SubjectEntry | null } | null = null;
+  let subjectsTimer = 0;
   /** The parsed outlines, once `load_outlines` has finished. */
   let outlinesData: TemplateOutlines | null = null;
   let palette: ColorPalette = { neutral: [0.96, 0.72, 0.18], noData: [0.4, 0.45, 0.5] };
@@ -3260,7 +3295,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     const rule = drawnTemplate(state);
     const mesh = drawnSurface(state) ? templateMesh : null;
     if (mesh !== drawnMesh) {
-      renderer.setMesh(mesh);
+      renderer.setMesh(
+        mesh,
+        undefined,
+        subjectEntryOf(state) ? SUBJECT_MESH_STYLE : TEMPLATE_MESH_STYLE,
+      );
       drawnMesh = mesh;
     }
     if (placement && (placement !== drawnPlacement || rule !== drawnRule)) {
@@ -3443,9 +3482,9 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       },
       (err) => {
         if (!current(key)) return;
-        if (subject) rejectSubject(subject, err);
+        if (subject && err instanceof IntegrityError) rejectSubject(subject, err);
         else {
-          console.error("[ieeg-spatial] loading the template outlines failed:", err);
+          console.error("[ieeg-spatial] loading the outlines failed:", err);
           dispatch({ type: "outlines_failed", key });
         }
       },
@@ -3464,9 +3503,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       },
       (err) => {
         if (!current(key)) return;
-        if (subject) rejectSubject(subject, err);
+        // A file that arrived wrong is given up for good; a transport failure is tried again on
+        // reopening, a frame change or a recording change, as the template's is.
+        if (subject && err instanceof IntegrityError) rejectSubject(subject, err);
         else {
-          console.error("[ieeg-spatial] loading the template brain failed:", err);
+          console.error("[ieeg-spatial] loading the brain surface failed:", err);
           dispatch({ type: "template_failed", key });
         }
       },
@@ -3480,8 +3521,14 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   }
 
   function startSubjectsLoad(datasetId: string): void {
+    window.clearTimeout(subjectsTimer);
+    subjectsTimer = window.setTimeout(
+      () => dispatch({ type: "subjects_timeout", datasetId }),
+      SUBJECTS_WAIT_MS,
+    );
     geometryIndexFor(datasetId).then(
       (result) => {
+        window.clearTimeout(subjectsTimer);
         if (disposed) return;
         dispatch({
           type: "subjects_loaded",
@@ -3490,6 +3537,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         });
       },
       (err) => {
+        window.clearTimeout(subjectsTimer);
         if (disposed) return;
         console.warn("[ieeg-spatial] the subject-anatomy index could not be read:", err);
         dispatch({ type: "subjects_failed", datasetId });
@@ -3956,6 +4004,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       state = t.state;
       for (const effect of t.effects) run(effect);
       disposed = true;
+      window.clearTimeout(subjectsTimer);
       activityRunner?.dispose();
       resizeObserver?.disconnect();
       ensureRenderer(false);

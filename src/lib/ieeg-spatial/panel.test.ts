@@ -207,6 +207,7 @@ function opened(
     { type: "recording_changed", recording, group },
     { type: "geometry_resolved", token: 1, geometry },
     { type: "toggle_open" },
+    { type: "subjects_timeout" },
     { type: "window_changed", startS: 0, lengthS: 10 },
   ]);
 }
@@ -354,6 +355,7 @@ describe("activity is read only while the switch is on", () => {
       { type: "recording_changed", recording: REC, group: bipolarGroup },
       { type: "geometry_resolved", token: 1, geometry: bipolarGeometry },
       { type: "toggle_open" },
+      { type: "subjects_timeout" },
       { type: "window_changed", startS: 0, lengthS: 10 },
       { type: "window_changed", startS: 10, lengthS: 10 },
       { type: "select_channel", label: "LAF1-LAF2" },
@@ -1964,6 +1966,7 @@ function openedOnSpace(
     { type: "geometry_resolved", token: 1, geometry },
     { type: "frame_changed", spaceIndex: index },
     { type: "toggle_open" },
+    { type: "subjects_timeout" },
     { type: "window_changed", startS: 0, lengthS: 10 },
   ]);
 }
@@ -2039,7 +2042,7 @@ describe("template anatomy", () => {
     expect(loads(closed.effects)).toEqual([]);
     expect(closed.state.template).toBe("idle");
 
-    const open = reduce(closed.state, { type: "toggle_open" });
+    const open = play(closed.state, [{ type: "toggle_open" }, { type: "subjects_timeout" }]);
     expect(loads(open.effects)).toEqual([
       { type: "load_template", key: "template", subject: null },
     ]);
@@ -2106,6 +2109,7 @@ describe("template anatomy", () => {
       { type: "recording_changed", recording: ref, group: groupOf(contactLabels(geometry, 0)) },
       { type: "geometry_resolved", token: 1, geometry },
       { type: "toggle_open" },
+      { type: "subjects_timeout" },
     ]);
     expect(loads(before.effects)).toEqual([]);
     expect(viewModel(before.state).stage.kind).toBe("no_webgl");
@@ -2124,6 +2128,7 @@ describe("template anatomy", () => {
       { type: "recording_changed", recording: ref, group: groupOf(contactLabels(geometry, 0)) },
       { type: "geometry_resolved", token: 1, geometry },
       { type: "toggle_open" },
+      { type: "subjects_timeout" },
     ]);
     expect(loads(asked.effects)).toHaveLength(1);
     expect(reduce(asked.state, { type: "webgl_unavailable" }).state.template).toBe("idle");
@@ -2962,8 +2967,8 @@ describe("subject anatomy (ADR 0034)", () => {
     const model = viewModel(state);
     expect(model.frames?.selectedValue).toBe(`${acpc}:subject`);
     expect(model.frames?.options.map((o) => o.anatomy)).toContain("subject");
-    expect(model.frames?.options.find((o) => o.anatomy === "subject")?.label).toContain(
-      "This subject's anatomy",
+    expect(model.frames?.options.find((o) => o.anatomy === "subject")?.label).toBe(
+      "ACPC: Subject anatomy",
     );
     const load = requests(effects, "load_template");
     expect(load).toHaveLength(1);
@@ -3084,6 +3089,7 @@ describe("subject anatomy (ADR 0034)", () => {
       { type: "geometry_resolved", token: 1, geometry: g },
       { type: "window_changed", startS: 0, lengthS: 10 },
       { type: "toggle_open" },
+      { type: "subjects_timeout" },
       { type: "subjects_loaded", datasetId: "nm000454", entries: [entry] },
     ]);
     expect(subjectEntryOf(opened.state)).not.toBeNull();
@@ -3101,5 +3107,78 @@ describe("subject anatomy (ADR 0034)", () => {
     expect(requests(back.effects, "load_template")).toEqual([
       { type: "load_template", key: "template", subject: null },
     ]);
+  });
+
+  it("holds the first surface until the index answers: nothing loads or draws before it", async () => {
+    const g = await geometryOf("nm000454", "v1.0.2", NM454);
+    const ref: RecordingRef = { datasetId: "nm000454", version: "v1.0.2", path: NM454 };
+    const shut = play(initialState(), [
+      { type: "recording_changed", recording: ref, group: groupOf(contactLabels(g, 0)) },
+      { type: "geometry_resolved", token: 1, geometry: g },
+      { type: "window_changed", startS: 0, lengthS: 10 },
+    ]).state;
+    const open = reduce(shut, { type: "toggle_open" });
+    expect(requests(open.effects, "load_subjects")).toHaveLength(1);
+    expect(requests(open.effects, "load_template")).toEqual([]);
+    expect(requests(open.effects, "load_outlines")).toEqual([]);
+    expect(open.state.template).toBe("idle");
+    expect(drawnSurface(open.state)).toBe(false);
+    expect(viewModel(open.state).template?.status).toBe("loading");
+    // Nothing else starts it while the index is out.
+    const more = play(open.state, [{ type: "window_changed", startS: 5, lengthS: 10 }]);
+    expect(requests(more.effects, "load_template")).toEqual([]);
+
+    // A 404 (no entries) falls through to the template.
+    const none = reduce(open.state, {
+      type: "subjects_loaded",
+      datasetId: "nm000454",
+      entries: [],
+    });
+    expect(requests(none.effects, "load_template")).toEqual([
+      { type: "load_template", key: "template", subject: null },
+    ]);
+    // A failure falls through too.
+    const failed = reduce(open.state, { type: "subjects_failed", datasetId: "nm000454" });
+    expect(requests(failed.effects, "load_template")).toHaveLength(1);
+    // So does the timeout; an answer after it still switches to the subject.
+    const late = reduce(open.state, { type: "subjects_timeout", datasetId: "nm000454" });
+    expect(requests(late.effects, "load_template")).toEqual([
+      { type: "load_template", key: "template", subject: null },
+    ]);
+    const path = g.spaces[0].electrodesPath ?? "";
+    const arrived = reduce(late.state, {
+      type: "subjects_loaded",
+      datasetId: "nm000454",
+      entries: [{ ...entries()[0], electrodes: path }],
+    });
+    expect(requests(arrived.effects, "load_template")).toMatchObject([
+      { key: `subject:nm000454|${path}` },
+    ]);
+  });
+
+  it("a transport failure of the subject's surface is retried on reopening; the option stays", () => {
+    const { state } = withIndex(entries());
+    const failed = reduce(state, { type: "template_failed", key: KEY }).state;
+    expect(failed.template).toBe("failed");
+    expect(viewModel(failed).template?.status).toBe("failed");
+    expect(subjectEntryOf(failed)).not.toBeNull();
+    const again = play(failed, [
+      { type: "toggle_open", open: false },
+      { type: "toggle_open", open: true },
+    ]);
+    expect(requests(again.effects, "load_template")).toMatchObject([{ key: KEY }]);
+    expect(again.state.subjects.rejected).toEqual([]);
+  });
+
+  it("each recording starts on its own best frame: the anatomy choice resets", () => {
+    const { state } = withIndex(entries());
+    const chosen = reduce(state, { type: "frame_changed", spaceIndex: acpc, anatomy: "template" });
+    expect(chosen.state.anatomy).toBe("template");
+    const next = reduce(chosen.state, {
+      type: "recording_changed",
+      recording: REF,
+      group: groupOf(contactLabels(geometry, acpc)),
+    });
+    expect(next.state.anatomy).toBe("subject");
   });
 });

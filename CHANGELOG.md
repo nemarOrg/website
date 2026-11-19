@@ -16,7 +16,7 @@ The release pull request from `staging` to `main` moves those entries under the 
 ### Added
 
 - **The Brain panel can draw this subject's own anatomy** (ADR 0034).
-  When the dataset's geometry index has a verified surface for the electrodes file on screen, the Frame selector offers "This subject's anatomy", the default for that file, and draws the subject's cortical surface under the contacts in their own frame, with the label "This subject's anatomy, from the dataset's own surfaces" (plus "approximate alignment (depth contacts)" for depth contacts), the source surfaces in the notes, and the same words in PNG and SVG exports.
+  When the dataset's geometry index has a verified surface for the electrodes file on screen, the Frame selector offers "Subject anatomy", the default for that file, and draws the subject's cortical surface under the contacts in their own frame, with the label "This subject's anatomy, from the dataset's own surfaces" (plus "approximate alignment (depth contacts)" for depth contacts), the source surfaces in the notes, and the same words in PNG and SVG exports.
   The index and meshes are checked (schema, version, hemisphere keys, SHA-256 before decoding); any mismatch hides the option with one console warning.
   Nothing is requested while the panel is closed.
 
