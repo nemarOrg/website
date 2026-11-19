@@ -40,3 +40,10 @@
 /vendor/bids-validator/*
   Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-eval'; connect-src https://raw.githubusercontent.com
   Referrer-Policy: no-referrer
+
+# The vendored template brain surface (website#561) is served from a versioned folder
+# (`mni152nlin2009casym@1`, `TEMPLATE_DIRECTORY` in src/lib/ieeg-spatial/transforms.ts), so its
+# bytes never change under one URL: a rebuilt surface goes in a new `@N` folder. Browsers may keep
+# it for a year without revalidating. test/brain-template-vendor.test.ts pins this rule.
+/vendor/brain-templates/mni152nlin2009casym@1/*
+  Cache-Control: public, max-age=31536000, immutable
