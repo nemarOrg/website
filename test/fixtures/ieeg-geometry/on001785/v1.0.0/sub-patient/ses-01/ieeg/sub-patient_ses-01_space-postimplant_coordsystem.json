@@ -1,0 +1,9 @@
+{
+"iEEGCoordinateSystem": "postimplant",
+"iEEGCoordinateUnits": "mm",
+"iEEGCoordinateProcessingDescription": "yangWang-preIeegBids",
+"iEEGCoordinateProcessingReference": "Yang, Wang et al., 2012 NeuroImage; Groppe et al., 2017 JNeuroMeth",
+"t1ProcessingDescription": "freesurfer-Linux-centos6_x86_64-dev-20160810-1e0477e",
+"t1ProcessingReference": "http://freesurfer.net/fswiki/FreeSurferMethodsCitation",
+"IntendedFor": "/derivatives/sub-patient/surf/*.pial",
+}

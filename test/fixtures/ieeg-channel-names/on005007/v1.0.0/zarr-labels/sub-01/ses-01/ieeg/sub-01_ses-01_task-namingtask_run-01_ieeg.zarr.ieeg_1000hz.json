@@ -1,0 +1,338 @@
+{
+ "source": "https://zarr.nemar.org/on005007/zarr/sub-01/ses-01/ieeg/sub-01_ses-01_task-namingtask_run-01_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "POL ECG",
+   "channel_type": "ECG"
+  },
+  {
+   "label": "POL L4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL L5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL L6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "EEG A1-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "EEG A2-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "POL A3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C01",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C02",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C03",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C04",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C05",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C06",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C07",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C08",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C09",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D01",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D02",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D03",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D04",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D05",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D06",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D07",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D08",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D09",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC01",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC02",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL $A7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL $A8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "EEG F1-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "EEG F2-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "EEG F3-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "EEG F4-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "EEG F5-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "EEG F6-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "POL G1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL I1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL I2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL I3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL I4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL I5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL I6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL J1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL J2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL J3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL J4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL J5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL J6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL K1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL K2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL K3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL K4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL K5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL K6",
+   "channel_type": "OTHER"
+  }
+ ]
+}

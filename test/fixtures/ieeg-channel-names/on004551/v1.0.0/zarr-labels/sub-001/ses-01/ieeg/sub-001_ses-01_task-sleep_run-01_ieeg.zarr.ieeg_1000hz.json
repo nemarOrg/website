@@ -1,0 +1,474 @@
+{
+ "source": "https://zarr.nemar.org/on004551/zarr/sub-001/ses-01/ieeg/sub-001_ses-01_task-sleep_run-01_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "EEG A1-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "EEG A2-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "POL A3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A15",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A16",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A17",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A18",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A19",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A20",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A21",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A22",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A23",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A24",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A25",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A26",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A27",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A28",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A29",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A30",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A31",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A32",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A33",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A34",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A35",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A36",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC01",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC02",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC03",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC04",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC05",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC06",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC07",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC08",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A37",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A38",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL $A11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL $A12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A39",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A40",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A41",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A42",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A43",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A44",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A45",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A46",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A47",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A48",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A49",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A50",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A51",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A52",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A53",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A54",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A55",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A56",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A57",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A58",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A59",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A60",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A61",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A62",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A63",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A64",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B15",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B16",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B17",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B18",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B19",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B20",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B21",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B22",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B23",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B24",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B25",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B26",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B27",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B28",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B29",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B30",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B31",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B32",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B33",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B34",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B35",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B36",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B37",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B38",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B39",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B40",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B41",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B42",
+   "channel_type": "OTHER"
+  }
+ ]
+}

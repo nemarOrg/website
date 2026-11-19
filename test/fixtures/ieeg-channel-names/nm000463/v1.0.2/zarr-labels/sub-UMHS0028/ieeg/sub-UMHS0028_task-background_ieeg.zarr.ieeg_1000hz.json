@@ -1,0 +1,430 @@
+{
+ "source": "https://zarr.nemar.org/nm000463/zarr/sub-UMHS0028/ieeg/sub-UMHS0028_task-background_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "AD1",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "AD2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "AD3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "AD4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "AD5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "AD6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "FA1",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FA2",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FA3",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FA4",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FA5",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FA6",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FA7",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FA8",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FA9",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FA10",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FO11",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FO12",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FO13",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FO14",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FO15",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FO16",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FO17",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FO18",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FO19",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "FO20",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "AT5",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "AP1",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "AP2",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "AP3",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "AP4",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "AP5",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "MT1",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "MT2",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "MT3",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "MT4",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "MT5",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "MT6",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "PT1",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "PT2",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "PT3",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "PT6",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "PT7",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "PT8",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "PT9",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "BT11",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "BT12",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "BT13",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "BT14",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "BT16",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "BT17",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "BT18",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "BT19",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "AD1_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "AD2_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "AD3_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "AD4_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "AD5_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "AD6_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FA1_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FA2_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FA3_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FA4_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FA5_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FA6_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FA7_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FA8_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FA9_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FA10_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FO11_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FO12_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FO13_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FO14_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FO15_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FO16_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FO17_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FO18_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FO19_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "FO20_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "AT5_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "AP1_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "AP2_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "AP3_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "AP4_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "AP5_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "MT1_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "MT2_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "MT3_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "MT4_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "MT5_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "MT6_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "PT1_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "PT2_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "PT3_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "PT6_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "PT7_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "PT8_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "PT9_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "BT11_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "BT12_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "BT13_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "BT14_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "BT16_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "BT17_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "BT18_rms",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "BT19_rms",
+   "channel_type": "MISC"
+  }
+ ]
+}

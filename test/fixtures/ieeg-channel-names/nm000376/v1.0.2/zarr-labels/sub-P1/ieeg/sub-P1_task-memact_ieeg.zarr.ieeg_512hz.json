@@ -1,0 +1,766 @@
+{
+ "source": "https://zarr.nemar.org/nm000376/zarr/sub-P1/ieeg/sub-P1_task-memact_ieeg.zarr/ieeg_512hz/zarr.json",
+ "group": "ieeg_512hz",
+ "channels": [
+  {
+   "label": "A1-A2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "A2-A3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "A3-A4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "A4-A5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "A5-A6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "A6-A7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "A7-A8",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "A8-A9",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "A9-A10",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "A10-A11",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "A11-A12",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "B1-B2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "B2-B3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "B3-B4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "B4-B5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "B5-B6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "B6-B7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "B7-B9",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "B9-B10",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "B10-B11",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "B11-B12",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "B12-B13",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "B13-B14",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "S1-S2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "S2-S3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "S3-S4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "S4-S5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "S5-S6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "S6-S7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "S7-S8",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "S8-S9",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "T1-T2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "T2-T3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "T3-T4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "T4-T5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "T5-T6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "T6-T7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "T7-T8",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "T8-T9",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "T9-T10",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "U1-U2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "U2-U3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "U3-U4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "U4-U5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "U5-U6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "U6-U7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "U7-U8",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "U8-U9",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "U9-U10",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "U10-U11",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "U11-U12",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "U12-U13",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "U13-U14",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "U14-U15",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "U15-U16",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "V1-V2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "V2-V3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "V3-V4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "V4-V5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "V5-V6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "V6-V7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "V7-V8",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "V8-V9",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "V9-V10",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "V10-V11",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "V11-V12",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "V12-V13",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "V13-V14",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "V14-V15",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "V15-V16",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "R1-R2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "R2-R3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "R3-R4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "R4-R5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "R5-R6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "R6-R7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "R7-R8",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "R8-R9",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "R9-R10",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "N1-N2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "N2-N3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "N3-N4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "N4-N5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "N5-N6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "N6-N7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "F1-F2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "F2-F3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "F3-F4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "F4-F6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "F6-F7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "F7-F8",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "F8-F9",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "F9-F10",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "F10-F11",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "F11-F12",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "F12-F13",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "F13-F14",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "F14-F15",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "F15-F16",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "F16-F17",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L1-L2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L2-L3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L3-L5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L5-L6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L6-L7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L7-L8",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L8-L9",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L9-L10",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L10-L11",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L11-L12",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L12-L13",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L13-L14",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L14-L15",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L15-L16",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L16-L17",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "L17-L18",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K1-K2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K2-K3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K3-K4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K4-K5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K5-K6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K6-K7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K7-K8",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K8-K9",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K9-K10",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K10-K11",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K11-K12",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K12-K13",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K13-K14",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K14-K15",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K15-K16",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "K16-K17",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Q1-Q2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Q2-Q3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Q3-Q4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Q4-Q5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Q5-Q6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Q6-Q7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Q7-Q8",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Q8-Q9",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CG1-CG2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CG2-CG3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CG3-CG4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CG4-CG5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CG5-CG6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CG6-CG7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CG7-CG8",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CG8-CG9",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CG9-CG10",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CG10-CG11",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CG11-CG12",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CG12-CG13",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CG13-CG14",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CG14-CG15",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "M1-M2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "M2-M3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "M3-M4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "M4-M5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "M5-M6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "M6-M7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "M7-M8",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "M8-M9",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "M9-M10",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y1-Y2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y2-Y3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y3-Y4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y4-Y5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y5-Y7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y7-Y8",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y8-Y9",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y9-Y10",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y10-Y11",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y11-Y12",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y12-Y13",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y13-Y14",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y14-Y15",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y15-Y16",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y16-Y17",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Y17-Y18",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Z1-Z2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Z2-Z3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Z3-Z4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Z4-Z5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Z5-Z6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "Z6-Z7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "P1-P2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "P2-P3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "P3-P4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "P4-P5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "P5-P7",
+   "channel_type": "SEEG"
+  }
+ ]
+}

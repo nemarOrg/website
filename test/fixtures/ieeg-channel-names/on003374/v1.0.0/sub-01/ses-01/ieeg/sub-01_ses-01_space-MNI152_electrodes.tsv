@@ -1,0 +1,5 @@
+name	x	y	z	size	manufacturer	group	hemisphere	dimension
+mAL1	-25.16	-0.06	-19.27	6.41	ADTech	depthAmgL	L	1x8
+mAL2	-31.13	-2.99	-17.68	6.41	ADTech	depthAmgL	L	1x8
+mAR1	22.01	-3.91	-24.98	6.41	ADTech	depthAmgR	R	1x8
+mAR2	25.93	-4.34	-22.46	6.41	ADTech	depthAmgR	R	1x8

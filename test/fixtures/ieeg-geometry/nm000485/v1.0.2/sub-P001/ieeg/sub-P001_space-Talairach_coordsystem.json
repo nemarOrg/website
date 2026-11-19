@@ -1,0 +1,6 @@
+{
+  "iEEGCoordinateSystem": "Talairach",
+  "iEEGCoordinateUnits": "mm",
+  "iEEGCoordinateSystemDescription": "Talairach coordinates of the intracerebral contacts as given in the release file 001_channels_TAL-MNI_coordinates.xlsx (README: coordinates reported in Talairach and MNI space).",
+  "iEEGCoordinateProcessingDescription": "Coordinates copied from the authors' xlsx table; no processing. Contacts absent from the table have x/y/z n/a."
+}

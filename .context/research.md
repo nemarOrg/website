@@ -246,3 +246,13 @@ Regression-guarded in `src/middleware.test.ts` ("grants 'unsafe-eval' ONLY on th
   `_astro/blosc.<hash>.js` chunk, `fromConfig(...)`, and `.decode()` a raw
   `eeg_250hz/view/1/c/0/0/0` frame — throws the EvalError above under a CSP lacking
   `'unsafe-eval'`.
+
+## iEEG electrode geometry census (2026-11-17)
+
+Exact counts of what the iEEG spatial panel can show, per recording, over all 167 public `ieeg` datasets, by the viewer's own resolver: 6,316 template, 10,806 native (own frame, no anatomy), 18,696 refused (17,898 of them `no_coordinates`).
+Note: `.context/research-ieeg-geometry-census.md`; rerun with `bun scripts/ieeg-geometry-census.ts --out <dir>` (about two hours at the polite rate).
+
+## iEEG channel names against electrode contacts (2026-11-18)
+
+How the channel names of a recording's Zarr store meet the contact names of its electrodes file, over 328 recordings of 93 usable datasets: 77.6 percent of channels join by the file's own name or an exact bipolar pair, 12.7 percent more by eleven named patterns (leading type word, reference token, whitespace, leading zeros), and the rest stay unlocated, nine of them as pending patterns with the reason no rule joins them.
+Note: `.context/research-ieeg-channel-names.md`; the rules and the pending list are in `src/lib/ieeg-spatial/channel-match.ts`.

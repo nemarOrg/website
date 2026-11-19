@@ -840,3 +840,345 @@
   color: var(--color-fg-subtle);
   font-size: var(--fs-xs);
 }
+
+/* The credit link of the iEEG spatial view (IS-K1), floated over a panel's bottom-right corner
+   like the embed route's NEMAR mark: above the canvas layers, below any cursor readout. The
+   panel that mounts it must be a positioned box. The size matches what the canvas and SVG
+   painters draw (credit.ts), and the backing is a token mix so both themes read it. It stays
+   underlined at rest so color is not the only cue that it is a link. Where the painters shrink
+   the sentence to fit a very narrow panel, this link wraps it onto a second line instead,
+   which keeps the full text readable and clickable. The 24 px minimum block size is the WCAG 2.2
+   target-size floor for a standalone link; the painters stay 11 px because a picture has no target. */
+.eegv-credit {
+  position: absolute;
+  z-index: 4;
+  inset-block-end: 8px;
+  inset-inline-end: 8px;
+  max-inline-size: calc(100% - 16px);
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 24px;
+  padding: 3px 6px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--color-fg-muted);
+  background: color-mix(in srgb, var(--color-bg) 80%, transparent);
+  border-radius: var(--radius-sm);
+  text-decoration: underline;
+}
+.eegv-credit:hover {
+  color: var(--color-fg);
+}
+.eegv-credit:focus-visible {
+  color: var(--color-fg);
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* --- iEEG Brain panel (IS-V1, src/lib/ieeg-spatial/panel.ts) --------------------------------
+   Built at runtime like the rest of the viewer, so it lives in this global sheet. Every color is
+   a design token, so light and dark both read. Beside the scope it takes the scope's height and
+   scrolls inside itself (its inner box is absolutely placed, so its content never makes the row
+   taller than the scope); on a narrow viewer (`.eegv__plot--stack`, set by viewer.ts below
+   `SPATIAL_BESIDE_MIN_WIDTH`) it wraps onto its own line at full width instead, so the traces are
+   never squeezed. */
+.eegv__group[hidden],
+.eegv__spatial [hidden] {
+  display: none !important;
+}
+.eegv__spatial {
+  display: none;
+  flex: 0 0 clamp(260px, 34%, 380px);
+  min-inline-size: 0;
+  position: relative;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.eegv__spatial:not([hidden]) {
+  display: block;
+}
+.eegv__spatial-inner {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  color: var(--color-fg-muted);
+  font-size: var(--fs-xs);
+}
+/* Nothing in the panel gives up height to fit: when its content outgrows the scope's height the
+   panel scrolls. Without this a scroll container such as the contact list is the one flex item
+   that may shrink below its content, so it collapses and its rows are drawn over its neighbors. */
+.eegv__spatial-inner > * {
+  flex-shrink: 0;
+}
+.eegv__plot--stack {
+  flex-wrap: wrap;
+}
+.eegv__plot--stack .eegv__spatial {
+  flex: 1 1 100%;
+}
+.eegv__plot--stack .eegv__spatial-inner {
+  position: static;
+  max-block-size: 460px;
+}
+/* The stage holds the canvas, or the sentence that stands in for it, and the credit link in its
+   corner (`.eegv-credit` above), so the credit is on every state of the panel. */
+.eegv__spatial-stage {
+  position: relative;
+  flex: 0 0 auto;
+  inline-size: 100%;
+  aspect-ratio: 5 / 4;
+  max-block-size: 300px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+/* The units banner (IS-Q2): a plain, always-visible warning at the top of the stage, in flow so it
+   never covers a view, for a dataset whose declared unit disagrees with its numbers. Tokens only;
+   the warning color is a tint and a rule, the words stay in the foreground color so both themes
+   read them. */
+.eegv__spatial-banner {
+  position: relative;
+  z-index: 3;
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--color-fg);
+  background: color-mix(in srgb, var(--color-warning) 16%, var(--color-bg));
+  border-block-end: 2px solid var(--color-warning);
+}
+/* The flat views have no scale bar: under the banner this line says their extent in words. */
+.eegv__spatial-scale {
+  position: relative;
+  z-index: 3;
+  margin: 0;
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--color-fg-muted);
+}
+/* The names of a recording closed by its channel names (IS-Q2): both lists, side by side, as the
+   dataset wrote them, under the refusal sentence. */
+.eegv__spatial-names {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--color-fg);
+}
+.eegv__spatial-names-cause,
+.eegv__spatial-names-verdict,
+.eegv__spatial-names-head {
+  margin: 0;
+}
+.eegv__spatial-names-verdict {
+  font-weight: 600;
+}
+.eegv__spatial-names-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.eegv__spatial-names-head {
+  color: var(--color-fg-muted);
+}
+.eegv__spatial-names-list {
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.eegv__spatial-names-item {
+  /* One bidirectional run per name, spaces kept as written, and a name that is wider than the
+     column breaks anywhere instead of overflowing it. */
+  unicode-bidi: isolate;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.eegv__spatial-names-note {
+  color: var(--color-fg-subtle);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 0.85em;
+}
+.eegv__spatial-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  cursor: grab;
+}
+.eegv__spatial-msgwrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) 36px;
+  text-align: center;
+  overflow-y: auto;
+}
+.eegv__spatial-msg {
+  margin: 0;
+  color: var(--color-fg-muted);
+  font-size: var(--fs-sm);
+}
+.eegv__spatial-status {
+  margin: 0;
+  color: var(--color-fg);
+}
+.eegv__spatial-notes,
+.eegv__spatial-viewnotes {
+  margin: 0;
+  padding-inline-start: 1.1em;
+}
+.eegv__spatial-activity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-block: var(--space-2);
+  border-block: 1px solid var(--color-border);
+}
+.eegv__spatial-actrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.eegv__spatial-actmsg,
+.eegv__spatial-actsum {
+  margin: 0;
+}
+.eegv__spatial-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.eegv__spatial-grad {
+  flex: 1 1 auto;
+  block-size: 7px;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+}
+.eegv__spatial-barend {
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.eegv__spatial-list {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-block-size: 11rem;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.eegv__spatial-row {
+  display: grid;
+  grid-template-columns: minmax(6ch, auto) 1fr auto;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 6px;
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--color-fg);
+}
+.eegv__spatial-row:hover {
+  background: var(--color-bg-elevated, var(--color-bg));
+}
+.eegv__spatial-row[aria-selected="true"] {
+  background: color-mix(in srgb, var(--eegv-accent) 16%, var(--color-bg));
+}
+.eegv__spatial-row:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+.eegv__spatial-loc {
+  grid-column: 1 / -1;
+  font-size: 0.9em;
+  color: var(--color-fg-subtle);
+  overflow-wrap: anywhere;
+}
+.eegv__spatial-detail,
+.eegv__spatial-value {
+  color: var(--color-fg-muted);
+  overflow-wrap: anywhere;
+}
+/* The recording's own channel name beside the contact's, smaller than the name, and the kind of
+   match when the name did not join as the file wrote it. */
+.eegv__spatial-chan {
+  font-size: 0.9em;
+}
+.eegv__spatial-tag {
+  margin-inline-start: 0.5ch;
+  padding: 0 0.5ch;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.8em;
+  color: var(--color-fg-subtle);
+  white-space: nowrap;
+}
+.eegv__spatial-selchan {
+  overflow-wrap: anywhere;
+}
+/* The 2D views, the "2D views" switch and the save buttons (IS-V3). The three views are drawn
+   into the stage as an inline SVG whose text and dots use the same resolved tokens as the saved
+   figures; the stage stops being a fixed-ratio box and grows with them, and keeps a band at the
+   bottom for the credit link floated over its corner. Without WebGL2 the sentence sits above the
+   views instead of over the stage. */
+.eegv__spatial-stage[data-stage="views2d"],
+.eegv__spatial-stage[data-stage="no_webgl"] {
+  aspect-ratio: auto;
+  max-block-size: none;
+}
+.eegv__spatial-stage[data-stage="no_webgl"] .eegv__spatial-msgwrap {
+  position: static;
+  padding: var(--space-2) var(--space-3) 0;
+}
+.eegv__spatial-views {
+  padding: var(--space-1) var(--space-1) 36px;
+}
+.eegv__spatial-views svg {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+}
+.eegv__spatial-views circle {
+  cursor: pointer;
+}
+.eegv__spatial-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+/* The band over the selected channel's trace in the scope. It sits above the trace canvases and
+   below the annotation layer, and takes no pointer events. */
+.eegv__trace-hl {
+  position: absolute;
+  z-index: 1;
+  inset-inline: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--eegv-accent) 14%, transparent);
+  border-block: 1px solid color-mix(in srgb, var(--eegv-accent) 55%, transparent);
+}
+.eegv__trace-hl[hidden] {
+  display: none;
+}
+/* With the panel below, the scope keeps at least this height (STACKED_SCOPE_MIN_HEIGHT in
+   src/lib/ieeg-spatial/layout.ts, which the viewer also applies to the canvas size). A host that
+   fits the scope to its own height (the embed route) scrolls its document instead of squeezing
+   the traces. */
+.eegv__plot--stack .eegv__scope {
+  min-block-size: 280px;
+}

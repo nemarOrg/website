@@ -1,0 +1,30 @@
+{
+ "source": "https://zarr.nemar.org/on006136/zarr/sub-MU1/ieeg/sub-MU1_task-OWM_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "26",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "27",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "28",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "46",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "107",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "76",
+   "channel_type": "OTHER"
+  }
+ ]
+}
