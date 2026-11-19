@@ -273,7 +273,7 @@ export function figureLabels(input: ExportInput, withViews: boolean): FigureLabe
   };
   add("status", model.status);
   if (model.frames) {
-    const selected = model.frames.options.find((o) => o.index === model.frames?.selected);
+    const selected = model.frames.options.find((o) => o.value === model.frames?.selectedValue);
     add("frame", selected ? `Frame ${selected.label}` : null);
   }
   // The three views say what the seam says; the 3D frame says what the panel's model said when the
