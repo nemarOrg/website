@@ -1891,6 +1891,14 @@ export interface ColorPalette {
  */
 export function contactColors(state: PanelState, palette: ColorPalette): Float32Array | null {
   const placement = state.placement;
+/**
+ * Whether the stage should make colored contacts read (a more transparent surface, unlit and
+ * outlined contacts): Activity is on and has values to show.
+ */
+export function activityEmphasis(state: PanelState): boolean {
+  return state.activity.on && state.activity.shown !== null;
+}
+
   if (!placement) return null;
   const shown = state.activity.on ? state.activity.shown : null;
   const selected = new Set(state.selection.contacts);
@@ -2880,6 +2888,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     colorsBuf = colors;
     if (colors) renderer.setColors(colors);
     liveCursor?.invalidate();
+    renderer.setEmphasis(activityEmphasis(shownState));
     renderer.setSelected(
       state.selection.contacts.length === 1 ? state.selection.contacts[0] : null,
     );

@@ -3,6 +3,7 @@ import {
   MAX_CONTACTS,
   MIN_PICK_PX,
   contactRadius,
+  meshAlphaFor,
   packContacts,
   parseColor,
   pickNearest,
@@ -231,5 +232,22 @@ describe("translucentOrder", () => {
     const spheres = packContacts(contactsAt([0, 0, 0, 10, 0, 0]));
     const colors = new Uint8Array([1, 2, 3, 255, 4, 5, 6, 255]);
     expect(translucentOrder(spheres, colors, viewMatrix(cam))).toEqual([]);
+  });
+});
+
+describe("meshAlphaFor", () => {
+  const dark: [number, number, number] = [0.05, 0.07, 0.1];
+  const light: [number, number, number] = [1, 1, 1];
+
+  it("keeps the dark theme's alpha and gives a light canvas far less", () => {
+    expect(meshAlphaFor(dark, false)).toBe(0.25);
+    expect(meshAlphaFor(light, false)).toBeLessThan(meshAlphaFor(dark, false) / 1.5);
+  });
+
+  it("steps the surface back further while Activity colors the contacts, in both themes", () => {
+    for (const bg of [dark, light]) {
+      expect(meshAlphaFor(bg, true)).toBeLessThan(meshAlphaFor(bg, false));
+      expect(meshAlphaFor(bg, true)).toBeGreaterThan(0);
+    }
   });
 });
