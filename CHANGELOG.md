@@ -37,7 +37,7 @@ The panel's Activity overlay follows the pointer over the scope, and the EEG vie
   Fourteen coordinate-frame identifier families are placed with cited transforms and 8 are pending; native and unknown frames are never placed.
   The mesh is 532 KB as served, and its notice travels with it.
 - **A credit to RAVE on every panel and inside every exported file** (nemarOrg/website#561, nemarOrg/website#563).
-  It links https://rave.wiki and now reads "Inspired by RAVE" (it first read "Electrode view inspired by RAVE").
+  It reads "Inspired by RAVE" and links https://rave.wiki.
   No RAVE code or assets ship.
 - **An "At cursor" Activity measure** (nemarOrg/website#563).
   It is the default when Activity is switched on.
@@ -50,11 +50,16 @@ The panel's Activity overlay follows the pointer over the scope, and the EEG vie
   On a touch device, or with only the keyboard, there is no pointer, so the whole-window value shows; the arrow keys keep scrolling the window.
   Measured in headless Chromium with software GL: 60 pointer moves gave 59 recolor frames, a median of 0.10 ms and at worst 0.4 ms per frame, and no requests.
   After a window change, the panel shows the previous window's whole-window values ("Updating for the new window...") until the new read lands.
-- **Controls for the stage** (nemarOrg/website#563).
+  The Activity controls sit directly under the stage and its buttons.
+  While values show, contacts are drawn unlit at full color, a little larger, inside a thin outline, and the surface is more transparent, so the colors read on both themes; a click on a contact's visible rim still selects it.
+- **Selection and view controls for the stage** (nemarOrg/website#563).
   A "Clear selection" button, a click on empty space, and the Escape key clear the highlighted channel.
   Escape acts in order: it dismisses a visible tooltip, then clears the selection, then closes the panel and returns focus to the toggle.
-  On-stage zoom, pan mode and reset controls sit in the Frame row, with keys: plus and minus zoom, arrow keys turn the view, Shift with an arrow key slides it, P toggles pan mode, and 0 resets.
+  Zoom, pan mode and reset buttons sit at the right of the Frame row above the 3D stage, each with a tooltip naming its key or gesture.
+  With the stage focused, plus and minus zoom, arrow keys turn the view, Shift with an arrow key slides it, P toggles pan mode, and 0 resets; holding Shift before a drag also pans.
   The stage announces these keys to screen readers.
+- **A note saying why no brain surface is drawn** (nemarOrg/website#563).
+  When contacts are shown without the template, a sentence beginning "No brain surface" gives the reason: no declared frame, a template family whose transform is pending, no cited transform to the template, units that cannot be scaled to millimeters, or a declared unit that disagrees with the magnitudes.
 - **A research note classifying the 167 public iEEG datasets by coordinate metadata** (nemarOrg/website#562).
   It sorts datasets into: no coordinates, coordinates elsewhere, `Other` with a free-text template, a native frame, a valid template frame, unit or identifier problems, and missing files.
   It samples up to 5 subjects per dataset, so it is not a census, and says so.
@@ -64,16 +69,6 @@ The panel's Activity overlay follows the pointer over the scope, and the EEG vie
   The tooltip never calls positions measured, digitized or template.
   A store converted before the converter wrote that attribute keeps the plain title, and the standard-montage fallback keeps its sentence.
   A file path is shown only if it is a single line of at most 200 characters, with no control or direction-changing character, and relative to the repository (no leading slash, backslash or `scheme:` prefix); otherwise the tooltip omits the file.
-
-### Changed
-
-- **The Activity controls sit under the stage, and Activity colors read on the 3D stage** (nemarOrg/website#563).
-  With Activity on, contacts are drawn unlit at full color, a little larger, inside a thin outline, and the surface is made more transparent, so colors stay readable on both themes.
-  Picking uses the drawn size, so a visible rim is a hit.
-- **The note for a frame drawn without a brain says why** (nemarOrg/website#563).
-  It begins "No brain surface" and gives one reason: no declared frame, a template family whose transform is pending, no cited transform to the template, or units that cannot be scaled to millimeters.
-  It replaces "No template placement for this frame".
-- **The default Activity measure is At cursor, not band power** (nemarOrg/website#563), so a reader who wants band power chooses it.
 
 ### Fixed
 
