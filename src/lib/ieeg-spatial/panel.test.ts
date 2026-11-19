@@ -52,6 +52,7 @@ import {
   computeActivityPlan,
   contactColors,
   createActivityRunner,
+  createIndexWaiter,
   createLiveCursor,
   defaultSpaceIndex,
   drawnPositions,
@@ -68,6 +69,7 @@ import {
   resolveWithRetries,
   sliceRowCount,
   subjectEntryOf,
+  surfaceFailure,
   templatePlacementFor,
   templateRuleOf,
   unitsSentence,
@@ -76,8 +78,10 @@ import {
   withLive,
 } from "./panel";
 import {
+  IntegrityError,
   SUBJECT_LABEL,
   type SubjectEntry,
+  fetchGeometryIndex,
   parseGeometryIndex,
   subjectOutlines,
 } from "./subject-anatomy";
@@ -3180,5 +3184,100 @@ describe("subject anatomy (ADR 0034)", () => {
       group: groupOf(contactLabels(geometry, acpc)),
     });
     expect(next.state.anatomy).toBe("subject");
+  });
+});
+
+describe("how a failed surface load is routed", () => {
+  const entry = {} as SubjectEntry;
+
+  it("an integrity error on a subject's surface is permanent; everything else is retried", () => {
+    expect(surfaceFailure(entry, new IntegrityError("hash"))).toBe("reject");
+    // Transport failures of the subject's surface: a 503, a 403, a rejected request.
+    expect(surfaceFailure(entry, new Error("the L mesh answered 503"))).toBe("retry");
+    expect(surfaceFailure(entry, new Error("the L mesh answered 403"))).toBe("retry");
+    expect(surfaceFailure(entry, new TypeError("network down"))).toBe("retry");
+    // The template has no integrity rejection: its failures are always retried.
+    expect(surfaceFailure(null, new IntegrityError("hash"))).toBe("retry");
+    expect(surfaceFailure(null, new Error("views.json answered 500"))).toBe("retry");
+  });
+});
+
+describe("the index wait", () => {
+  type Pending = { resolve: (v: { kind: string }) => void; reject: (e: unknown) => void };
+  function rig() {
+    const dispatched: PanelEvent[] = [];
+    const timers = new Map<number, { fn: () => void; ms: number }>();
+    const pending: Pending[] = [];
+    let next = 1;
+    const waiter = createIndexWaiter({
+      load: () =>
+        new Promise((resolve, reject) => {
+          pending.push({ resolve, reject });
+        }),
+      schedule: (fn, ms) => {
+        timers.set(next, { fn, ms });
+        return next++;
+      },
+      cancel: (h) => {
+        timers.delete(h);
+      },
+      dispatch: (e) => dispatched.push(e),
+    });
+    return { waiter, dispatched, timers, pending };
+  }
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  it("an older index answer neither clears the newer dataset's clock nor dispatches", async () => {
+    const { waiter, dispatched, timers, pending } = rig();
+    waiter.start("first");
+    waiter.start("second");
+    expect(timers.size).toBe(1);
+    pending[0].resolve({ kind: "none" });
+    await tick();
+    expect(timers.size).toBe(1); // the second dataset's clock survives
+    expect(dispatched).toEqual([]);
+    // Its own clock still ends the wait.
+    for (const t of timers.values()) t.fn();
+    expect(dispatched).toEqual([{ type: "subjects_timeout", datasetId: "second" }]);
+    // And a stale failure is just as silent.
+    pending[0].reject(new Error("late"));
+    await tick();
+    expect(dispatched).toHaveLength(1);
+  });
+
+  it("the current answer clears its clock and dispatches", async () => {
+    const { waiter, dispatched, timers, pending } = rig();
+    waiter.start("only");
+    expect([...timers.values()][0].ms).toBe(2000);
+    pending[0].resolve({ kind: "none" });
+    await tick();
+    expect(timers.size).toBe(0);
+    expect(dispatched).toEqual([{ type: "subjects_loaded", datasetId: "only", entries: [] }]);
+  });
+
+  it("a 404 for the index falls through to the template", async () => {
+    const dispatched: PanelEvent[] = [];
+    const waiter = createIndexWaiter({
+      load: (id) =>
+        fetchGeometryIndex(id, { fetch: async () => new Response("", { status: 404 }) }),
+      schedule: () => 1,
+      cancel: () => {},
+      dispatch: (e) => dispatched.push(e),
+    });
+    const g = await geometryOf("nm000454", "v1.0.2", NM454);
+    const ref: RecordingRef = { datasetId: "nm000454", version: "v1.0.2", path: NM454 };
+    const open = play(initialState(), [
+      { type: "recording_changed", recording: ref, group: groupOf(contactLabels(g, 0)) },
+      { type: "geometry_resolved", token: 1, geometry: g },
+      { type: "window_changed", startS: 0, lengthS: 10 },
+      { type: "toggle_open" },
+    ]);
+    waiter.start("nm000454");
+    await tick();
+    expect(dispatched).toHaveLength(1);
+    const after = reduce(open.state, dispatched[0]);
+    expect(after.effects.filter((e) => e.type === "load_template")).toEqual([
+      { type: "load_template", key: "template", subject: null },
+    ]);
   });
 });

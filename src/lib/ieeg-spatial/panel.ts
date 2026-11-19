@@ -2503,6 +2503,71 @@ export async function computeActivityPlan(
 }
 
 /**
+ * What a failed surface load means: a subject's file that arrived wrong (`IntegrityError`) is
+ * given up for good (`reject`); everything else, the template's own failures and a subject's
+ * transport failures (a rejected request, a 403, a 5xx), is tried again on reopening, a frame
+ * change or a recording change (`retry`), as the template's always was.
+ */
+export function surfaceFailure(subject: SubjectEntry | null, err: unknown): "reject" | "retry" {
+  return subject !== null && err instanceof IntegrityError ? "reject" : "retry";
+}
+
+export interface IndexWaiterEnv {
+  load(datasetId: string): Promise<{ kind: string; entries?: readonly SubjectEntry[] }>;
+  schedule(fn: () => void, ms: number): number;
+  cancel(handle: number): void;
+  dispatch(event: PanelEvent): void;
+}
+
+/**
+ * Asks for a dataset's geometry index and starts the `SUBJECTS_WAIT_MS` clock the first surface
+ * waits on. Each `start` is a new load: an older request that settles late changes nothing (it
+ * neither clears the newer clock nor dispatches), so a dataset change while the first index is in
+ * flight cannot cancel the second's timeout.
+ */
+export function createIndexWaiter(env: IndexWaiterEnv): {
+  start(datasetId: string): void;
+  dispose(): void;
+} {
+  let token = 0;
+  let timer: number | null = null;
+  const clear = () => {
+    if (timer !== null) env.cancel(timer);
+    timer = null;
+  };
+  return {
+    start(datasetId) {
+      const mine = ++token;
+      clear();
+      timer = env.schedule(() => {
+        if (mine === token) env.dispatch({ type: "subjects_timeout", datasetId });
+      }, SUBJECTS_WAIT_MS);
+      env.load(datasetId).then(
+        (result) => {
+          if (mine !== token) return;
+          clear();
+          env.dispatch({
+            type: "subjects_loaded",
+            datasetId,
+            entries: result.kind === "found" ? (result.entries ?? []) : [],
+          });
+        },
+        (err) => {
+          if (mine !== token) return;
+          clear();
+          console.warn("[ieeg-spatial] the subject-anatomy index could not be read:", err);
+          env.dispatch({ type: "subjects_failed", datasetId });
+        },
+      );
+    },
+    dispose() {
+      token++;
+      clear();
+    },
+  };
+}
+
+/**
  * The decoded surface, shared by every panel of the page: the same two small files for any
  * dataset, so a second panel (or a reopened one) never fetches them again. A failure is not kept,
  * so the next ask tries again. Never aborted: the promise is shared, so aborting it for one panel
@@ -2861,7 +2926,6 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   let templateMesh: BrainMesh | null = null;
   /** A `load_template` effect waits for a renderer: no WebGL2, no fetch. */
   let templateRequested: { key: string; subject: SubjectEntry | null } | null = null;
-  let subjectsTimer = 0;
   /** The parsed outlines, once `load_outlines` has finished. */
   let outlinesData: TemplateOutlines | null = null;
   let palette: ColorPalette = { neutral: [0.96, 0.72, 0.18], noData: [0.4, 0.45, 0.5] };
@@ -3482,7 +3546,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       },
       (err) => {
         if (!current(key)) return;
-        if (subject && err instanceof IntegrityError) rejectSubject(subject, err);
+        if (surfaceFailure(subject, err) === "reject" && subject) rejectSubject(subject, err);
         else {
           console.error("[ieeg-spatial] loading the outlines failed:", err);
           dispatch({ type: "outlines_failed", key });
@@ -3505,7 +3569,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         if (!current(key)) return;
         // A file that arrived wrong is given up for good; a transport failure is tried again on
         // reopening, a frame change or a recording change, as the template's is.
-        if (subject && err instanceof IntegrityError) rejectSubject(subject, err);
+        if (surfaceFailure(subject, err) === "reject" && subject) rejectSubject(subject, err);
         else {
           console.error("[ieeg-spatial] loading the brain surface failed:", err);
           dispatch({ type: "template_failed", key });
@@ -3520,30 +3584,14 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     dispatch({ type: "subject_rejected", electrodes: subject.electrodes });
   }
 
-  function startSubjectsLoad(datasetId: string): void {
-    window.clearTimeout(subjectsTimer);
-    subjectsTimer = window.setTimeout(
-      () => dispatch({ type: "subjects_timeout", datasetId }),
-      SUBJECTS_WAIT_MS,
-    );
-    geometryIndexFor(datasetId).then(
-      (result) => {
-        window.clearTimeout(subjectsTimer);
-        if (disposed) return;
-        dispatch({
-          type: "subjects_loaded",
-          datasetId,
-          entries: result.kind === "found" ? result.entries : [],
-        });
-      },
-      (err) => {
-        window.clearTimeout(subjectsTimer);
-        if (disposed) return;
-        console.warn("[ieeg-spatial] the subject-anatomy index could not be read:", err);
-        dispatch({ type: "subjects_failed", datasetId });
-      },
-    );
-  }
+  const indexWaiter = createIndexWaiter({
+    load: (datasetId) => geometryIndexFor(datasetId),
+    schedule: (fn, ms) => window.setTimeout(fn, ms),
+    cancel: (handle) => window.clearTimeout(handle),
+    dispatch: (event) => {
+      if (!disposed) dispatch(event);
+    },
+  });
 
   // --- 2D views and exports (IS-V3) ---------------------------------------
   function figureInput(model: PanelModel): ExportInput {
@@ -3710,7 +3758,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         templateRequested = { key: effect.key, subject: effect.subject };
         return;
       case "load_subjects":
-        startSubjectsLoad(effect.datasetId);
+        indexWaiter.start(effect.datasetId);
         return;
       case "select_trace":
         host.showTrace(effect.label);
@@ -4004,7 +4052,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       state = t.state;
       for (const effect of t.effects) run(effect);
       disposed = true;
-      window.clearTimeout(subjectsTimer);
+      indexWaiter.dispose();
       activityRunner?.dispose();
       resizeObserver?.disconnect();
       ensureRenderer(false);

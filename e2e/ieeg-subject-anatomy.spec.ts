@@ -29,11 +29,21 @@ const FIXTURE = "test/fixtures/ieeg-subject-anatomy/on004473/zarr/geometry/";
 const TOGGLE = "[data-spatial-toggle]";
 const STAGE = "[data-spatial-stage]";
 
-async function serveGeometry(page: Page, requests: string[], missing = false): Promise<void> {
+async function serveGeometry(
+  page: Page,
+  requests: string[],
+  missing = false,
+  failMeshes = 0,
+): Promise<void> {
+  let meshFailures = failMeshes;
   await page.route("https://zarr.nemar.org/on004473/zarr/geometry/**", async (route) => {
     const rel = route.request().url().split("/zarr/geometry/")[1];
     requests.push(rel);
     if (missing) return route.fulfill({ status: 404, body: "" });
+    if (rel.startsWith("meshes/") && meshFailures > 0) {
+      meshFailures--;
+      return route.fulfill({ status: 503, body: "" });
+    }
     await route.fulfill({
       status: 200,
       body: readFileSync(`${FIXTURE}${rel}`),
@@ -115,6 +125,30 @@ test("the Brain panel draws the subject's own surface with its label", async ({ 
     timeout: 30_000,
   });
   await page.screenshot({ path: "test-results/subject-anatomy-2d.png" });
+});
+
+test("a 503 on a mesh is retried on reopening and the option stays offered", async ({ page }) => {
+  const requests: string[] = [];
+  await serveGeometry(page, requests, false, 2); // both hemispheres fail once
+  await page.goto("/dataset/on004473/embed");
+  await page.waitForSelector(TOGGLE, { state: "attached", timeout: 90_000 });
+  await expect(page.locator(TOGGLE)).not.toHaveAttribute("title", /checking/, { timeout: 60_000 });
+  await page.click(TOGGLE);
+  await expect(page.locator("[data-spatial-template-label]")).toContainText("could not be loaded", {
+    timeout: 60_000,
+  });
+  await expect(page.locator("[data-spatial-frame] option:checked")).toHaveText(
+    "ACPC: Subject anatomy",
+  );
+  const meshesBefore = requests.filter((r) => r.startsWith("meshes/")).length;
+  await page.click(TOGGLE); // close
+  await page.click(TOGGLE); // reopen: the retry
+  await expect(page.locator("[data-spatial-template-label]")).toContainText(
+    "This subject's anatomy, from the dataset's own surfaces",
+    { timeout: 60_000 },
+  );
+  expect(requests.filter((r) => r.startsWith("meshes/")).length).toBeGreaterThan(meshesBefore);
+  expect(requests.filter((r) => r === "index.json")).toHaveLength(1);
 });
 
 test("a missing index leaves the panel without the option", async ({ page }) => {
