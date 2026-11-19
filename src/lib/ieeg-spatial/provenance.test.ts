@@ -76,6 +76,7 @@ function opened(l: Loaded, more: PanelEvent[] = []): PanelState {
     },
     { type: "geometry_resolved", token: 1, geometry: l.geometry },
     { type: "toggle_open" },
+    { type: "subjects_timeout" },
     { type: "window_changed", startS: 0, lengthS: 10 },
     ...more,
   ]);

@@ -162,6 +162,7 @@ function opened(
     { type: "recording_changed", recording, group },
     { type: "geometry_resolved", token: 1, geometry },
     { type: "toggle_open" },
+    { type: "subjects_timeout" },
     { type: "window_changed", startS: 0, lengthS: 10 },
     ...more,
   ]);
@@ -1063,6 +1064,7 @@ async function placedOn(
     { type: "geometry_resolved", token: 1, geometry },
     { type: "frame_changed", spaceIndex: index },
     { type: "toggle_open" },
+    { type: "subjects_timeout" },
     { type: "window_changed", startS: 0, lengthS: 10 },
   ]);
   return ready ? reduce(state, { type: "outlines_loaded" }).state : state;
@@ -1094,7 +1096,10 @@ describe("outlines are fetched only for a registered frame with the panel open",
     const closed = loadsOutlines(start);
     expect(closed.n).toBe(0);
     expect(closed.state.outlines).toBe("idle");
-    const open = loadsOutlines([{ type: "toggle_open" }], closed.state);
+    const open = loadsOutlines(
+      [{ type: "toggle_open" }, { type: "subjects_timeout" }],
+      closed.state,
+    );
     expect(open.n).toBe(1);
     expect(open.state.outlines).toBe("loading");
     const done = reduce(open.state, { type: "outlines_loaded" }).state;
@@ -1143,6 +1148,7 @@ describe("outlines are fetched only for a registered frame with the panel open",
         { type: "geometry_resolved", token: 1, geometry },
         { type: "frame_changed", spaceIndex: Math.max(0, index) },
         { type: "toggle_open" },
+        { type: "subjects_timeout" },
       ]);
       expect(n, ds).toBe(0);
       expect(state.outlines, ds).toBe("idle");

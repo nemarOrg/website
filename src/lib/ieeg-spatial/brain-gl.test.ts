@@ -3,6 +3,8 @@ import {
   EMPHASIS_PICK_GROW,
   MAX_CONTACTS,
   MIN_PICK_PX,
+  SUBJECT_MESH_STYLE,
+  TEMPLATE_MESH_STYLE,
   contactRadius,
   meshAlphaFor,
   packContacts,
@@ -261,5 +263,23 @@ describe("meshAlphaFor", () => {
     }
     expect(meshAlphaFor(dark, true)).toBeCloseTo(0.1125, 9);
     expect(meshAlphaFor(light, true)).toBeCloseTo(0.054, 9);
+  });
+});
+
+describe("the subject surface's style", () => {
+  const dark: [number, number, number] = [0.05, 0.07, 0.1];
+  const light: [number, number, number] = [1, 1, 1];
+
+  it("draws a folded pial as one front shell at a lower alpha, in both themes and with Activity", () => {
+    expect(TEMPLATE_MESH_STYLE).toEqual({ frontOnly: false, alphaScale: 1 });
+    expect(SUBJECT_MESH_STYLE.frontOnly).toBe(true);
+    for (const bg of [dark, light]) {
+      for (const emphasis of [false, true]) {
+        const subject = meshAlphaFor(bg, emphasis, SUBJECT_MESH_STYLE.alphaScale);
+        expect(subject).toBeLessThan(meshAlphaFor(bg, emphasis));
+        expect(subject).toBeGreaterThan(0);
+        expect(subject).toBeCloseTo(meshAlphaFor(bg, emphasis) * SUBJECT_MESH_STYLE.alphaScale, 12);
+      }
+    }
   });
 });

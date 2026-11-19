@@ -1031,12 +1031,26 @@
    over the stage, and wraps within the panel. */
 .eegv__spatial-head {
   display: flex;
-  flex-wrap: wrap;
+  /* The Frame select shrinks (with an ellipsis) so the view controls stay on its row. */
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
 }
+.eegv__spatial-frame {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1, 4px);
+  min-inline-size: 0;
+  flex: 0 1 auto;
+}
+.eegv__spatial-frame .eegv__sel {
+  min-inline-size: 0;
+  max-inline-size: 14rem;
+  text-overflow: ellipsis;
+}
 .eegv__spatial-viewctl {
+  flex: none;
   position: relative;
   z-index: 5;
   margin-inline-start: auto;
