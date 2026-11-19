@@ -135,7 +135,8 @@ jobs:
           # its own because it was made with GITHUB_TOKEN.
           #
           # CI is the one that must not be skipped. The `keep-main` ruleset
-          # requires lint/typecheck/test/build on whatever commit is pushed to
+          # requires lint/typecheck/test (and the `Cloudflare Pages` check,
+          # which Cloudflare's webhook starts on its own) on whatever commit is pushed to
           # `main`, and promotion fast-forwards `main` to the tip of
           # `staging` — which is this bump commit. Without these checks the
           # next promotion is rejected.

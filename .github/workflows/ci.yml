@@ -2,9 +2,16 @@ name: CI
 
 # Runs on `staging` as well as `main`, and that is load-bearing rather than
 # nice-to-have. The `keep-main` repository ruleset requires lint/typecheck/
-# test/build to be green *on the commit being pushed* to `main`. Promotion is
-# a fast-forward of `staging`, so whatever sits at the tip of `staging` must
-# already carry those four checks or the promotion is rejected outright.
+# test from this file, plus the `Cloudflare Pages` check, to be green *on the
+# commit being pushed* to `main`. Promotion is a fast-forward of `staging`, so
+# whatever sits at the tip of `staging` must already carry those checks or the
+# promotion is rejected outright.
+#
+# There is no build job here. Cloudflare's GitHub integration builds every push
+# (production on `main`, a preview on any other branch) and reports the
+# `Cloudflare Pages` check, which `keep-main` requires in place of a build job
+# of our own (2026-11-19). It reports on bot-pushed commits too, since it is
+# started by Cloudflare's webhook and not by a GitHub Actions trigger.
 #
 # Before website#214 this file only ran on `pull_request` and `push: main`,
 # which meant no commit on `staging` ever had them. Promotions still worked by
@@ -145,17 +152,3 @@ jobs:
           NEMAR_CLI_PRIVATE_SITE_CONTRACT: nemar-cli-contract/shared/contract/private-site.ts
           NEMAR_CLI_REVIEW_COPY: nemar-cli-contract/shared/contract/publication-review-copy.ts
           NEMAR_CLI_VALIDATOR_PIN: nemar-cli-contract/validator-version.json
-
-  build:
-    name: build
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.3
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Build
-        run: bun run build
