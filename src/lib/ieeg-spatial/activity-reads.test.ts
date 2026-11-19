@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { nodeFs, repoPath } from "../../../test/node";
 import { openRecording, readLevel0 } from "../eeg-viewer/store";
-import { activityChannelsFromWindow, computeActivity } from "./activity";
+import { activityChannelsFromWindow, computeActivity, shortWindowValues } from "./activity";
 import { type ActivityPlan, computeActivityPlan } from "./panel";
 
 /**
@@ -120,6 +120,7 @@ const plan: ActivityPlan = {
   metric: "rms",
   band: null,
   relative: false,
+  cursorMs: null,
   rows: Array.from({ length: ROWS }, (_, i) => i),
 };
 const group = { labels: LABELS, units: LABELS.map(() => "V"), nativeRateHz: 1000 };
@@ -199,6 +200,56 @@ describe("an Activity read through the viewer's own reader", () => {
       // Rows 0 to 11 lie in three chunk rows (0 to 4, 5 to 9, 10 to 14), two column chunks each.
       expect(gets.length).toBe(3 * 2);
       expect(new Set(gets).size).toBe(gets.length);
+    });
+  });
+});
+
+describe("the cursor measure keeps the read it computed", () => {
+  it("retains the located rows' samples and a fixed scale, with no second read", async () => {
+    const { handler, requests } = windowStore(14, 1000);
+    await withFetch(handler, async () => {
+      const opened = await openRecording("https://example.test/store/");
+      const g = opened.groups[0];
+      await g.viewLevelsReady;
+      await opened.eventsReady;
+      const rows = [0, 3, 4, 9];
+      const read = (r0: number, r1: number) => readLevel0(g, plan.startS, plan.endS, r0, r1);
+      const base = await computeActivityPlan({ ...plan, rows }, group, read, {
+        yieldTask: async () => {},
+      });
+      requests.length = 0;
+      const outcome = await computeActivityPlan({ ...plan, rows, cursorMs: 200 }, group, read, {
+        yieldTask: async () => {},
+      });
+      const reads = requests.filter((p) => /\/c\//.test(p)).length;
+      expect(outcome?.ok && base?.ok).toBe(true);
+      if (!outcome?.ok || !base?.ok) return;
+      // The whole-window values are exactly those of the plain plan.
+      expect(outcome.report.channels.map((c) => c?.value)).toEqual(
+        base.report.channels.map((c) => c?.value),
+      );
+      expect(base.matrix).toBeNull();
+      expect(base.report.cursorScale).toBeNull();
+      // The matrix holds the located rows only, at the read's own length and start.
+      const m = outcome.matrix;
+      expect(m?.nSamples).toBe(COLS);
+      expect(m?.t0S).toBe(0);
+      expect(m?.rows.map((r, i) => (r === null ? null : i))).toEqual(
+        Array.from({ length: ROWS }, (_, i) => (rows.includes(i) ? i : null)),
+      );
+      expect(outcome.report.cursorScale?.kind).toBe("sequential");
+      // A cursor window as long as the read gives the whole-window value of the same metric.
+      if (!m) return;
+      const out = new Float64Array(rows.length);
+      shortWindowValues(m, COLS / 2000, 2000, "rms", rows, out);
+      rows.forEach((row, k) => {
+        expect(out[k]).toBeCloseTo(outcome.report.channels[row]?.value as number, 5);
+      });
+      // Measuring at the cursor afterwards asks the store for nothing more than the one read did.
+      const before = requests.length;
+      for (let c = 0.1; c < 1.9; c += 0.01) shortWindowValues(m, c, 200, "rms", rows, out);
+      expect(requests.length).toBe(before);
+      expect(reads).toBe(1 * Math.ceil(COLS / 1000));
     });
   });
 });

@@ -226,13 +226,17 @@ function knownReport(token: number, labels: readonly string[]): ActivityReport {
     segments: 18,
     segmentSamples: 512,
     referenceHz: null,
+    cursorScale: null,
     channels: labels.map((label, i) => ({ label, value: i + 1, reason: null })),
   };
 }
 
 const plain = opened(bipolar, groupOf(BIPOLAR_LABELS), REC);
 const withActivity = (() => {
-  const on = play(plain, [{ type: "activity_switch", on: true }]);
+  const on = play(plain, [
+    { type: "activity_options", choice: "band_power" },
+    { type: "activity_switch", on: true },
+  ]);
   return reduce(on, {
     type: "activity_report",
     report: knownReport(on.activity.token, BIPOLAR_LABELS),
@@ -892,7 +896,11 @@ function recordingContext() {
 
 describe("which measure and band the values are", () => {
   function activityState(events: PanelEvent[]): PanelState {
-    const on = play(plain, [{ type: "activity_switch", on: true }, ...events]);
+    const on = play(plain, [
+      { type: "activity_options", choice: "band_power" },
+      { type: "activity_switch", on: true },
+      ...events,
+    ]);
     return reduce(on, {
       type: "activity_report",
       report: knownReport(on.activity.token, BIPOLAR_LABELS),

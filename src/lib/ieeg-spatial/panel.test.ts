@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { load } from "../../../test/ieeg-channel-fixtures";
 import { nodeFs, repoPath } from "../../../test/node";
 import type { WindowData } from "../eeg-viewer/store";
-import { computeActivity } from "./activity";
+import { buildScale, computeActivity } from "./activity";
 import { creditLinkSpec } from "./credit";
 import {
   GEOMETRY_REASONS,
@@ -26,6 +26,7 @@ import {
   GEOMETRY_SENTENCES,
   type GroupInfo,
   LOADING_SENTENCE,
+  type LiveValues,
   MAX_ACTIVITY_SAMPLES,
   NO_MATCH_SENTENCE,
   type PanelEffect,
@@ -46,6 +47,7 @@ import {
   formatActivityValue,
   frameName,
   initialState,
+  isCursorChoice,
   needsAnotherTry,
   positionWarnings,
   readSpans,
@@ -56,6 +58,7 @@ import {
   unitsSentence,
   unlocatedNotes,
   viewModel,
+  withLive,
 } from "./panel";
 import {
   MNI305_TO_MNI152,
@@ -246,6 +249,7 @@ describe("a recording, group or frame change starts clean", () => {
       segments: 18,
       segmentSamples: 512,
       referenceHz: null,
+      cursorScale: null,
       channels: [],
     };
     const ignored = reduce(after.state, { type: "activity_report", report: late });
@@ -347,7 +351,10 @@ describe("activity is read only while the switch is on", () => {
   });
 
   it("turning the switch on requests one read of the located channels, and off stops reads", () => {
-    const start = opened(bipolarGeometry, bipolarGroup).state;
+    const start = reduce(opened(bipolarGeometry, bipolarGroup).state, {
+      type: "activity_options",
+      choice: "band_power",
+    }).state;
     const on = reduce(start, { type: "activity_switch", on: true });
     const plans = reads(on.effects);
     expect(plans).toHaveLength(1);
@@ -500,7 +507,10 @@ describe("the read bound", () => {
       bipolarGeometry,
       groupOf(BIPOLAR_LABELS, { rateHz: 250, nativeRateHz: 250 }),
     ).state;
-    const t = reduce(slow, { type: "activity_switch", on: true });
+    const t = reduce(reduce(slow, { type: "activity_options", choice: "band_power" }).state, {
+      type: "activity_switch",
+      on: true,
+    });
     // The default band, high gamma (to 150 Hz), is above 0.45 times 250 Hz.
     expect(t.state.activity.status).toEqual({ kind: "refused", reason: "band_above_nyquist" });
     expect(reads(t.effects)).toEqual([]);
@@ -510,8 +520,10 @@ describe("the read bound", () => {
     expect(bands.find((b) => b.value === "alpha")?.disabled).toBe(false);
 
     const short = reduce(
-      reduce(opened(bipolarGeometry, bipolarGroup).state, { type: "activity_switch", on: true })
-        .state,
+      play(opened(bipolarGeometry, bipolarGroup).state, [
+        { type: "activity_options", choice: "band_power" },
+        { type: "activity_switch", on: true },
+      ]).state,
       { type: "window_changed", startS: 0, lengthS: 1 },
     );
     expect(short.state.activity.status).toEqual({ kind: "refused", reason: "window_too_short" });
@@ -1200,6 +1212,7 @@ function knownReport(token: number, labels: readonly string[]): ActivityReport {
     segments: 18,
     segmentSamples: 512,
     referenceHz: null,
+    cursorScale: null,
     channels: labels.map((label, i) => ({ label, value: i + 1, reason: null })),
   };
 }
@@ -1209,6 +1222,7 @@ describe("activity values on the contacts", () => {
 
   function withReport(report: (token: number) => ActivityReport): PanelState {
     const on = play(opened(bipolarGeometry, bipolarGroup).state, [
+      { type: "activity_options", choice: "band_power" },
       { type: "activity_switch", on: true },
     ]).state;
     return reduce(on, { type: "activity_report", report: report(on.activity.token) }).state;
@@ -1373,6 +1387,7 @@ const slicePlan: ActivityPlan = {
   metric: "rms",
   band: null,
   relative: false,
+  cursorMs: null,
   rows: Array.from({ length: SLICE_ROWS }, (_, i) => i),
 };
 const sliceGroup = {
@@ -2242,5 +2257,202 @@ describe("template anatomy", () => {
       "No template placement for an undeclared frame: positions are shown in the dataset's own frame",
     );
     expect(state.template).toBe("idle");
+  });
+});
+
+describe("the At cursor measure", () => {
+  const cursorScaleOf = buildScale([10, 20, 30, 40], "sequential", "µV");
+
+  function cursorReport(token: number, labels: readonly string[]): ActivityReport {
+    return { ...knownReport(token, labels), metric: "rms", unit: "µV", cursorScale: cursorScaleOf };
+  }
+
+  /** The panel open on the bipolar recording with the cursor measure ready (a fresh default). */
+  function ready(events: PanelEvent[] = []): PanelState {
+    const on = play(opened(bipolarGeometry, bipolarGroup).state, [
+      { type: "activity_switch", on: true },
+      ...events,
+    ]).state;
+    return reduce(on, {
+      type: "activity_report",
+      report: cursorReport(on.activity.token, BIPOLAR_LABELS),
+    }).state;
+  }
+
+  it("is the measure when Activity is switched on, with a 200 ms window", () => {
+    const on = reduce(opened(bipolarGeometry, bipolarGroup).state, {
+      type: "activity_switch",
+      on: true,
+    });
+    expect(on.state.activity.choice).toBe("cursor_rms");
+    expect(isCursorChoice(on.state.activity.choice)).toBe(true);
+    expect(on.state.activity.cursorMs).toBe(200);
+    const plans = reads(on.effects);
+    expect(plans).toHaveLength(1);
+    expect(plans[0]).toMatchObject({ metric: "rms", cursorMs: 200, startS: 0, endS: 10 });
+    expect(viewModel(on.state).activity?.measure).toBe("At cursor: RMS, 200 ms window");
+    expect(viewModel(on.state).activity?.showCursorWidth).toBe(true);
+    expect(viewModel(on.state).activity?.showBand).toBe(false);
+  });
+
+  it("line length is the second choice, and the other measures plan without a cursor window", () => {
+    const base = opened(bipolarGeometry, bipolarGroup).state;
+    const ll = play(base, [
+      { type: "activity_options", choice: "cursor_line_length" },
+      { type: "activity_switch", on: true },
+    ]);
+    expect(reads(ll.effects)[0]).toMatchObject({ metric: "line_length", cursorMs: 200 });
+    const plain = play(base, [
+      { type: "activity_options", choice: "rms" },
+      { type: "activity_switch", on: true },
+    ]);
+    expect(reads(plain.effects)[0]).toMatchObject({ metric: "rms", cursorMs: null });
+    expect(viewModel(plain.state).activity?.showCursorWidth).toBe(false);
+  });
+
+  it("a new width re-reads (the matrix and scale belong to one width); an unlisted one is ignored", () => {
+    const state = ready();
+    const wider = reduce(state, { type: "activity_options", cursorMs: 500 });
+    expect(wider.state.activity.cursorMs).toBe(500);
+    expect(wider.effects).toContainEqual({ type: "abort_activity" });
+    expect(reads(wider.effects)[0]).toMatchObject({ cursorMs: 500 });
+    expect(wider.state.activity.shown).toBeNull();
+    const odd = reduce(state, { type: "activity_options", cursorMs: 123 });
+    expect(odd.state).toBe(state);
+    expect(reads(odd.effects)).toEqual([]);
+  });
+
+  it("refuses with a sentence, before any read, when the window holds fewer than two samples", () => {
+    const slow = opened(
+      bipolarGeometry,
+      groupOf(BIPOLAR_LABELS, { rateHz: 20, nativeRateHz: 20 }),
+    ).state;
+    // 50 ms at 20 Hz is one sample (200 ms, the default, is four and reads fine).
+    const t = play(slow, [
+      { type: "activity_options", cursorMs: 50 },
+      { type: "activity_switch", on: true },
+    ]);
+    expect(t.state.activity.status).toEqual({ kind: "refused", reason: "cursor_too_short" });
+    expect(reads(t.effects)).toEqual([]);
+    expect(viewModel(t.state).activity?.message).toBe(ACTIVITY_SENTENCES.cursor_too_short(20));
+    expect(ACTIVITY_SENTENCES.cursor_too_short(20)).toContain("at least two samples");
+    // A longer window clears it: 100 ms at 20 Hz is two samples.
+    const fixed = reduce(t.state, { type: "activity_options", cursorMs: 100 });
+    expect(fixed.state.activity.status).toEqual({ kind: "computing" });
+    expect(reads(fixed.effects)).toHaveLength(1);
+  });
+
+  it("the cursor event records the position and never re-plans, reads or drops the values", () => {
+    const state = ready();
+    const moved = reduce(state, { type: "cursor_changed", timeS: 4.25 });
+    expect(moved.effects).toEqual([]);
+    expect(moved.state.activity.cursorS).toBe(4.25);
+    expect(moved.state.activity.token).toBe(state.activity.token);
+    expect(moved.state.activity.shown).toBe(state.activity.shown);
+    expect(moved.state.activity.status).toEqual({ kind: "ready" });
+    // The same position again is no change at all.
+    expect(reduce(moved.state, { type: "cursor_changed", timeS: 4.25 }).state).toBe(moved.state);
+    // Leaving the scope, and a non-number, both mean no cursor.
+    expect(
+      reduce(moved.state, { type: "cursor_changed", timeS: null }).state.activity.cursorS,
+    ).toBe(null);
+    expect(
+      reduce(moved.state, { type: "cursor_changed", timeS: Number.NaN }).state.activity.cursorS,
+    ).toBeNull();
+  });
+
+  it("the cursor survives a window move, and a recording change clears it", () => {
+    const moved = reduce(ready(), { type: "cursor_changed", timeS: 4.25 }).state;
+    const scrolled = reduce(moved, { type: "window_changed", startS: 5, lengthS: 10 }).state;
+    expect(scrolled.activity.cursorS).toBe(4.25);
+    const other = reduce(moved, {
+      type: "recording_changed",
+      recording: REC,
+      group: bipolarGroup,
+    }).state;
+    expect(other.activity.cursorS).toBeNull();
+  });
+
+  it("off the scope the model shows the whole-window value of the same metric, said as such", () => {
+    const state = ready();
+    const a = viewModel(state).activity;
+    expect(a?.summary).toContain("Whole-window value");
+    expect(a?.summary).toContain("over 200 ms");
+    // The legend is the whole window's scale until the cursor is on the scope.
+    expect(a?.colorbar?.lo).toBe(formatActivityValue(state.activity.shown?.scale.lo ?? 0, "µV"));
+  });
+
+  function live(state: PanelState, centerS: number, clipped = false): PanelState {
+    const n = state.placement?.contacts.length ?? 0;
+    const contactValues = Float64Array.from({ length: n }, (_, i) =>
+      i === 1 ? Number.NaN : 15 + i,
+    );
+    const values: LiveValues = { contactValues, centerS, widthMs: 200, clipped };
+    return withLive(state, values);
+  }
+
+  it("at the cursor the legend says the measure, window, time and unit, and the scale it is on", () => {
+    const state = reduce(ready(), { type: "cursor_changed", timeS: 12.3456 }).state;
+    const shownState = live(state, 12.3456);
+    const a = viewModel(shownState).activity;
+    expect(a?.summary?.startsWith("RMS over 200 ms centered at 12.35 s, in microvolts.")).toBe(
+      true,
+    );
+    expect(a?.summary).toContain("2nd to 98th percentile");
+    expect(a?.summary).toContain("fixed while the cursor moves");
+    expect(a?.summary).not.toContain("Whole-window");
+    // The scale is the cursor scale, not the whole window's.
+    expect(a?.colorbar?.lo).toBe(formatActivityValue(cursorScaleOf.lo, "µV"));
+    expect(a?.colorbar?.hi).toBe(formatActivityValue(cursorScaleOf.hi, "µV"));
+    // The state itself is not changed by showing it.
+    expect(state.activity.shown?.cursor).toBeNull();
+  });
+
+  it("names line length, and the edge when the window is cut", () => {
+    const base = play(opened(bipolarGeometry, bipolarGroup).state, [
+      { type: "activity_options", choice: "cursor_line_length" },
+      { type: "activity_switch", on: true },
+    ]).state;
+    const ready2 = reduce(base, {
+      type: "activity_report",
+      report: {
+        ...cursorReport(base.activity.token, BIPOLAR_LABELS),
+        metric: "line_length",
+        unit: "µV/s",
+      },
+    }).state;
+    const a = viewModel(live(ready2, 0.05, true)).activity;
+    expect(
+      a?.summary?.startsWith(
+        "Line length over 200 ms centered at 0.05 s, in microvolts per second.",
+      ),
+    ).toBe(true);
+    expect(a?.summary).toContain("cut by the edge of the read");
+  });
+
+  it("the list, the colors and the no-data note follow the cursor's values", () => {
+    const state = reduce(ready(), { type: "cursor_changed", timeS: 3 }).state;
+    const shownState = live(state, 3);
+    const rows = viewModel(shownState).contacts;
+    expect(rows[0].value).toBe(formatActivityValue(15, "µV"));
+    expect(rows[1].value).toBe("no value: a sample was not a number");
+    expect(viewModel(shownState).activity?.noData).toContain("Gray contacts");
+    const palette = { neutral: [0.9, 0.7, 0.1] as const, noData: [0.4, 0.4, 0.4] as const };
+    const colors = contactColors(shownState, palette);
+    expect(Array.from(colors?.slice(4, 7) ?? [])).toEqual([0.4, 0.4, 0.4].map(Math.fround));
+    // Whole-window colors are unchanged for the same state shown without the cursor.
+    expect(contactColors(state, palette)?.slice(0, 3)).not.toEqual(colors?.slice(0, 3));
+  });
+
+  it("showing the cursor needs a cursor scale: the other measures are returned as they are", () => {
+    const base = play(opened(bipolarGeometry, bipolarGroup).state, [
+      { type: "activity_options", choice: "band_power" },
+      { type: "activity_switch", on: true },
+    ]).state;
+    const plain = reduce(base, {
+      type: "activity_report",
+      report: knownReport(base.activity.token, BIPOLAR_LABELS),
+    }).state;
+    expect(live(plain, 3)).toBe(plain);
   });
 });
