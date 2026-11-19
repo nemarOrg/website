@@ -794,7 +794,8 @@ export function createBrainRenderer(
           `brain-gl: expected ${colors.length} color values, got ${rgba.length}`,
         );
       }
-      const next = new Uint8Array(rgba.length);
+      // A live recolor (every animation frame) rewrites the buffer this renderer already owns.
+      const next = ownColors ? colors : new Uint8Array(rgba.length);
       for (let i = 0; i < rgba.length; i++) {
         next[i] = Math.round(Math.min(1, Math.max(0, rgba[i])) * 255);
       }
