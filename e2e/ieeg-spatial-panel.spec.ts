@@ -239,6 +239,24 @@ async function reads(page: Page): Promise<number> {
   return Number(await page.getAttribute(PANEL, "data-activity-reads"));
 }
 
+/**
+ * Switch Activity on and pick band power: the default measure is "At cursor: RMS" (its own spec
+ * is in ieeg-spatial-validation.spec.ts), and these tests are about the whole-window measures.
+ * Costs two reads (the default's, then band power's).
+ */
+async function switchOnBandPower(page: Page): Promise<void> {
+  await page.check("[data-spatial-activity]");
+  await expect(page.locator(PANEL)).toHaveAttribute("data-activity-state", "ready", {
+    timeout: 60_000,
+  });
+  await page.selectOption(`${PANEL} select[aria-label="Activity measure"]`, "band_power");
+  await expect(page.locator(`${PANEL} .eegv__spatial-actsum`).first()).toContainText(
+    /Welch's method/,
+    { timeout: 60_000 },
+  );
+  await expect(page.locator(PANEL)).toHaveAttribute("data-activity-state", "ready");
+}
+
 /** Every property of the credit link the card names, and that Tab reaches it. */
 async function expectCredit(page: Page): Promise<void> {
   const link = page.locator(CREDIT);
@@ -317,10 +335,9 @@ test("on005522: contacts draw, Activity is off until switched on, then colors th
   await page.evaluate(() => {
     (window as unknown as { __long: number[] }).__long = [];
   });
-  await page.check("[data-spatial-activity]");
+  await switchOnBandPower(page);
   await expect(page.locator("[data-spatial-colorbar]")).toBeVisible({ timeout: 60_000 });
-  await expect(page.locator(PANEL)).toHaveAttribute("data-activity-state", "ready");
-  expect(await reads(page)).toBe(1);
+  expect(await reads(page)).toBe(2);
   const colored = await canvasColors(page);
   expect(colored.hues).toBeGreaterThanOrEqual(3);
   await expect(page.locator(`${PANEL} .eegv__spatial-actsum`).first()).toContainText(
@@ -334,7 +351,7 @@ test("on005522: contacts draw, Activity is off until switched on, then colors th
 
   // The window moves: one more read, only while the switch is on.
   await page.click('[data-act="step-fwd"]');
-  await expect.poll(() => reads(page), { timeout: 30_000 }).toBe(2);
+  await expect.poll(() => reads(page), { timeout: 30_000 }).toBe(3);
   await expect(page.locator(PANEL)).toHaveAttribute("data-activity-state", "ready");
 
   // The measure can change; RMS carries the plan's wording.
@@ -906,9 +923,8 @@ test("on005522: the figures say what Activity says, and the 2D views are the rea
 }) => {
   await openViewer(page, "on005522");
   await openBrain(page);
-  await page.check("[data-spatial-activity]");
+  await switchOnBandPower(page);
   await expect(page.locator("[data-spatial-colorbar]")).toBeVisible({ timeout: 60_000 });
-  await expect(page.locator(PANEL)).toHaveAttribute("data-activity-state", "ready");
   const summary =
     (await page.locator(`${PANEL} .eegv__spatial-actsum`).first().textContent()) ?? "";
   const barText = (await page.locator("[data-spatial-colorbar]").textContent()) ?? "";
