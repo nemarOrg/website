@@ -871,6 +871,8 @@ export type PanelEvent =
   | { type: "frame_changed"; spaceIndex: number }
   | { type: "select_contact"; contact: number | null; toggle?: boolean }
   | { type: "select_channel"; label: string | null }
+  /** Empty space was clicked, or the Clear selection button or Escape was used. Never toggles. */
+  | { type: "clear_selection" }
   | { type: "activity_switch"; on: boolean }
   | { type: "activity_options"; choice?: ActivityChoice; band?: BandName; cursorMs?: number }
   /** The cursor moved over the scope (seconds), or left it (null). Never re-plans or reads. */
@@ -985,6 +987,11 @@ function selectChannelRow(state: PanelState, row: number): Transition {
   const selection: Selection = { channel: row, contacts: [...contacts] };
   const next = { ...state, selection };
   return { state: next, effects: [{ type: "select_trace", label: traceLabel(next, selection) }] };
+}
+
+/** A channel is highlighted (even one none of whose contacts is located). */
+export function hasSelection(state: PanelState): boolean {
+  return state.selection.channel !== null || state.selection.contacts.length > 0;
 }
 
 function clearSelection(state: PanelState): Transition {
@@ -1134,6 +1141,9 @@ function reduceCore(state: PanelState, event: PanelEvent): Transition {
       if (already && event.toggle !== false) return clearSelection(state);
       return selectChannelRow(state, row);
     }
+
+    case "clear_selection":
+      return hasSelection(state) ? clearSelection(state) : same(state);
 
     case "select_channel": {
       const row = event.label === null ? -1 : (state.group?.labels.indexOf(event.label) ?? -1);
@@ -1428,6 +1438,8 @@ export interface ViewSwitchModel {
   /** False when WebGL2 is missing or the units banner shows: the flat views are the only view. */
   enabled: boolean;
   title: string;
+  /** A channel is highlighted, so the "Clear selection" button is enabled. */
+  canClear: boolean;
   /**
    * Why the 3D view is not offered under the units banner, for a visible line beside the switch (a
    * disabled button has no focus and its title is a tooltip); the same words as the title. Null
@@ -1860,6 +1872,7 @@ export function viewModel(state: PanelState, limits: ModelLimits = DEFAULT_LIMIT
       on: stage.kind === "views2d" || stage.kind === "no_webgl",
       enabled: state.webgl && !banner,
       title: !state.webgl ? WEBGL_SENTENCE : banner ? BANNER_VIEW_SENTENCE : VIEW_SWITCH_TITLE,
+      canClear: hasSelection(state),
       reason: state.webgl && banner ? BANNER_VIEW_SENTENCE : null,
     },
     template: templateModel(state, stage),
@@ -2653,7 +2666,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   const saveSvgBtn = el("button", "eegv__btn", "Save SVG");
   saveSvgBtn.type = "button";
   saveSvgBtn.dataset.spatialSave = "svg";
-  actions.append(view2dBtn, savePngBtn, saveSvgBtn);
+  const clearBtn = el("button", "eegv__btn", "Clear selection");
+  clearBtn.type = "button";
+  clearBtn.dataset.spatialClear = "";
+  clearBtn.title = "Clear the highlighted channel (or press Escape)";
+  actions.append(view2dBtn, clearBtn, savePngBtn, saveSvgBtn);
   actions.hidden = true;
   // Why the 3D view is off under the banner, in the page and not only in the button's tooltip.
   const viewReason = el("p", "eegv__spatial-actmsg");
@@ -2763,6 +2780,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     e.stopPropagation();
     if (e.key === "Escape" && state.open) {
       e.preventDefault();
+      // The first Escape clears a highlighted channel; with none, it closes the panel.
+      if (hasSelection(state)) {
+        dispatch({ type: "clear_selection" });
+        return;
+      }
       dispatch({ type: "toggle_open", open: false });
       host.focusToggle();
     }
@@ -2960,6 +2982,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     actions.hidden = !model.view.shown;
     view2dBtn.setAttribute("aria-pressed", String(model.view.on));
     view2dBtn.classList.toggle("eegv__btn--active", model.view.on);
+    clearBtn.disabled = !model.view.canClear;
     view2dBtn.disabled = !model.view.enabled;
     view2dBtn.title = model.view.title;
     setText(viewReason, model.view.reason ?? "");
@@ -3386,7 +3409,9 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       e.clientY - rect.top,
       coarse ? 14 : MIN_PICK_PX,
     );
-    dispatch({ type: "select_contact", contact: index });
+    dispatch(
+      index === null ? { type: "clear_selection" } : { type: "select_contact", contact: index },
+    );
   }
 
   retry.addEventListener("click", () => dispatch({ type: "retry" }));
@@ -3399,8 +3424,13 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   saveSvgBtn.addEventListener("click", () => void save("svg"));
   views.addEventListener("click", (e) => {
     const dot = (e.target as Element | null)?.closest<SVGCircleElement>("circle[data-contact]");
-    if (dot) dispatch({ type: "select_contact", contact: Number(dot.dataset.contact) });
+    dispatch(
+      dot
+        ? { type: "select_contact", contact: Number(dot.dataset.contact) }
+        : { type: "clear_selection" },
+    );
   });
+  clearBtn.addEventListener("click", () => dispatch({ type: "clear_selection" }));
   frameSel.addEventListener("change", () =>
     dispatch({ type: "frame_changed", spaceIndex: Number(frameSel.value) }),
   );

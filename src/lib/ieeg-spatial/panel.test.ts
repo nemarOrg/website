@@ -47,6 +47,7 @@ import {
   TRANSIENT_REASONS,
   WEBGL_SENTENCE,
   abortableSleep,
+  activityEmphasis,
   activitySamples,
   computeActivityPlan,
   contactColors,
@@ -603,6 +604,33 @@ describe("contacts and traces link both ways", () => {
     expect(
       reduce(one.state, { type: "select_channel", label: "LAF1" }).state.selection.channel,
     ).toBeNull();
+  });
+
+  it("clear_selection clears the channel, its contacts and the trace highlight, and is a no-op with none", () => {
+    const base = opened(bipolarGeometry, bipolarGroup).state;
+    expect(viewModel(base).view.canClear).toBe(false);
+    const idle = reduce(base, { type: "clear_selection" });
+    expect(idle.state).toBe(base);
+    expect(idle.effects).toEqual([]);
+
+    const sel = reduce(base, { type: "select_channel", label: "LAF1-LAF2" }).state;
+    expect(viewModel(sel).view.canClear).toBe(true);
+    const cleared = reduce(sel, { type: "clear_selection" });
+    expect(cleared.state.selection).toEqual({ channel: null, contacts: [] });
+    expect(cleared.effects).toEqual([{ type: "select_trace", label: null }]);
+    expect(viewModel(cleared.state).view.canClear).toBe(false);
+    expect(viewModel(cleared.state).contacts.some((r) => r.selected)).toBe(false);
+    // never a toggle: clearing twice stays clear
+    expect(reduce(cleared.state, { type: "clear_selection" }).state.selection.channel).toBeNull();
+  });
+
+  it("a highlighted channel none of whose contacts is located can still be cleared", () => {
+    const labels = [...MONOPOLAR_LABELS, "NOSUCH1-NOSUCH2"];
+    const mono = opened(monoGeometry, groupOf(labels), { ...REC, path: MONOPOLAR }).state;
+    const ghost = reduce(mono, { type: "select_channel", label: "NOSUCH1-NOSUCH2" }).state;
+    expect(ghost.selection.contacts).toEqual([]);
+    expect(viewModel(ghost).view.canClear).toBe(true);
+    expect(reduce(ghost, { type: "clear_selection" }).state.selection.channel).toBeNull();
   });
 
   it("closing the panel clears the selection and the trace highlight", () => {
@@ -1227,6 +1255,27 @@ function knownReport(token: number, labels: readonly string[]): ActivityReport {
     channels: labels.map((label, i) => ({ label, value: i + 1, reason: null })),
   };
 }
+
+describe("the Activity emphasis on the stage", () => {
+  it("is on only while Activity is on and has values to show", () => {
+    const base = opened(bipolarGeometry, bipolarGroup).state;
+    expect(activityEmphasis(base)).toBe(false);
+    const on = play(base, [
+      { type: "activity_options", choice: "band_power" },
+      { type: "activity_switch", on: true },
+    ]).state;
+    // switched on, still computing: nothing colored yet
+    expect(activityEmphasis(on)).toBe(false);
+    const shown = reduce(on, {
+      type: "activity_report",
+      report: knownReport(on.activity.token, BIPOLAR_LABELS),
+    }).state;
+    expect(activityEmphasis(shown)).toBe(true);
+    expect(activityEmphasis(reduce(shown, { type: "activity_switch", on: false }).state)).toBe(
+      false,
+    );
+  });
+});
 
 describe("activity values on the contacts", () => {
   const palette = { neutral: [0.9, 0.7, 0.1] as const, noData: [0.4, 0.4, 0.4] as const };
