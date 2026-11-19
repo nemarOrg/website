@@ -80,3 +80,10 @@ Four choices are expensive to undo once a viewer and its exports rest on them: w
 - Merged cards: IS-M1 (#546), IS-R1 (#547) and IS-C1 (#548); IS-K1, IS-T1, IS-V1, IS-V2 and IS-V3 implement these decisions.
 - Upstream files named above, read 2026-11-17; template reference: Fonov and colleagues, doi:10.1016/j.neuroimage.2010.07.033; the site reads `electrode_positions_source` in `src/lib/eeg-viewer/store.ts`.
 - Builds on ADR 0005 (reuse the backends), 0007 (no library for a few visuals), 0009 (route-scoped `'unsafe-eval'`), 0023 (the embed route's plain link) and 0028 (vendored asset with provenance and license beside it).
+
+## Update — 2026-11-19
+
+Two wordings in the Decision changed at the owner's direction; the decision itself stands.
+
+- The credit reads "Inspired by RAVE" (the owner asked for this wording directly on 2026-11-19), no longer "Electrode view inspired by RAVE". The link, its target, the title naming the paper's digital object identifier, and the rule that it is declared once in `credit.ts` and on every live panel and export are unchanged.
+- The note for a frame drawn without a brain no longer reads "No template placement for this frame". It now says why, one sentence per reason, starting "No brain surface" (for example "No brain surface: this recording's coordinate frame (ACPC) has no cited transform to the template, so contacts are drawn in their own space."). The reasons are an undeclared frame, a frame whose transform is pending, a frame with no cited transform, units that cannot be scaled to millimeters, and the units banner. The words live in `noSurfaceSentence` in `transforms.ts`.

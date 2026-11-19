@@ -16,13 +16,13 @@
  * Every other identifier of the BIDS table is PENDING (`pending-templates.ts`): `MNIColin27`,
  * `ICBM452AirSpace`, `ICBM452Warp5Space`, `fsLR`, `NIHPD`, `OASIS30AntsOASISAnts`,
  * `OASIS30Atropos` and `UNCInfant`. Each says why it has no row yet and what evidence would place
- * it, and the panel says "No template placement yet for X". A test fails when an identifier of the
+ * it, and the panel says "No brain surface yet: ... (X) ...". A test fails when an identifier of the
  * pinned BIDS appendix is neither placed nor pending, so a new standard identifier forces a
  * decision. The appendix's deprecated spellings (`fsaverage3` to `fsaverage6`, `UNCInfant0V21` and
  * kin) stay unknown frames in `geometry.ts` and never reach this registry.
  * `ACPC`, `ScanRAS`, `Other`, `Pixels`, a non-standard label and a missing frame are not
- * template frames at all (`geometry.ts` never promotes them) and read "No template placement for
- * X", and a template frame whose units are not millimeters is not placed either: a scale nobody
+ * template frames at all (`geometry.ts` never promotes them) and read "No brain surface: ... (X) has no
+ * cited transform ...", and a template frame whose units are not millimeters is not placed either: a scale nobody
  * declared cannot be moved onto a brain.
  *
  * Nothing is snapped or projected: a contact is drawn where its transform puts it, inside the
@@ -278,7 +278,7 @@ export const TEMPLATE_PLACEMENTS: ReadonlyMap<StandardTemplate, TemplatePlacemen
  * `pending-templates.ts` says why for each and what evidence would place it; it is kept out of the
  * bundle (only tests import it), and `transforms.test.ts` fails when an identifier of the pinned
  * BIDS appendix is neither a row here nor an entry there, so "has no row" and "pending" are the
- * same set. The panel words it "No template placement yet for X".
+ * same set. The panel words it "No brain surface yet: ...".
  */
 export function isPendingTemplate(frame: Frame | null): boolean {
   return frame?.kind === "template" && !TEMPLATE_PLACEMENTS.has(frame.identifier);
