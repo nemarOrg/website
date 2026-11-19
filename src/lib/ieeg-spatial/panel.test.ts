@@ -26,6 +26,7 @@ import {
   stackedScopeHeight,
 } from "./layout";
 import {
+  ACTIVITY_DEBOUNCE_MS,
   ACTIVITY_SENTENCES,
   type ActivityPlan,
   type ActivityReport,
@@ -49,6 +50,7 @@ import {
   activitySamples,
   computeActivityPlan,
   contactColors,
+  createActivityRunner,
   createLiveCursor,
   defaultSpaceIndex,
   drawnPositions,
@@ -2556,8 +2558,18 @@ describe("the live cursor's lifecycle (frames, matrix, list catch-up), driven wi
       legend: (text) => void log.legends.push(text),
     });
     lc.hold(matrix);
+    // The effects go through the panel's own runner, as the shell runs them.
+    const started: { plan: ActivityPlan; signal: AbortSignal }[] = [];
+    const runner = createActivityRunner({
+      live: lc,
+      setTimer: t.env.setTimer,
+      clearTimer: t.env.clearTimer,
+      start: (plan, signal) => void started.push({ plan, signal }),
+    });
     return {
       lc,
+      runner,
+      started,
       t,
       log,
       matrix,
@@ -2697,12 +2709,14 @@ describe("the live cursor's lifecycle (frames, matrix, list catch-up), driven wi
       h.t.frame();
       expect(h.lc.on).toBe(true);
       const t = apply(h.state);
-      // The reducer says to abort, and the shell runs that effect by releasing.
+      // The reducer says to abort, and the panel's runner runs that effect.
       expect(t.effects).toContainEqual({ type: "abort_activity" });
-      for (const effect of t.effects) if (effect.type === "abort_activity") h.lc.release();
+      expect(h.lc.holding).toBe(true);
+      for (const effect of t.effects) h.runner.run(effect);
       expect(h.lc.holding).toBe(false);
       expect(h.lc.on).toBe(false);
-      expect(h.t.timers.size).toBe(0);
+      // The list timer is gone; only a new read's debounce may be pending.
+      expect(h.t.timers.size).toBe(t.effects.some((e) => e.type === "read_activity") ? 1 : 0);
       // Whatever the new state says, nothing measures without a fresh read...
       h.state = t.state;
       expect(h.lc.measure()).toBeNull();
@@ -2711,6 +2725,50 @@ describe("the live cursor's lifecycle (frames, matrix, list catch-up), driven wi
       expect(h.lc.measure()).toBeNull();
     });
   }
+
+  it("dispose reaches the live cursor: the runner stops the read and disposes it, through the reducer's own effects", async () => {
+    const h = await harness();
+    h.lc.setCursor(4);
+    h.t.frame();
+    h.lc.setCursor(5);
+    expect(h.t.frames.size).toBe(1);
+    const t = reduce(h.state, { type: "disposed" });
+    for (const effect of t.effects) h.runner.run(effect);
+    // The abort effect released the samples but left the queued frame: only dispose cancels it.
+    expect(h.t.frames.size).toBe(1);
+    h.runner.dispose();
+    expect(h.lc.holding).toBe(false);
+    expect(h.t.frames.size).toBe(0);
+    h.lc.setCursor(6);
+    expect(h.t.frames.size).toBe(0);
+  });
+
+  it("a new read releases the old samples by itself, aborts the read before it, and starts after the debounce", async () => {
+    const h = await harness();
+    h.lc.setCursor(4);
+    h.t.frame();
+    const wider = reduce(h.state, { type: "activity_options", cursorMs: 500 });
+    const read = wider.effects.filter((e) => e.type === "read_activity");
+    expect(read).toHaveLength(1);
+    // Only the read effect: the release must come from it, not from the abort before it.
+    h.runner.run(read[0]);
+    expect(h.lc.holding).toBe(false);
+    expect(h.started).toHaveLength(0);
+    h.state = wider.state;
+    expect(h.lc.measure()).toBeNull();
+    h.t.advance(ACTIVITY_DEBOUNCE_MS);
+    expect(h.started).toHaveLength(1);
+    expect(h.started[0].plan).toMatchObject({ cursorMs: 500 });
+    const first = h.started[0].signal;
+    expect(first.aborted).toBe(false);
+    // A newer read aborts the one in flight.
+    h.runner.run(read[0]);
+    expect(first.aborted).toBe(true);
+    // An abort before the debounce ends cancels the start.
+    h.runner.run({ type: "abort_activity" });
+    h.t.advance(ACTIVITY_DEBOUNCE_MS * 2);
+    expect(h.started).toHaveLength(1);
+  });
 
   it("a new read replaces the old matrix: values come from the new samples, never the old", async () => {
     const h = await harness();

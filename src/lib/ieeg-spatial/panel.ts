@@ -2481,6 +2481,61 @@ export function createLiveCursor(env: LiveCursorEnv, host: LiveCursorHost): Live
   };
 }
 
+/** What the activity effects need from the page. */
+export interface ActivityRunnerDeps {
+  live: LiveCursorController;
+  setTimer(callback: () => void, ms: number): number;
+  clearTimer(handle: number): void;
+  /** Start the (debounced) read of a plan; `signal` aborts it. */
+  start(plan: ActivityPlan, signal: AbortSignal): void;
+}
+
+export interface ActivityRunner {
+  /** Run an `abort_activity` or `read_activity` effect; other effects are not its business. */
+  run(effect: PanelEffect): void;
+  /** The panel is gone: stop the read and the live cursor. */
+  dispose(): void;
+}
+
+/**
+ * Runs the activity effects the reducer asks for. Both of them stop the read in flight and release
+ * the retained samples (a window or option change, the switch off, a group or recording change,
+ * closing, dispose: the reducer emits `abort_activity` for each; a new read first drops the old
+ * samples), so no read's samples outlive the plan they were read for.
+ */
+export function createActivityRunner(deps: ActivityRunnerDeps): ActivityRunner {
+  let ctl: AbortController | null = null;
+  let timer: number | null = null;
+  function stop(): void {
+    if (timer !== null) deps.clearTimer(timer);
+    timer = null;
+    ctl?.abort();
+    ctl = null;
+  }
+  return {
+    run(effect) {
+      if (effect.type === "abort_activity") {
+        stop();
+        deps.live.release();
+      } else if (effect.type === "read_activity") {
+        stop();
+        const mine = new AbortController();
+        ctl = mine;
+        deps.live.release();
+        const plan = effect.plan;
+        timer = deps.setTimer(() => {
+          timer = null;
+          deps.start(plan, mine.signal);
+        }, ACTIVITY_DEBOUNCE_MS);
+      }
+    },
+    dispose() {
+      stop();
+      deps.live.dispose();
+    },
+  };
+}
+
 /** Gives each panel's ids their own numbers (a page may hold more than one panel). */
 let panelSeq = 0;
 
@@ -2493,8 +2548,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
 
   let geometryCtl: AbortController | null = null;
   let geometryTimer = 0;
-  let activityCtl: AbortController | null = null;
-  let activityTimer = 0;
+  let activityRunner: ActivityRunner | null = null;
 
   // The live "At cursor" half: its lifecycle is `createLiveCursor`; this shell paints for it.
   let liveCursor: LiveCursorController | null = null;
@@ -3155,23 +3209,9 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         geometryCtl = null;
         return;
       case "abort_activity":
-        window.clearTimeout(activityTimer);
-        activityCtl?.abort();
-        activityCtl = null;
-        liveCursor?.release();
+      case "read_activity":
+        activityRunner?.run(effect);
         return;
-      case "read_activity": {
-        window.clearTimeout(activityTimer);
-        activityCtl?.abort();
-        const ctl = new AbortController();
-        activityCtl = ctl;
-        liveCursor?.release();
-        activityTimer = window.setTimeout(
-          () => void readActivity(effect.plan, ctl.signal),
-          ACTIVITY_DEBOUNCE_MS,
-        );
-        return;
-      }
       case "load_outlines":
         startOutlinesLoad();
         return;
@@ -3303,6 +3343,13 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     recolor,
     // The legend is the one string made per frame; it is not a live region, so nothing is announced.
     legend: (text) => setText(actSummary, text),
+  });
+
+  activityRunner = createActivityRunner({
+    live: liveCursor,
+    setTimer: (cb, ms) => window.setTimeout(cb, ms),
+    clearTimer: (h) => window.clearTimeout(h),
+    start: (plan, signal) => void readActivity(plan, signal),
   });
 
   /** The state as shown: with the cursor window's values while the contacts follow the cursor. */
@@ -3445,7 +3492,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       state = t.state;
       for (const effect of t.effects) run(effect);
       disposed = true;
-      liveCursor?.dispose();
+      activityRunner?.dispose();
       resizeObserver?.disconnect();
       ensureRenderer(false);
       box.replaceChildren();

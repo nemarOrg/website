@@ -26,6 +26,9 @@ export interface CursorSource {
   windowMoved(startS: number, endS: number, plotLeft: number, plotWidth: number): void;
 }
 
+// The panel's `recording_changed` (which resets its cursor) is dispatched once, at `start()`: a
+// recording change remounts the viewer (viewer-session `navigate` -> `mountEegViewer`), which builds
+// a new source and a new panel, so `last` below never outlives the panel state it mirrors.
 export function createCursorSource(emit: (timeS: number | null) => void): CursorSource {
   let x: number | null = null;
   let touching = false;
