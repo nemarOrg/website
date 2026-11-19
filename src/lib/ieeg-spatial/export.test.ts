@@ -786,6 +786,7 @@ describe("the panel's switch to the 2D views", () => {
     expect(plain.view2d).toBe(false);
     expect(viewModel(plain).stage.kind).toBe("canvas");
     expect(viewModel(plain).view).toEqual({
+      canClear: false,
       shown: true,
       on: false,
       enabled: true,
@@ -815,6 +816,7 @@ describe("the panel's switch to the 2D views", () => {
     const model = viewModel(state);
     expect(model.stage.kind).toBe("no_webgl");
     expect(model.view).toEqual({
+      canClear: false,
       shown: true,
       on: true,
       enabled: false,
