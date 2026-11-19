@@ -1,0 +1,83 @@
+{
+  "entries": [
+    {
+      "contact_type": "seeg",
+      "decimation": {
+        "applied": true,
+        "median_shift_mm": 0.091,
+        "p99_deviation_mm": 0.31
+      },
+      "electrodes": "sub-1/ieeg/sub-1_space-ACPC_electrodes.tsv",
+      "fit": {
+        "grade": "plausible",
+        "inside_evaluated": true,
+        "inside_fraction": 0.824,
+        "max_mm": 12.184,
+        "median_mm": 3.233,
+        "n_ambiguous": 0,
+        "n_left_out": 0,
+        "n_total": 119,
+        "n_used": 119,
+        "near_or_inside_fraction": 0.958,
+        "p90_mm": 8.683,
+        "passed": true,
+        "reason": null,
+        "rule": "median <= 6.0 mm and >= 90% inside or within 5.0 mm"
+      },
+      "fit_before_decimation": {
+        "grade": "plausible",
+        "inside_evaluated": true,
+        "inside_fraction": 0.824,
+        "max_mm": 12.024,
+        "median_mm": 3.142,
+        "n_ambiguous": 0,
+        "n_left_out": 0,
+        "n_total": 119,
+        "n_used": 119,
+        "near_or_inside_fraction": 0.958,
+        "p90_mm": 8.499,
+        "passed": true,
+        "reason": null,
+        "rule": "median <= 6.0 mm and >= 90% inside or within 5.0 mm"
+      },
+      "frame": "ACPC",
+      "frame_choice": "as_declared",
+      "hemispheres": [
+        "L",
+        "R"
+      ],
+      "meshes": {
+        "L": {
+          "boundary_edges": 0,
+          "bytes": 215002,
+          "faces": 23878,
+          "non_manifold_edges": 14,
+          "path": "meshes/76b868cd09dfaf5037c824ec0e9391f3478724954e3586787a7c0574bc740a4f.mesh.bin",
+          "sha256": "76b868cd09dfaf5037c824ec0e9391f3478724954e3586787a7c0574bc740a4f",
+          "vertices": 11949
+        },
+        "R": {
+          "boundary_edges": 0,
+          "bytes": 214954,
+          "faces": 23878,
+          "non_manifold_edges": 26,
+          "path": "meshes/20cef2f876245918df6adfba7e429cbc81cf64ffe36292706c1815f8cc195c9a.mesh.bin",
+          "sha256": "20cef2f876245918df6adfba7e429cbc81cf64ffe36292706c1815f8cc195c9a",
+          "vertices": 11941
+        }
+      },
+      "session": null,
+      "sources": [
+        "derivatives/freesurfer-7.3.2/sub-1/surf/lh.pial",
+        "derivatives/freesurfer-7.3.2/sub-1/surf/rh.pial"
+      ],
+      "subject": "1",
+      "vertex_offset_mm": null
+    }
+  ],
+  "pipeline_version": "0.1.0",
+  "schema": "nemar-ieeg-geometry-index",
+  "skipped": [],
+  "source_commit": "fixture",
+  "version": 1
+}

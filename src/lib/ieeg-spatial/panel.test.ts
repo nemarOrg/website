@@ -55,6 +55,7 @@ import {
   createLiveCursor,
   defaultSpaceIndex,
   drawnPositions,
+  drawnSurface,
   drawnTemplate,
   formatActivityValue,
   frameName,
@@ -66,12 +67,20 @@ import {
   reduce,
   resolveWithRetries,
   sliceRowCount,
+  subjectEntryOf,
+  templatePlacementFor,
   templateRuleOf,
   unitsSentence,
   unlocatedNotes,
   viewModel,
   withLive,
 } from "./panel";
+import {
+  SUBJECT_LABEL,
+  type SubjectEntry,
+  parseGeometryIndex,
+  subjectOutlines,
+} from "./subject-anatomy";
 import {
   MNI305_TO_MNI152,
   TALAIRACH_TO_MNI,
@@ -1051,9 +1060,10 @@ describe("the status line, frames and notes", () => {
     const model = viewModel(state);
     expect(model.frames).toEqual({
       selected: 1,
+      selectedValue: "1",
       options: [
-        { index: 0, label: "Other", refused: false },
-        { index: 1, label: "Talairach", refused: false },
+        { index: 0, value: "0", anatomy: "template", label: "Other", refused: false },
+        { index: 1, value: "1", anatomy: "template", label: "Talairach", refused: false },
       ],
     });
     expect(model.status).toContain("frame: Talairach;");
@@ -2030,7 +2040,9 @@ describe("template anatomy", () => {
     expect(closed.state.template).toBe("idle");
 
     const open = reduce(closed.state, { type: "toggle_open" });
-    expect(loads(open.effects)).toEqual([{ type: "load_template" }]);
+    expect(loads(open.effects)).toEqual([
+      { type: "load_template", key: "template", subject: null },
+    ]);
     expect(open.state.template).toBe("loading");
 
     // Nothing asks again while it loads, whatever else happens.
@@ -2169,10 +2181,10 @@ describe("template anatomy", () => {
         text: TEMPLATE_REFERENCE.text,
         href: "https://doi.org/10.1016/j.neuroimage.2010.07.033",
       });
-      expect(model.template.license.href).toBe(
+      expect(model.template.license?.href).toBe(
         "/vendor/brain-templates/mni152nlin2009casym@1/LICENSE.txt",
       );
-      expect(model.template.license.href).toBe(TEMPLATE_LICENSE_HREF);
+      expect(model.template.license?.href).toBe(TEMPLATE_LICENSE_HREF);
       expect(drawnTemplate(loaded(state))?.identifier, c.name).toBe(c.identifier);
       expect(templateRuleOf(state)?.identifier, c.name).toBe(c.identifier);
     }
@@ -2883,5 +2895,211 @@ describe("the live cursor's lifecycle (frames, matrix, list catch-up), driven wi
     expect(h.t.frames.size).toBe(1);
     h.t.frame();
     expect(h.state.activity.cursorS).toBeNull();
+  });
+});
+
+const subjectGeometry = await geometryOf("on004473", "v1.0.0", ON4473);
+
+describe("subject anatomy (ADR 0034)", () => {
+  const INDEX_FILE = "test/fixtures/ieeg-subject-anatomy/on004473/zarr/geometry/index.json";
+  const ELECTRODES = "sub-1/ieeg/sub-1_space-ACPC_electrodes.tsv";
+  const REF: RecordingRef = { datasetId: "on004473", version: "v1.0.0", path: ON4473 };
+  const geometry = subjectGeometry;
+  const acpc = geometry.spaces.findIndex((sp) => sp.electrodesPath === ELECTRODES);
+  const KEY = `subject:on004473|${ELECTRODES}`;
+
+  type RawEntry = {
+    meshes: Record<string, unknown>;
+    hemispheres: string[];
+    fit: { grade: string };
+  };
+  function entries(edit?: (e: RawEntry) => void): SubjectEntry[] {
+    const index = JSON.parse(fs.readFileSync(repoPath(INDEX_FILE), "utf8"));
+    edit?.(index.entries[0]);
+    const parsed = parseGeometryIndex(index);
+    return parsed.ok ? parsed.entries : [];
+  }
+
+  /** Recording loaded and the shown space chosen; the panel still closed. */
+  function closed(): PanelState {
+    return play(initialState(), [
+      { type: "recording_changed", recording: REF, group: groupOf(contactLabels(geometry, acpc)) },
+      { type: "geometry_resolved", token: 1, geometry },
+      { type: "frame_changed", spaceIndex: acpc, anatomy: "subject" },
+      { type: "window_changed", startS: 0, lengthS: 10 },
+    ]).state;
+  }
+  const requests = (effects: PanelEffect[], type: string) => effects.filter((e) => e.type === type);
+
+  /** Open with the index delivered; returns the state and every effect since opening. */
+  function withIndex(list: SubjectEntry[]) {
+    const open = reduce(closed(), { type: "toggle_open" });
+    const got = reduce(open.state, {
+      type: "subjects_loaded",
+      datasetId: "on004473",
+      entries: list,
+    });
+    return { state: got.state, effects: [...open.effects, ...got.effects] };
+  }
+
+  it("asks for the index only when the panel opens, once per dataset", () => {
+    const shut = closed();
+    expect(shut.subjects.status).toBe("idle");
+    const open = reduce(shut, { type: "toggle_open" });
+    expect(requests(open.effects, "load_subjects")).toEqual([
+      { type: "load_subjects", datasetId: "on004473" },
+    ]);
+    const again = play(open.state, [
+      { type: "toggle_open", open: false },
+      { type: "toggle_open", open: true },
+      { type: "window_changed", startS: 10, lengthS: 10 },
+    ]);
+    expect(requests(again.effects, "load_subjects")).toEqual([]);
+  });
+
+  it("offers the subject's anatomy as the default for the matching file and loads that surface", () => {
+    const { state, effects } = withIndex(entries());
+    const model = viewModel(state);
+    expect(model.frames?.selectedValue).toBe(`${acpc}:subject`);
+    expect(model.frames?.options.map((o) => o.anatomy)).toContain("subject");
+    expect(model.frames?.options.find((o) => o.anatomy === "subject")?.label).toContain(
+      "This subject's anatomy",
+    );
+    const load = requests(effects, "load_template");
+    expect(load).toHaveLength(1);
+    expect(load[0]).toMatchObject({ key: KEY, subject: { electrodes: ELECTRODES } });
+  });
+
+  it("labels the surface only once it has arrived, with approximate alignment for a plausible fit", () => {
+    const { state } = withIndex(entries());
+    expect(viewModel(state).template?.status).toBe("loading");
+    const ready = reduce(state, { type: "template_loaded", key: KEY }).state;
+    const tm = viewModel(ready).template;
+    expect(tm).toMatchObject({
+      status: "ready",
+      label: `${SUBJECT_LABEL}; approximate alignment (depth contacts)`,
+      reference: null,
+      license: null,
+    });
+    const notes = viewModel(ready).notes.join("\n");
+    expect(notes).toContain("Subject surfaces: derivatives/freesurfer-7.3.2/sub-1/surf/lh.pial");
+    expect(notes).not.toContain("No brain surface");
+    expect(drawnSurface(ready)).toBe(true);
+  });
+
+  it("says nothing more than the label for a specific fit", () => {
+    const { state } = withIndex(
+      entries((e) => {
+        e.fit.grade = "specific";
+      }),
+    );
+    const ready = reduce(state, { type: "template_loaded", key: KEY }).state;
+    expect(viewModel(ready).template).toMatchObject({ status: "ready", label: SUBJECT_LABEL });
+  });
+
+  it("names a one-hemisphere subject", () => {
+    const { state } = withIndex(
+      entries((e) => {
+        e.meshes = { R: e.meshes.R };
+        e.hemispheres = ["R"];
+      }),
+    );
+    const ready = reduce(state, { type: "template_loaded", key: KEY }).state;
+    expect(viewModel(ready).notes).toContain(
+      "Right hemisphere only: the dataset ships one hemisphere for this subject.",
+    );
+  });
+
+  it("an entry that fails validation leaves no option and loads no surface", () => {
+    const list = entries((e) => {
+      e.meshes.X = e.meshes.L;
+    });
+    expect(list).toEqual([]);
+    const { state, effects } = withIndex(list);
+    expect(viewModel(state).frames?.options.some((o) => o.anatomy === "subject") ?? false).toBe(
+      false,
+    );
+    expect(requests(effects, "load_template")).toEqual([]);
+    expect(subjectEntryOf(state)).toBeNull();
+  });
+
+  it("a rejected surface hides the option for good and voids what was loading", () => {
+    const { state } = withIndex(entries());
+    const rejected = reduce(state, { type: "subject_rejected", electrodes: ELECTRODES }).state;
+    expect(subjectEntryOf(rejected)).toBeNull();
+    expect(rejected.template).toBe("idle");
+    expect(viewModel(rejected).frames?.options.some((o) => o.anatomy === "subject") ?? false).toBe(
+      false,
+    );
+    const again = reduce(rejected, { type: "frame_changed", spaceIndex: acpc, anatomy: "subject" });
+    expect(subjectEntryOf(again.state)).toBeNull();
+  });
+
+  it("ignores a surface that arrives for a key the state has moved on from", () => {
+    const { state } = withIndex(entries());
+    const stale = reduce(state, { type: "template_loaded", key: "template" }).state;
+    expect(stale.template).toBe("loading");
+  });
+
+  it("draws contacts as declared, never through a template row", () => {
+    const { state } = withIndex(entries());
+    const ready = reduce(state, { type: "template_loaded", key: KEY }).state;
+    expect(templateRuleOf(ready)).toBeNull();
+    expect(drawnTemplate(ready)).toBeNull();
+    expect(drawnPositions(ready)).toEqual(ready.placement?.contacts.map((c) => c.position));
+    expect(viewModel(ready).contacts.every((c) => c.template === null)).toBe(true);
+  });
+
+  it("the 2D views take the subject's outlines, the contacts as declared and the same label", () => {
+    const { state } = withIndex(entries());
+    const open2d = reduce(state, { type: "template_loaded", key: KEY }).state;
+    const loadedOutlines = reduce(open2d, { type: "outlines_loaded", key: KEY });
+    expect(loadedOutlines.state.outlines).not.toBe("idle");
+    const outlines = subjectOutlines({
+      positions: new Float32Array([0, 0, 0, 10, 0, 0, 0, 10, 0, 0, 0, 10]),
+      indices: new Uint16Array([0, 1, 2, 0, 2, 3, 0, 1, 3, 1, 2, 3]),
+    });
+    const placement = templatePlacementFor(loadedOutlines.state, outlines);
+    expect(placement?.labels[0]).toContain(SUBJECT_LABEL);
+    expect(placement?.positions).toBeUndefined();
+    expect(placement?.outlines).toBe(outlines);
+  });
+
+  it("choosing the template option restores the template's rules and loads the template", () => {
+    const { state } = withIndex(entries());
+    const chosen = reduce(state, { type: "frame_changed", spaceIndex: acpc, anatomy: "template" });
+    expect(subjectEntryOf(chosen.state)).toBeNull();
+    expect(requests(chosen.effects, "load_template")).toEqual([]);
+    expect(viewModel(chosen.state).frames?.selectedValue).toBe(String(acpc));
+  });
+
+  it("on a template frame the two never mix: subject first, then the template on request", async () => {
+    const g = await geometryOf("nm000454", "v1.0.2", NM454);
+    const path = g.spaces[0].electrodesPath;
+    const [base] = entries();
+    const entry: SubjectEntry = { ...base, electrodes: path ?? "" };
+    const ref: RecordingRef = { datasetId: "nm000454", version: "v1.0.2", path: NM454 };
+    const opened = play(initialState(), [
+      { type: "recording_changed", recording: ref, group: groupOf(contactLabels(g, 0)) },
+      { type: "geometry_resolved", token: 1, geometry: g },
+      { type: "window_changed", startS: 0, lengthS: 10 },
+      { type: "toggle_open" },
+      { type: "subjects_loaded", datasetId: "nm000454", entries: [entry] },
+    ]);
+    expect(subjectEntryOf(opened.state)).not.toBeNull();
+    expect(templateRuleOf(opened.state)).toBeNull();
+    const key = `subject:nm000454|${path}`;
+    expect(
+      requests(opened.effects, "load_template").map((e) => (e as { key: string }).key),
+    ).toEqual(["template", key]); // the template starts before the index answers
+    const back = reduce(opened.state, {
+      type: "frame_changed",
+      spaceIndex: 0,
+      anatomy: "template",
+    });
+    expect(templateRuleOf(back.state)).not.toBeNull();
+    expect(requests(back.effects, "load_template")).toEqual([
+      { type: "load_template", key: "template", subject: null },
+    ]);
   });
 });
