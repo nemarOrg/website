@@ -1,0 +1,1 @@
+{"dataset_id":"on005522","version":"v1.0.0","path":"sub-R1009W/ses-0","kind":"directory","children":[{"kind":"dir","name":"beh"},{"kind":"dir","name":"ieeg"},{"kind":"file","name":"sub-R1009W_ses-0_scans.tsv","size":135}]}

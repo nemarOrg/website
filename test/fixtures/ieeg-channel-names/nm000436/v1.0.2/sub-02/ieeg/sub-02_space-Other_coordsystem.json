@@ -1,0 +1,5 @@
+{
+  "iEEGCoordinateSystem": "Other",
+  "iEEGCoordinateUnits": "mm",
+  "iEEGCoordinateSystemDescription": "P-File chanCoord/implantCoord/therapyCoord in mm. The frame is NOT stated by the authors: the values (x 0, y +2/0/-2 for the anterior/center/posterior Ben-gun microelectrodes, z = recording depth in mm above the planned target) look like offsets from the planned VIM target along the surgical trajectory. Not MNI, not Talairach, not a scanner/ACPC frame; do not use them for atlas lookup."
+}

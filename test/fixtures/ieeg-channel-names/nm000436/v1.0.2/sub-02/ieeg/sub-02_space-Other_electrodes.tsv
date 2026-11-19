@@ -1,0 +1,21 @@
+name	x	y	z	size	group	type	track	depth_label
+Ant_d10a	0.0	2.0	10.0	n/a	BenGun_Left	microelectrode	anterior	10a
+Ant_d07a	0.0	2.0	7.0	n/a	BenGun_Left	microelectrode	anterior	07a
+Ant_d05a	0.0	2.0	5.0	n/a	BenGun_Left	microelectrode	anterior	05a
+Ant_d03a	0.0	2.0	3.0	n/a	BenGun_Left	microelectrode	anterior	03a
+Ant_d00a	0.0	2.0	0.0	n/a	BenGun_Left	microelectrode	anterior	00a
+Ant_d00a3030	0.0	2.0	0.0	n/a	BenGun_Left	microelectrode	anterior	00a_3030
+Cen_d10a	0.0	0.0	10.0	n/a	BenGun_Left	microelectrode	center	10a
+Cen_d07a	0.0	0.0	7.0	n/a	BenGun_Left	microelectrode	center	07a
+Cen_d05a	0.0	0.0	5.0	n/a	BenGun_Left	microelectrode	center	05a
+Cen_d03a	0.0	0.0	3.0	n/a	BenGun_Left	microelectrode	center	03a
+Cen_d00a	0.0	0.0	0.0	n/a	BenGun_Left	microelectrode	center	00a
+Cen_d00a3030	0.0	0.0	0.0	n/a	BenGun_Left	microelectrode	center	00a_3030
+Pos_d10a	0.0	-2.0	10.0	n/a	BenGun_Left	microelectrode	posterior	10a
+Pos_d07a	0.0	-2.0	7.0	n/a	BenGun_Left	microelectrode	posterior	07a
+Pos_d05a	0.0	-2.0	5.0	n/a	BenGun_Left	microelectrode	posterior	05a
+Pos_d03a	0.0	-2.0	3.0	n/a	BenGun_Left	microelectrode	posterior	03a
+Pos_d00a	0.0	-2.0	0.0	n/a	BenGun_Left	microelectrode	posterior	00a
+Pos_d00a3030	0.0	-2.0	0.0	n/a	BenGun_Left	microelectrode	posterior	00a_3030
+DBS_implant	0.0	0.0	0.5	n/a	DBS_lead	DBS lead position	n/a	n/a
+DBS_therapy	0.0	0.0	0.5	n/a	DBS_lead	therapeutic DBS contact	n/a	n/a

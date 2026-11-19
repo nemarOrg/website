@@ -1,0 +1,506 @@
+{
+ "source": "https://zarr.nemar.org/nm000454/zarr/sub-PID02/ses-clinical01/ieeg/sub-PID02_ses-clinical01_task-ictal10046_run-04_ieeg.zarr/ieeg_500hz/zarr.json",
+ "group": "ieeg_500hz",
+ "channels": [
+  {
+   "label": "AF01",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "AF02",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "AF03",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "AF04",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "AF05",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "AF06",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "AST01",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "AST02",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "AST03",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "AST04",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DA01",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DA02",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DA03",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DA04",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DEC01",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DEC02",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DEC03",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DEC04",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DH01",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DH02",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DH03",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DH04",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DHAA01",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DHAA02",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DHAA03",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DHAA04",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DHI01",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DHI02",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DHI03",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DHI04",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DHT01",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DHT02",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DHT03",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "DHT04",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "EKG",
+   "channel_type": "ECG"
+  },
+  {
+   "label": "MST01",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "MST02",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "MST03",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "MST04",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "O01",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "O02",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "O03",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "O04",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "O05",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "O06",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "OF01",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "OF02",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "OF03",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "OF04",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "OF05",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "OF06",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "P01",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "P02",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "P05",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "P06",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "P07",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "P08",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "PST01",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "PST02",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "PST03",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "PST04",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "RG01",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG10",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG11",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG12",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG13",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG14",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG15",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG16",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG17",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG18",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG19",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG02",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG20",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG21",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG22",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG23",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG24",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG25",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG26",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG27",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG28",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG29",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG03",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG30",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG31",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG32",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG33",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG34",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG35",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG36",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG37",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG38",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG39",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG04",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG40",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG41",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG42",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG43",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG44",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG45",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG46",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG47",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG48",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG49",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG05",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG50",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG51",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG52",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG53",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG54",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG55",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG56",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG57",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG58",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG59",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG06",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG60",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG61",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG62",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG63",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG64",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG07",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG08",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "RG09",
+   "channel_type": "ECOG"
+  }
+ ]
+}

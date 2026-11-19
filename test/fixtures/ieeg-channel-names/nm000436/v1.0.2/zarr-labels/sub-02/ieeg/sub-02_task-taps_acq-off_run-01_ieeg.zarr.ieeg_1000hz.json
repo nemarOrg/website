@@ -1,0 +1,18 @@
+{
+ "source": "https://zarr.nemar.org/nm000436/zarr/sub-02/ieeg/sub-02_task-taps_acq-off_run-01_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "Ant",
+   "channel_type": "DBS"
+  },
+  {
+   "label": "Cen",
+   "channel_type": "DBS"
+  },
+  {
+   "label": "Pos",
+   "channel_type": "DBS"
+  }
+ ]
+}

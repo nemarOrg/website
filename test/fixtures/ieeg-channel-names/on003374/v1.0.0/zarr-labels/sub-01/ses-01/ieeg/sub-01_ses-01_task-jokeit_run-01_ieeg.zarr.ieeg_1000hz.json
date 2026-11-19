@@ -1,0 +1,22 @@
+{
+ "source": "https://zarr.nemar.org/on003374/zarr/sub-01/ses-01/ieeg/sub-01_ses-01_task-jokeit_run-01_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "mmAL1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "mmAL2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "mmAR1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "mmAR2",
+   "channel_type": "EEG"
+  }
+ ]
+}

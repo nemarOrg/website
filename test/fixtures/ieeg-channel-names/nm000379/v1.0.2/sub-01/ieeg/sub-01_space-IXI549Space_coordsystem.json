@@ -1,0 +1,6 @@
+{
+  "iEEGCoordinateSystem": "IXI549Space",
+  "iEEGCoordinateUnits": "mm",
+  "iEEGCoordinateSystemDescription": "Authors' MNI coordinates (data/localization/<S>/<S>_mni.csv): T1 MRIs normalized to MNI space with SPM12 (affine + nonlinear registration, bias correction, segmentation); deformations applied to contact locations identified on post-implant CT (Bioimage Suite). SPM12's normalization template space is labelled IXI549Space in BIDS.",
+  "iEEGCoordinateProcessingDescription": "Post-implant CT co-registered to pre-surgical T1 (SPM12), then normalized (Kragel et al. 2021, Electrode localization)."
+}

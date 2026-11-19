@@ -22,7 +22,20 @@
 export type Vec3 = [number, number, number];
 export type Pt2 = [number, number];
 
-const ALS_SYSTEMS = new Set(["EEGLAB", "ALS", "CTF", "4D", "KIT"]);
+/** Coordinate-system names whose frame is ALS (anterior, left, superior), compared
+ *  after `toUpperCase()`. The first five are the names the viewer has always turned;
+ *  `EEGLAB-HJ`, `4DBti` and `KitYokogawa` are BIDS's own names for ALS frames
+ *  (BIDS coordinate-systems appendix). */
+const ALS_SYSTEMS = new Set([
+  "EEGLAB",
+  "ALS",
+  "CTF",
+  "4D",
+  "KIT",
+  "EEGLAB-HJ",
+  "4DBTI",
+  "KITYOKOGAWA",
+]);
 
 /** Rotate a position into RAS+ (+X right, +Y anterior, +Z up). EEGLAB/ALS frames
  *  are (+X anterior, +Y left, +Z up), so (x,y,z) -> (-y, x, z); others pass through. */
