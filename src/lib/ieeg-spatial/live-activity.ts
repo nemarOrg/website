@@ -13,14 +13,18 @@ import {
   type ActivityMatrix,
   type ActivityScale,
   type CursorMetric,
+  contactMeans,
+  contactSlots,
   shortWindowValues,
 } from "./activity";
 
 /** Entries in the color table: one per 8-bit step, so a table color is within one step of the exact one. */
 export const LUT_SIZE = 256;
 
-/** Channel `c` (0 red, 1 green, 2 blue) of the viridis color of table entry `i`, 0..255. */
+/** The table's 8-bit rgb triples, built on first use. */
 let lut: Uint8Array | null = null;
+
+/** Channel `c` (0 red, 1 green, 2 blue) of the viridis color of table entry `i`, 0..255. */
 export function lutChannel(i: number, c: number): number {
   if (!lut) {
     lut = new Uint8Array(LUT_SIZE * 3);
@@ -51,83 +55,81 @@ export interface LiveActivityInput {
 }
 
 export interface LiveActivity {
-  /** Measure the window centered at `centerS`; false (nothing changed) when it cannot be measured. */
+  /**
+   * Measure the window centered at `centerS`; false (nothing changed) when it cannot be measured.
+   * Repeating a call with the same center changes nothing: `changed` is relative to the last
+   * `commit`, so a call that does not paint never consumes it.
+   */
   update(centerS: number): boolean;
+  /** Record that the entries now in `indexes` are on screen: `changed` clears. */
+  commit(): void;
+  /** Make every entry count as changed until the next `commit` (after an outside repaint). */
+  invalidate(): void;
   /** The last successful window was clipped by the edge of the read. */
   readonly clipped: boolean;
   /** Per contact: the mean of its channels' finite values, NaN for none. */
   readonly contactValues: Float64Array;
-  /** Per contact: the color-table entry, -1 for no value, -2 before the first paint. */
+  /** Per contact with no value: why (`REASON_*` of activity.ts); 0 otherwise. */
+  readonly contactReasons: Uint8Array;
+  /** Per contact: the color-table entry, -1 for no value. */
   readonly indexes: Int16Array;
-  /** Per contact: whether the last `update` changed its entry. */
+  /** Per contact: whether its entry differs from the last committed one. */
   readonly changed: Uint8Array;
-  /** Whether the last `update` changed any entry. */
+  /** Whether any entry differs from the last committed ones. */
   readonly anyChanged: boolean;
-  /** Force every entry to count as changed at the next `update` (after an outside repaint). */
-  invalidate(): void;
   readonly scale: ActivityScale;
 }
 
 export function createLiveActivity(input: LiveActivityInput): LiveActivity {
   const { matrix, rows, contactRows, metric, widthMs, scale } = input;
-  const slotOf = new Map<number, number>();
-  rows.forEach((row, k) => slotOf.set(row, k));
+  const map = contactSlots(rows, contactRows);
   const nContacts = contactRows.length;
-  // Flat slots per contact: `start[i] .. start[i + 1]` index `slots`.
-  const start = new Int32Array(nContacts + 1);
-  const flat: number[] = [];
-  contactRows.forEach((own, i) => {
-    for (const row of own) {
-      const k = slotOf.get(row);
-      if (k !== undefined) flat.push(k);
-    }
-    start[i + 1] = flat.length;
-  });
-  const slots = Int32Array.from(flat);
   const rowList = Int32Array.from(rows);
   const channelValues = new Float64Array(rows.length);
   const contactValues = new Float64Array(nContacts).fill(Number.NaN);
-  const indexes = new Int16Array(nContacts).fill(-2);
-  const changed = new Uint8Array(nContacts);
-  const self: LiveActivity = {
-    clipped: false,
-    anyChanged: false,
+  const contactReasons = new Uint8Array(nContacts);
+  const indexes = new Int16Array(nContacts).fill(-1);
+  /** What is on screen: -2 before the first paint, so everything counts as changed. */
+  const painted = new Int16Array(nContacts).fill(-2);
+  const changed = new Uint8Array(nContacts).fill(1);
+  let clipped = false;
+  let anyChanged = nContacts > 0;
+  return {
+    get clipped() {
+      return clipped;
+    },
+    get anyChanged() {
+      return anyChanged;
+    },
     contactValues,
+    contactReasons,
     indexes,
     changed,
     scale,
     invalidate() {
-      indexes.fill(-2);
+      painted.fill(-2);
+      changed.fill(1);
+      anyChanged = nContacts > 0;
+    },
+    commit() {
+      painted.set(indexes);
+      changed.fill(0);
+      anyChanged = false;
     },
     update(centerS) {
       const b = shortWindowValues(matrix, centerS, widthMs, metric, rowList, channelValues);
       if (!b) return false;
-      (self as { clipped: boolean }).clipped = b.clipped;
+      clipped = b.clipped;
+      contactMeans(channelValues, map, contactValues, contactReasons);
       let any = false;
       for (let i = 0; i < nContacts; i++) {
-        let sum = 0;
-        let count = 0;
-        for (let j = start[i]; j < start[i + 1]; j++) {
-          const v = channelValues[slots[j]];
-          if (Number.isFinite(v)) {
-            sum += v;
-            count++;
-          }
-        }
-        const value = count > 0 ? sum / count : Number.NaN;
-        contactValues[i] = value;
-        const idx = lutIndex(scale, value);
-        if (idx !== indexes[i]) {
-          indexes[i] = idx;
-          changed[i] = 1;
-          any = true;
-        } else {
-          changed[i] = 0;
-        }
+        indexes[i] = lutIndex(scale, contactValues[i]);
+        const differs = indexes[i] !== painted[i];
+        changed[i] = differs ? 1 : 0;
+        if (differs) any = true;
       }
-      (self as { anyChanged: boolean }).anyChanged = any;
+      anyChanged = any;
       return true;
     },
   };
-  return self;
 }

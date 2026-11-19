@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   type ActivityMatrix,
   CURSOR_WIDTHS_MS,
+  NO_REASON,
+  REASON_NON_FINITE,
+  REASON_UNDEFINED,
   computeActivity,
   cursorScale,
   cursorWindowBounds,
@@ -67,6 +70,18 @@ describe("the short window at a cursor", () => {
     expect(end?.i1).toBe(2000);
     expect(end?.clipped).toBe(true);
     expect(end?.i0).toBe(1880);
+  });
+
+  it("keeps a cursor exactly at either end of the read, and refuses one a hair past it", () => {
+    // Sample i spans [i, i + 1) / rate after t0S, so the read covers [t0S, t0S + nSamples / rate].
+    const m = { t0S: 10, rateHz: 1000, nSamples: 2000 };
+    expect(cursorWindowBounds(m, 10, 200)).toEqual({ i0: 0, i1: 100, clipped: true });
+    expect(cursorWindowBounds(m, 12, 200)).toEqual({ i0: 1900, i1: 2000, clipped: true });
+    expect(cursorWindowBounds(m, 10 - 1e-4, 200)).toBeNull();
+    expect(cursorWindowBounds(m, 12 + 1e-4, 200)).toBeNull();
+    // Half a sample inside either edge is on the read too.
+    expect(cursorWindowBounds(m, 10.0005, 200)).not.toBeNull();
+    expect(cursorWindowBounds(m, 11.9995, 200)).not.toBeNull();
   });
 
   it("refuses a center outside the read, a non-number, and a window under two samples", () => {
@@ -167,7 +182,15 @@ describe("the color scale of the cursor measure", () => {
 
   it("is a fixed 2nd to 98th percentile of the short-window values across the read", async () => {
     const m = matrixOf(fixtureRows());
-    const scale = await cursorScale(m, 200, "rms", ALL_ROWS, "µV", yieldNow);
+    const scale = await cursorScale(
+      m,
+      200,
+      "rms",
+      ALL_ROWS,
+      ALL_ROWS.map((r) => [r]),
+      "µV",
+      yieldNow,
+    );
     expect(scale).not.toBeNull();
     if (!scale) return;
     expect(scale.kind).toBe("sequential");
@@ -175,7 +198,15 @@ describe("the color scale of the cursor measure", () => {
     expect(scale.lo).toBeGreaterThan(0);
     expect(scale.hi).toBeGreaterThan(scale.lo);
     // Every cursor position then colors against these limits: they do not depend on the cursor.
-    const again = await cursorScale(m, 200, "rms", ALL_ROWS, "µV", yieldNow);
+    const again = await cursorScale(
+      m,
+      200,
+      "rms",
+      ALL_ROWS,
+      ALL_ROWS.map((r) => [r]),
+      "µV",
+      yieldNow,
+    );
     expect(again?.lo).toBe(scale.lo);
     expect(again?.hi).toBe(scale.hi);
     // The limits lie inside the range of the values the percentiles came from.
@@ -195,14 +226,32 @@ describe("the color scale of the cursor measure", () => {
 
   it("is null for a read shorter than two samples or a window too short for the rate", async () => {
     const one = matrixOf([new Float32Array(1)]);
-    expect(await cursorScale(one, 200, "rms", [0], "µV", yieldNow)).toBeNull();
+    expect(await cursorScale(one, 200, "rms", [0], [[0]], "µV", yieldNow)).toBeNull();
     const slow = matrixOf(fixtureRows(), 300, 20);
-    expect(await cursorScale(slow, 50, "rms", ALL_ROWS, "µV", yieldNow)).toBeNull();
+    expect(
+      await cursorScale(
+        slow,
+        50,
+        "rms",
+        ALL_ROWS,
+        ALL_ROWS.map((r) => [r]),
+        "µV",
+        yieldNow,
+      ),
+    ).toBeNull();
   });
 
   it("a read shorter than the window still gets a scale from the clipped window", async () => {
     const m = matrixOf(fixtureRows().map((r) => r.slice(0, 100)));
-    const scale = await cursorScale(m, 500, "rms", ALL_ROWS, "µV", yieldNow);
+    const scale = await cursorScale(
+      m,
+      500,
+      "rms",
+      ALL_ROWS,
+      ALL_ROWS.map((r) => [r]),
+      "µV",
+      yieldNow,
+    );
     expect(scale).not.toBeNull();
   });
 });
@@ -212,7 +261,15 @@ describe("the live recolor engine", () => {
 
   async function engine() {
     const m = matrixOf(fixtureRows());
-    const scale = await cursorScale(m, 200, "rms", ALL_ROWS, "µV", yieldNow);
+    const scale = await cursorScale(
+      m,
+      200,
+      "rms",
+      ALL_ROWS,
+      ALL_ROWS.map((r) => [r]),
+      "µV",
+      yieldNow,
+    );
     if (!scale) throw new Error("no scale");
     // One contact per channel, plus a bipolar contact fed by channels 0 and 1.
     const contactRows = [...ALL_ROWS.map((r) => [r]), [0, 1]];
@@ -258,15 +315,25 @@ describe("the live recolor engine", () => {
     expect(changed).toBeGreaterThanOrEqual(2);
   });
 
-  it("reports unchanged entries as unchanged, and invalidate forces a full repaint", async () => {
+  it("changed is relative to the last commit: a call that does not paint never consumes it", async () => {
     const { live } = await engine();
+    // Before the first paint every entry counts as changed.
+    expect(live.anyChanged).toBe(true);
     live.update(301);
+    live.update(301);
+    live.update(301);
+    expect(Array.from(live.changed).every((c) => c === 1)).toBe(true);
+    live.commit();
+    expect(live.anyChanged).toBe(false);
     expect(live.update(301)).toBe(true);
     expect(live.anyChanged).toBe(false);
     live.invalidate();
-    live.update(301);
     expect(live.anyChanged).toBe(true);
+    live.update(301);
     expect(Array.from(live.changed).every((c) => c === 1)).toBe(true);
+    live.commit();
+    live.update(300.2);
+    expect(live.anyChanged).toBe(true);
   });
 
   it("a center off the read changes nothing and returns false", async () => {
@@ -283,7 +350,15 @@ describe("the live recolor engine", () => {
     bad[1000] = Number.POSITIVE_INFINITY;
     rows[2] = bad;
     const m = matrixOf(rows);
-    const scale = await cursorScale(m, 200, "rms", ALL_ROWS, "µV", yieldNow);
+    const scale = await cursorScale(
+      m,
+      200,
+      "rms",
+      ALL_ROWS,
+      ALL_ROWS.map((r) => [r]),
+      "µV",
+      yieldNow,
+    );
     if (!scale) throw new Error("no scale");
     const live = createLiveActivity({
       matrix: m,
@@ -309,5 +384,87 @@ describe("the live recolor engine", () => {
     const grew = process.memoryUsage().heapUsed - before;
     // 5000 updates of 15 contacts: a leaking per-update array would be tens of megabytes.
     expect(grew).toBeLessThan(8_000_000);
+  });
+});
+
+describe("the cursor scale pools contact values, as the colors show them", () => {
+  const yieldNow = () => Promise.resolve();
+
+  it("with bipolar contacts the limits are percentiles of the pair means, not of the channels", async () => {
+    // Two channels of very different size feed one contact; the scale must follow their mean.
+    const small = Float32Array.from({ length: 2000 }, (_, i) => 1e-6 * Math.sin(i / 5));
+    const large = Float32Array.from({ length: 2000 }, (_, i) => 100e-6 * Math.sin(i / 5));
+    const m = matrixOf([small, large]);
+    const pooled = await cursorScale(m, 200, "rms", [0, 1], [[0, 1]], "µV", yieldNow);
+    const perChannel = await cursorScale(m, 200, "rms", [0, 1], [[0], [1]], "µV", yieldNow);
+    const out = new Float64Array(2);
+    shortWindowValues(m, 300.5, 200, "rms", [0, 1], out);
+    const mean = (out[0] + out[1]) / 2;
+    // One contact, so every pooled value is that contact's mean (about 50 µV): a narrow scale.
+    expect(pooled?.hi).toBeCloseTo(mean, 0);
+    expect(pooled?.lo).toBeCloseTo(mean, 0);
+    // Pooling the raw channels would span 0.7 to 70 µV.
+    expect(perChannel?.hi ?? 0).toBeGreaterThan(60);
+    expect(perChannel?.lo ?? 1e9).toBeLessThan(5);
+  });
+
+  it("the engine colors a bipolar contact with the pair's mean on that same scale", async () => {
+    const a = Float32Array.from({ length: 2000 }, (_, i) => 10e-6 * Math.sin(i / 5));
+    const b = Float32Array.from({ length: 2000 }, (_, i) => 30e-6 * Math.sin(i / 5));
+    const m = matrixOf([a, b]);
+    const contactRows = [[0, 1], [1]];
+    const scale = await cursorScale(m, 200, "rms", [0, 1], contactRows, "µV", yieldNow);
+    if (!scale) throw new Error("no scale");
+    const live = createLiveActivity({
+      matrix: m,
+      rows: [0, 1],
+      contactRows,
+      metric: "rms",
+      widthMs: 200,
+      scale,
+    });
+    live.update(301);
+    const ch = new Float64Array(2);
+    shortWindowValues(m, 301, 200, "rms", [0, 1], ch);
+    expect(live.contactValues[0]).toBeCloseTo((ch[0] + ch[1]) / 2, 9);
+    expect(live.contactValues[1]).toBeCloseTo(ch[1], 9);
+  });
+});
+
+describe("why a contact has no value, as the whole-window metrics say it", () => {
+  const yieldNow = () => Promise.resolve();
+  const scaleFor = (m: ActivityMatrix) =>
+    cursorScale(m, 200, "rms", [0, 1, 2], [[0], [1], [2]], "µV", yieldNow);
+
+  it("a non-number is non_finite, an overflowed result is undefined_value, and a pair takes its first channel's reason", async () => {
+    const ok = Float32Array.from({ length: 2000 }, (_, i) => 1e-6 * Math.sin(i / 5));
+    const nan = Float32Array.from(ok);
+    nan[1000] = Number.NaN;
+    // Finite samples whose squares overflow a double: the result is not a number the panel can show.
+    const huge = Float64Array.from(ok, (_, i) => (i % 2 ? 1e200 : -1e200));
+    const m = matrixOf([ok, nan, huge]);
+    const scale = await scaleFor(m);
+    if (!scale) throw new Error("no scale");
+    const live = createLiveActivity({
+      matrix: m,
+      rows: [0, 1, 2],
+      contactRows: [[0], [1], [2], [1, 2], [2, 1], [0, 1]],
+      metric: "rms",
+      widthMs: 200,
+      scale,
+    });
+    live.update(301);
+    expect(Array.from(live.contactReasons)).toEqual([
+      NO_REASON,
+      REASON_NON_FINITE,
+      REASON_UNDEFINED,
+      REASON_NON_FINITE,
+      REASON_UNDEFINED,
+      NO_REASON,
+    ]);
+    expect(live.indexes[1]).toBe(-1);
+    expect(live.indexes[2]).toBe(-1);
+    // A pair with one good channel is colored by that channel.
+    expect(Number.isFinite(live.contactValues[5])).toBe(true);
   });
 });
