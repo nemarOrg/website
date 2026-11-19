@@ -31,7 +31,7 @@
  *   surface's own frame), nm000485 (Talairach) and nm000376 (IXI549Space) carry the label each
  *   row owes them (on004100, the one fsaverage dataset here, declares meters over millimeter-sized
  *   numbers: its units banner withholds it from any template, and the validation spec covers it); nm000355 (ACPC) draws no surface, fetches no mesh and says
- *   "No template placement for ACPC"; a failed mesh fetch leaves the contacts, says so, and a
+ *   "No brain surface: this recording's coordinate frame (ACPC)"; a failed mesh fetch leaves the contacts, says so, and a
  *   reopened panel tries again; an EEG dataset never asks for a mesh.
  *   nm000355 is the ACPC case here; on005415 (also ACPC) is the name-join case below.
  * - Name joins (card IS-J1): on005415's Zarr store labels channels "LTP1-20000" where the BIDS
@@ -394,9 +394,7 @@ test("on005522: the template brain is drawn behind the contacts, labeled, and fe
   );
   await expect(page.locator("[data-spatial-status]")).toContainText("frame: MNI152NLin6ASym;");
   // No "no placement" sentence for a placed frame.
-  await expect(page.locator(`${PANEL} .eegv__spatial-notes`)).not.toContainText(
-    "No template placement",
-  );
+  await expect(page.locator(`${PANEL} .eegv__spatial-notes`)).not.toContainText("No brain surface");
 
   // The notice the template travels with, and its reference, are links to read.
   const license = page.locator("[data-spatial-template-license]");
@@ -444,7 +442,7 @@ test("nm000355 is in ACPC: no brain, no mesh request, and the panel says there i
   await expect(page.locator(TEMPLATE_BOX)).toBeHidden();
   await expect(page.locator("[data-spatial-status]")).toContainText("frame: ACPC;");
   await expect(page.locator(`${PANEL} .eegv__spatial-notes`)).toContainText(
-    "No template placement for ACPC: positions are shown in the dataset's own frame",
+    "No brain surface: this recording's coordinate frame (ACPC) has no cited transform to the template, so contacts are drawn in their own space.",
   );
   // Contacts only: small spheres, nothing like a brain's footprint.
   const share = await inkShare(page);
@@ -487,7 +485,7 @@ for (const c of PLACED_FRAMES) {
     await expect(page.locator("[data-spatial-template-license]")).toBeVisible();
     await expect(page.locator("[data-spatial-template-reference]")).toBeVisible();
     await expect(page.locator(`${PANEL} .eegv__spatial-notes`)).not.toContainText(
-      "No template placement",
+      "No brain surface",
     );
     const share = await inkShare(page);
     test.info().annotations.push({ type: `ink-share-${c.frame}`, description: share.toFixed(3) });
@@ -1198,7 +1196,7 @@ test("nm000355 (ACPC): no outlines, no template line, no label, and no request f
   const svg = await saved(page, "svg");
   const facts = await svgFacts(page, svg.bytes.toString("utf8"));
   expect(facts.outlines).toBe(0);
-  expect(facts.text).toContain("No template placement for ACPC");
+  expect(facts.text).toContain("No brain surface: this recording's coordinate frame (ACPC)");
   expect(facts.text).not.toContain("Template brain");
   for (const t of facts.titles) {
     expect(t).toMatch(/; recorded \(.*\) mm, frame: ACPC$/);

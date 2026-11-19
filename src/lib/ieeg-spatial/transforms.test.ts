@@ -26,6 +26,8 @@ import {
   loadTemplateSurface,
   mergeMeshes,
   noPlacementSentence,
+  noSurfaceReason,
+  noSurfaceSentence,
   placeOnTemplate,
   placementRuleFor,
   templateLabel,
@@ -405,17 +407,17 @@ describe("the sentence for a frame with no template placement", () => {
     const sentence = (label: string | null, entity: string | null = null) =>
       noPlacementSentence(classifyFrame(label, entity, null));
     expect(sentence("ACPC")).toBe(
-      "No template placement for ACPC: positions are shown in the dataset's own frame",
+      "No brain surface: this recording's coordinate frame (ACPC) has no cited transform to the template, so contacts are drawn in their own space.",
     );
-    expect(sentence("ScanRAS")).toContain("for ScanRAS:");
-    expect(sentence("Other")).toContain("for Other:");
-    expect(sentence("Pixels")).toContain("for Pixels:");
-    expect(sentence("mni")).toContain("for mni:");
-    expect(sentence("fsLR")).toContain("for fsLR:");
+    expect(sentence("ScanRAS")).toContain("frame (ScanRAS)");
+    expect(sentence("Other")).toContain("frame (Other)");
+    expect(sentence("Pixels")).toContain("frame (Pixels)");
+    expect(sentence("mni")).toContain("frame (mni)");
+    expect(sentence("fsLR")).toContain("frame (fsLR)");
     expect(sentence(null)).toBe(
-      "No template placement for an undeclared frame: positions are shown in the dataset's own frame",
+      "No brain surface: this recording declares no coordinate frame, so there is no transform to the template and contacts are drawn in their own space.",
     );
-    expect(noPlacementSentence(null)).toContain("an undeclared frame");
+    expect(noPlacementSentence(null)).not.toContain("(an undeclared frame)");
     expect(frameWord(classifyFrame("MNI152NLin6Asym", null, null))).toBe("MNI152NLin6ASym");
   });
 });
@@ -651,7 +653,7 @@ describe("every identifier of the BIDS appendix is placed or pending", () => {
       expect(frame, label).toMatchObject({ kind: "unknown", why: "unrecognized_label" });
       expect(placementRuleFor(frame, { unit: "mm" }), label).toBeNull();
       expect(isPendingTemplate(frame), label).toBe(false);
-      expect(noPlacementSentence(frame), label).not.toContain(" yet ");
+      expect(noPlacementSentence(frame), label).not.toContain("surface yet");
     }
     // the one that equals a current identifier in letter case is that identifier (fsaverageSym, placed)
     const sym = classifyFrame("fsaveragesym", null, null);
@@ -660,23 +662,63 @@ describe("every identifier of the BIDS appendix is placed or pending", () => {
     expect(placementRuleFor(sym, { unit: "mm" })?.identifier).toBe("fsaverageSym");
   });
 
-  it("a pending family reads 'No template placement yet for X' and every other unplaced frame reads 'No template placement for X'", () => {
+  it("a pending family reads 'No brain surface yet' and every other unplaced frame reads 'No brain surface'", () => {
     const sentence = (label: string | null, entity: string | null = null) =>
       noPlacementSentence(classifyFrame(label, entity, null));
-    const tail = ": positions are shown in the dataset's own frame";
     for (const id of PENDING_TEMPLATES.keys()) {
-      expect(sentence(id), id).toBe(`No template placement yet for ${id}${tail}`);
+      expect(sentence(id), id).toBe(
+        `No brain surface yet: this recording's coordinate frame (${id}) is a template family whose transform this site does not have yet, so contacts are drawn in their own space.`,
+      );
     }
     for (const label of ["ACPC", "ScanRAS", "Other", "Pixels", "mni", "MNI152", "fsaverage5"]) {
-      expect(sentence(label), label).toBe(`No template placement for ${label}${tail}`);
+      expect(sentence(label), label).toBe(
+        `No brain surface: this recording's coordinate frame (${label}) has no cited transform to the template, so contacts are drawn in their own space.`,
+      );
     }
-    expect(sentence(null)).toBe(`No template placement for an undeclared frame${tail}`);
-    // a placed identifier that was not placed (its units are not declared) is not "pending"
-    expect(sentence("MNI152NLin6Asym")).toBe(`No template placement for MNI152NLin6ASym${tail}`);
-    // the two wordings differ for a pending family and for a native frame, and only by "yet" and the name
+    expect(sentence(null)).toBe(noSurfaceSentence("undeclared_frame", null));
+    // the two wordings differ for a pending family and for a native frame
     expect(sentence("MNIColin27")).not.toBe(sentence("ACPC"));
-    expect(sentence("MNIColin27").replace(" yet", "")).toBe(
-      sentence("ACPC").replace("ACPC", "MNIColin27"),
+  });
+});
+
+describe("why no brain surface is drawn", () => {
+  const registered = classifyFrame("MNI152NLin2009cAsym", null, null);
+
+  it("maps each reason to one sentence that says what is drawn instead", () => {
+    const acpc = classifyFrame("ACPC", null, null);
+    const pending = classifyFrame("fsLR", null, null);
+    expect(noSurfaceSentence("no_transform", acpc)).toBe(
+      "No brain surface: this recording's coordinate frame (ACPC) has no cited transform to the template, so contacts are drawn in their own space.",
     );
+    expect(noSurfaceSentence("pending_transform", pending)).toMatch(
+      /^No brain surface yet: .*\(fsLR\)/,
+    );
+    expect(noSurfaceSentence("undeclared_frame", null)).toContain("declares no coordinate frame");
+    expect(noSurfaceSentence("units_not_mm", registered)).toContain("no length unit");
+    expect(noSurfaceSentence("units_banner", registered)).toContain("does not match");
+    for (const reason of [
+      "no_transform",
+      "pending_transform",
+      "undeclared_frame",
+      "units_not_mm",
+      "units_banner",
+    ] as const) {
+      const sentence = noSurfaceSentence(reason, acpc);
+      expect(sentence, reason).toMatch(/^No brain surface/);
+      expect(sentence.match(/\./g)?.length, reason).toBe(1);
+    }
+  });
+
+  it("derives the reason from the frame first, then the units, then the banner", () => {
+    const mm = { unit: "mm" } as const;
+    expect(noSurfaceReason(registered, mm, false)).toBeNull();
+    expect(noSurfaceReason(classifyFrame("ACPC", null, null), mm, false)).toBe("no_transform");
+    expect(noSurfaceReason(classifyFrame("fsLR", null, null), mm, false)).toBe("pending_transform");
+    expect(noSurfaceReason(null, mm, false)).toBe("undeclared_frame");
+    expect(noSurfaceReason(registered, { unit: null }, false)).toBe("units_not_mm");
+    expect(noSurfaceReason(registered, { unit: "pixels" }, false)).toBe("units_not_mm");
+    expect(noSurfaceReason(registered, mm, true)).toBe("units_banner");
+    // a frame with no row says so even under the banner: the frame is the root cause
+    expect(noSurfaceReason(classifyFrame("ACPC", null, null), mm, true)).toBe("no_transform");
   });
 });

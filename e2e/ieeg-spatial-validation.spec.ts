@@ -827,7 +827,7 @@ for (const c of TEMPLATE_CASES) {
       ),
     );
     await expect(page.locator(TEMPLATE_LABEL)).toHaveText(c.label);
-    await expect(page.locator(NOTES)).not.toContainText("No template placement");
+    await expect(page.locator(NOTES)).not.toContainText("No brain surface");
     expect(await page.locator(TEMPLATE_LABEL).textContent()).toContain(
       c.label === OWN_LABEL ? "not this subject's anatomy" : "approximate:",
     );
@@ -890,7 +890,9 @@ for (const c of TEMPLATE_CASES) {
       // The other frame (Other) is listed and worded separately; it has no placement.
       await page.selectOption("[data-spatial-frame]", { label: "Other" });
       await expect(page.locator(STATUS)).toContainText("frame: Other;");
-      await expect(page.locator(NOTES)).toContainText("No template placement for Other");
+      await expect(page.locator(NOTES)).toContainText(
+        "No brain surface: this recording's coordinate frame (Other)",
+      );
       await expect(page.locator(TEMPLATE_BOX)).toBeHidden();
       await page.selectOption("[data-spatial-frame]", { label: "Talairach" });
       await expect(page.locator(TEMPLATE_LABEL)).toHaveText(c.label);
@@ -972,7 +974,7 @@ test("native frame ACPC: on005415 joins names by a rule, says so, and never goes
   await expect(page.locator(PANEL)).toHaveAttribute("data-template-state", "none");
   await expect(page.locator(TEMPLATE_BOX)).toBeHidden();
   await expect(page.locator(NOTES)).toContainText(
-    "No template placement for ACPC: positions are shown in the dataset's own frame",
+    "No brain surface: this recording's coordinate frame (ACPC) has no cited transform to the template, so contacts are drawn in their own space.",
   );
   await expect(page.locator(NOTES)).toContainText(
     "Units: millimeters (the file says m, scaled to millimeters).",
@@ -1021,7 +1023,9 @@ test("native frames ACPC and ScanRAS: on004473 keeps exponent notation, joins na
   await expect(page.locator(NOTES)).toContainText(
     "joined to contacts by normalized match: channel names carry whitespace the electrodes file does not. For example LENT 1 for LENT1",
   );
-  await expect(page.locator(NOTES)).toContainText("No template placement for ACPC");
+  await expect(page.locator(NOTES)).toContainText(
+    "No brain surface: this recording's coordinate frame (ACPC)",
+  );
 
   // A value the file writes with an exponent is shown with it, never as 0 or as -0.0000759.
   const acpc = await expectRecordedVerbatim(page, sidecars, "sub-1_space-ACPC", "ACPC");
@@ -1036,7 +1040,9 @@ test("native frames ACPC and ScanRAS: on004473 keeps exponent notation, joins na
   // The other frame: the same words, its own file's text, still no placement.
   await page.selectOption("[data-spatial-frame]", { label: "ScanRAS" });
   await expect(page.locator(STATUS)).toContainText("frame: ScanRAS;");
-  await expect(page.locator(NOTES)).toContainText("No template placement for ScanRAS");
+  await expect(page.locator(NOTES)).toContainText(
+    "No brain surface: this recording's coordinate frame (ScanRAS)",
+  );
   const ras = await expectRecordedVerbatim(page, sidecars, "sub-1_space-ScanRAS", "ScanRAS");
   expect(ras.exponentRows.join("\n")).toContain("7.239242608449814e-05");
   await expect(page.locator(TEMPLATE_BOX)).toBeHidden();

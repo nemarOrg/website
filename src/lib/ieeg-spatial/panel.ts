@@ -133,7 +133,8 @@ import {
   type TemplatePlacementRule,
   fetchBytesSameOrigin,
   loadTemplateSurface,
-  noPlacementSentence,
+  noSurfaceReason,
+  noSurfaceSentence,
   placeOnTemplate,
   placementRuleFor,
   templateLabel,
@@ -1635,7 +1636,8 @@ function frameNotes(placement: Placement): string[] {
   if (frame?.kind === "unknown" && frame.why === "no_coordsystem") {
     notes.push("No coordinate system file pairs with these positions.");
   }
-  if (placementRuleFor(frame, space.units) === null) notes.push(noPlacementSentence(frame));
+  const surface = noSurfaceReason(frame, space.units, bannerOf(placement) !== null);
+  if (surface !== null) notes.push(noSurfaceSentence(surface, frame));
   notes.push(unitsSentence(space.units));
   notes.push(...matchNotes(placement.joins));
   notes.push(...unlocatedNotes(placement.joins));
@@ -1889,8 +1891,6 @@ export interface ColorPalette {
  * selection exists the other contacts are translucent, so every selected contact (both of a
  * bipolar pair) stands out. Null when nothing is drawn.
  */
-export function contactColors(state: PanelState, palette: ColorPalette): Float32Array | null {
-  const placement = state.placement;
 /**
  * Whether the stage should make colored contacts read (a more transparent surface, unlit and
  * outlined contacts): Activity is on and has values to show.
@@ -1899,6 +1899,8 @@ export function activityEmphasis(state: PanelState): boolean {
   return state.activity.on && state.activity.shown !== null;
 }
 
+export function contactColors(state: PanelState, palette: ColorPalette): Float32Array | null {
+  const placement = state.placement;
   if (!placement) return null;
   const shown = state.activity.on ? state.activity.shown : null;
   const selected = new Set(state.selection.contacts);
@@ -2886,9 +2888,9 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     }
     const colors = contactColors(shownState, palette);
     colorsBuf = colors;
+    renderer.setEmphasis(activityEmphasis(shownState));
     if (colors) renderer.setColors(colors);
     liveCursor?.invalidate();
-    renderer.setEmphasis(activityEmphasis(shownState));
     renderer.setSelected(
       state.selection.contacts.length === 1 ? state.selection.contacts[0] : null,
     );

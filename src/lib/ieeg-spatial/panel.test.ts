@@ -1992,7 +1992,9 @@ describe("template anatomy", () => {
       expect(model.stage.kind, c.name).toBe("canvas");
       expect(model.template, c.name).toBeNull();
       expect(model.notes, c.name).toContain(
-        `No template placement for ${c.word}: positions are shown in the dataset's own frame`,
+        c.name.includes("units are not declared")
+          ? `No brain surface: the positions in frame ${c.word} have no length unit this view converts to millimeters, so contacts are drawn as written and not placed on the template.`
+          : `No brain surface: this recording's coordinate frame (${c.word}) has no cited transform to the template, so contacts are drawn in their own space.`,
       );
       // drawn exactly where the dataset says, and no surface
       expect(drawnTemplate(live.state), c.name).toBeNull();
@@ -2005,7 +2007,7 @@ describe("template anatomy", () => {
   it("a frame that is placed does not say 'no template placement'", async () => {
     for (const c of PLACED) {
       const { state } = await placedState(c);
-      expect(viewModel(state).notes.join("\n"), c.name).not.toMatch(/No template placement/);
+      expect(viewModel(state).notes.join("\n"), c.name).not.toMatch(/No brain surface/);
     }
   });
 
@@ -2061,7 +2063,7 @@ describe("template anatomy", () => {
     expect(viewModel(moved).template).toBeNull();
     expect(drawnTemplate(moved)).toBeNull();
     expect(viewModel(moved).notes).toContain(
-      "No template placement for Other: positions are shown in the dataset's own frame",
+      "No brain surface: this recording's coordinate frame (Other) has no cited transform to the template, so contacts are drawn in their own space.",
     );
     // Back to Talairach: the surface it already holds is drawn, with no second request.
     const back = reduce(moved, { type: "frame_changed", spaceIndex: talairach });
@@ -2197,7 +2199,6 @@ describe("template anatomy", () => {
     const ref: RecordingRef = { datasetId: "nm000454", version: "v1.0.2", path: NM454 };
     return openedOnSpace(geometry, 0, ref);
   }
-  const TAIL = ": positions are shown in the dataset's own frame";
 
   it("a pending family and an unsupported native frame get different sentences, and neither places a contact", async () => {
     const pendingLabels = [
@@ -2214,15 +2215,21 @@ describe("template anatomy", () => {
     expect(declared?.length).toBeGreaterThan(10);
     const native = await underFrame("ACPC");
     const nativeNotes = viewModel(native.state).notes;
-    expect(nativeNotes).toContain(`No template placement for ACPC${TAIL}`);
-    expect(nativeNotes.join("\n")).not.toContain("placement yet");
+    expect(nativeNotes).toContain(
+      "No brain surface: this recording's coordinate frame (ACPC) has no cited transform to the template, so contacts are drawn in their own space.",
+    );
+    expect(nativeNotes.join("\n")).not.toContain("surface yet");
 
     for (const label of pendingLabels) {
       const { state, effects } = await underFrame(label);
       const model = viewModel(state);
       expect(model.stage.kind, label).toBe("canvas");
-      expect(model.notes, label).toContain(`No template placement yet for ${label}${TAIL}`);
-      expect(model.notes, label).not.toContain(`No template placement for ${label}${TAIL}`);
+      expect(model.notes, label).toContain(
+        `No brain surface yet: this recording's coordinate frame (${label}) is a template family whose transform this site does not have yet, so contacts are drawn in their own space.`,
+      );
+      expect(model.notes, label).not.toContain(
+        `No brain surface: this recording's coordinate frame (${label}) has no cited transform to the template, so contacts are drawn in their own space.`,
+      );
       // no surface asked for, none drawn, no label, contacts exactly as declared
       expect(loads(effects), label).toEqual([]);
       expect(state.template, label).toBe("idle");
@@ -2243,7 +2250,7 @@ describe("template anatomy", () => {
     const sym = await underFrame("fsaverageSym");
     expect(loads(sym.effects)).toHaveLength(1);
     expect(sym.state.template).toBe("loading");
-    expect(viewModel(sym.state).notes.join("\n")).not.toMatch(/No template placement/);
+    expect(viewModel(sym.state).notes.join("\n")).not.toMatch(/No brain surface/);
     const ready = loaded(sym.state);
     expect(viewModel(ready).template).toMatchObject({
       status: "ready",
@@ -2266,7 +2273,7 @@ describe("template anatomy", () => {
     });
     expect(loads(effects)).toEqual([]);
     expect(viewModel(state).notes).toContain(
-      "No template placement for an undeclared frame: positions are shown in the dataset's own frame",
+      "No brain surface: this recording declares no coordinate frame, so there is no transform to the template and contacts are drawn in their own space.",
     );
     expect(state.template).toBe("idle");
   });

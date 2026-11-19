@@ -1299,7 +1299,7 @@ describe("the 2D views and the files draw a registered template, the same way as
       expect(svg, name).not.toContain("Template surface");
       const word = state.placement?.space.frame;
       expect(
-        figureLabels(input, true).some((l) => l.text.startsWith("No template placement")),
+        figureLabels(input, true).some((l) => l.text.startsWith("No brain surface")),
         name,
       ).toBe(true);
       expect(

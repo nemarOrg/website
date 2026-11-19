@@ -329,12 +329,68 @@ export function frameWord(frame: Frame | null): string {
 }
 
 /**
- * Said for every shown space that is not placed on the surface. A pending family reads "yet": it
- * is a known template whose transform this site has not got, not a frame with no template at all.
+ * Why a shown space is drawn without the brain surface. One code per reason; `noSurfaceSentence`
+ * is the only place that words them.
+ *
+ * - `undeclared_frame`: the electrodes file's frame names nothing.
+ * - `pending_transform`: a template family whose transform this site does not have yet.
+ * - `no_transform`: any other frame with no cited transform to the template.
+ * - `units_not_mm`: a registered frame, but the positions could not be scaled to millimeters.
+ * - `units_banner`: a registered frame, but the declared unit disagrees with the numbers.
+ */
+export type NoSurfaceReason =
+  | "undeclared_frame"
+  | "pending_transform"
+  | "no_transform"
+  | "units_not_mm"
+  | "units_banner";
+
+/** The reason the frame alone gives for having no placement; null for a registered frame. */
+export function noSurfaceFrameReason(frame: Frame | null): NoSurfaceReason | null {
+  if (frame?.kind === "template" && TEMPLATE_PLACEMENTS.has(frame.identifier)) return null;
+  if (isPendingTemplate(frame)) return "pending_transform";
+  if (frameWord(frame) === "an undeclared frame") return "undeclared_frame";
+  return "no_transform";
+}
+
+/**
+ * Why no surface is drawn for this space, or null when one is placed. The frame decides first,
+ * then the units; `bannerShown` says the units banner applies to the drawn positions.
+ */
+export function noSurfaceReason(
+  frame: Frame | null,
+  units: Pick<Units, "unit">,
+  bannerShown: boolean,
+): NoSurfaceReason | null {
+  const byFrame = noSurfaceFrameReason(frame);
+  if (byFrame !== null) return byFrame;
+  if (units.unit !== "mm") return "units_not_mm";
+  return bannerShown ? "units_banner" : null;
+}
+
+/** One sentence per reason, each saying what is drawn instead. */
+export function noSurfaceSentence(reason: NoSurfaceReason, frame: Frame | null): string {
+  const word = frameWord(frame);
+  switch (reason) {
+    case "undeclared_frame":
+      return "No brain surface: this recording declares no coordinate frame, so there is no transform to the template and contacts are drawn in their own space.";
+    case "pending_transform":
+      return `No brain surface yet: this recording's coordinate frame (${word}) is a template family whose transform this site does not have yet, so contacts are drawn in their own space.`;
+    case "no_transform":
+      return `No brain surface: this recording's coordinate frame (${word}) has no cited transform to the template, so contacts are drawn in their own space.`;
+    case "units_not_mm":
+      return `No brain surface: the positions in frame ${word} have no length unit this view converts to millimeters, so contacts are drawn as written and not placed on the template.`;
+    case "units_banner":
+      return "No brain surface: the declared unit does not match the size of the numbers (see the warning above the drawing), so contacts are drawn as declared and not placed on the template.";
+  }
+}
+
+/**
+ * Said for every shown space whose frame is not placed on the surface. A pending family reads
+ * "yet": it is a known template whose transform this site has not got.
  */
 export function noPlacementSentence(frame: Frame | null): string {
-  const yet = isPendingTemplate(frame) ? " yet" : "";
-  return `No template placement${yet} for ${frameWord(frame)}: positions are shown in the dataset's own frame`;
+  return noSurfaceSentence(noSurfaceFrameReason(frame) ?? "no_transform", frame);
 }
 
 // ---------------------------------------------------------------------------
