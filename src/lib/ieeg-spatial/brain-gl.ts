@@ -55,6 +55,8 @@ const EMPHASIS_ALPHA_FACTOR = 0.45;
 /** Contacts are drawn this much larger with Activity on, inside a thin outline of the contrast color. */
 export const EMPHASIS_GROW = 1.3;
 const OUTLINE_GROW = 1.22;
+/** What picking scales a contact by while emphasis draws it: the grown sphere and its outline. */
+export const EMPHASIS_PICK_GROW = EMPHASIS_GROW * OUTLINE_GROW;
 const MAX_DPR = 2;
 /** Selection ring thickness, CSS pixels. */
 const RING_PX = 3;
@@ -213,6 +215,7 @@ export function pickNearest(
   spheres: Float32Array,
   colors?: Uint8Array,
   minPx: number = MIN_PICK_PX,
+  grow = 1,
 ): number | null {
   const { origin: o, dir: d } = screenRay(cam, x, y, width, height);
   const fwd = screenRay(cam, width / 2, height / 2, width, height).dir;
@@ -227,7 +230,7 @@ export function pickNearest(
     const mz = spheres[i * 4 + 2] - o[2];
     const depth = mx * fwd[0] + my * fwd[1] + mz * fwd[2];
     const mm = mmPerPixel(cam, depth, height);
-    const r = spheres[i * 4 + 3];
+    const r = spheres[i * 4 + 3] * grow;
     const tca = mx * d[0] + my * d[1] + mz * d[2];
     const miss2 = mx * mx + my * my + mz * mz - tca * tca;
     if (tca < 0 || miss2 > Math.max(r, minPx * mm) ** 2) continue;
@@ -300,7 +303,7 @@ void main(){
 // 4 the outline of the opaque ones (an inverted hull: a larger sphere, front faces culled).
 // For 1 and 2 other instances are pushed outside the clip volume instead of drawn, which keeps
 // the selection passes on the main buffers and VAO.
-const CONTACT_VS = (OUTLINE: number) => `#version 300 es
+const CONTACT_VS = `#version 300 es
 layout(location=0) in vec3 a_p;
 layout(location=1) in vec4 a_c;
 layout(location=2) in vec4 a_k;
@@ -312,7 +315,7 @@ flat out vec4 v_k;
 void main(){
   if ((u_mode == 1 || u_mode == 2) && gl_InstanceID != u_sel) { gl_Position = vec4(2, 2, 2, 1); return; }
   float r = a_c.w * u_grow;
-  if (u_mode == 4) r *= ${OUTLINE.toFixed(2)};
+  if (u_mode == 4) r *= ${OUTLINE_GROW.toFixed(2)};
   if (u_mode == 1) r += max(.35 * r, u_ring * (u_vp * vec4(a_c.xyz, 1)).w);
   v_n = mat3(u_v) * a_p;
   v_k = a_k;
@@ -544,7 +547,7 @@ export function createBrainRenderer(
     instanceBuf = colorBuf = softInstanceBuf = softColorBuf = meshVao = null;
     meshBufs = [];
     meshProg = link(MESH_VS, MESH_FS, ["u_vp", "u_v", "u_c", "u_o", "u_a"]);
-    contactProg = link(CONTACT_VS(OUTLINE_GROW), CONTACT_FS, [
+    contactProg = link(CONTACT_VS, CONTACT_FS, [
       "u_vp",
       "u_v",
       "u_o",
@@ -924,7 +927,17 @@ export function createBrainRenderer(
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
       if (disposed || !w || !h) return null;
-      return pickNearest(cam, x, y, w, h, spheres, colors, minPx);
+      return pickNearest(
+        cam,
+        x,
+        y,
+        w,
+        h,
+        spheres,
+        colors,
+        minPx,
+        emphasis ? EMPHASIS_PICK_GROW : 1,
+      );
     },
     setTheme(t) {
       if (disposed) return;

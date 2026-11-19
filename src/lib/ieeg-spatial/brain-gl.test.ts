@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  EMPHASIS_PICK_GROW,
   MAX_CONTACTS,
   MIN_PICK_PX,
   contactRadius,
@@ -123,6 +124,15 @@ describe("pickNearest", () => {
     expect(pickNearest(cam, cx, cy, W, H, nearFirst)).toBe(0);
   });
 
+  it("counts the grown radius while emphasis draws contacts larger, so a visible rim is a hit", () => {
+    const cam = view("front"); // screen right is -x
+    const spheres = packContacts(contactsAt([0, 0, 0], 4 * Math.PI * 2.25)); // r = 3
+    const [px, py] = project(cam, [-4.5, 0, 0], W, H); // 4.5 mm out: past r, inside r * 1.6
+    expect(pickNearest(cam, px, py, W, H, spheres, undefined, 0)).toBeNull();
+    expect(pickNearest(cam, px, py, W, H, spheres, undefined, 0, EMPHASIS_PICK_GROW)).toBe(0);
+    expect(EMPHASIS_PICK_GROW).toBeCloseTo(1.3 * 1.22, 9);
+  });
+
   it("between two overlapping contacts at one depth, returns the one nearer the ray", () => {
     const cam = view("front"); // screen right is -x
     const spheres = packContacts(contactsAt([-1.5, 0, 0, 1.5, 0, 0], 4 * Math.PI * 2.25)); // r = 3
@@ -241,7 +251,7 @@ describe("meshAlphaFor", () => {
 
   it("keeps the dark theme's alpha and gives a light canvas far less", () => {
     expect(meshAlphaFor(dark, false)).toBe(0.25);
-    expect(meshAlphaFor(light, false)).toBeLessThan(meshAlphaFor(dark, false) / 1.5);
+    expect(meshAlphaFor(light, false)).toBe(0.12);
   });
 
   it("steps the surface back further while Activity colors the contacts, in both themes", () => {
@@ -249,5 +259,7 @@ describe("meshAlphaFor", () => {
       expect(meshAlphaFor(bg, true)).toBeLessThan(meshAlphaFor(bg, false));
       expect(meshAlphaFor(bg, true)).toBeGreaterThan(0);
     }
+    expect(meshAlphaFor(dark, true)).toBeCloseTo(0.1125, 9);
+    expect(meshAlphaFor(light, true)).toBeCloseTo(0.054, 9);
   });
 });
