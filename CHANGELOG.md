@@ -20,6 +20,8 @@ The release pull request from `staging` to `main` moves those entries under the 
   The index and meshes are checked (schema, version, hemisphere keys, SHA-256 before decoding); any mismatch hides the option with one console warning.
   Nothing is requested while the panel is closed.
 
+## [0.2.42] - 2026-11-20
+
 ### Changed
 
 - **The landing page's introduction is reworded and easier to read.**
