@@ -312,6 +312,11 @@ describe("the pieces of the rule, with known-answer names beside the files' own"
     expect(matchName("EEG G04-REF", index)).toMatchObject({ kind: "match", contacts: ["G_04"] });
   });
 
+  it("reads only ASCII digits as digits (U+0661 is no index), as nemar-cli does", () => {
+    expect(matchName("A\u0661", buildNameIndex(["A1"]))).toEqual({ kind: "none" });
+    expect(matchName("A01REF", buildNameIndex(["A\u0661"]))).toEqual({ kind: "none" });
+  });
+
   it("reads the upper-case type word, with EEG run into a letter but POL only with a space", () => {
     const index = buildNameIndex(["A1", "A3", "AR1"]);
     // No dataset writes another case: lower and mixed case stay unread (owner decision 2026-11-20).
