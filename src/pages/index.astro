@@ -202,10 +202,10 @@ Astro.response.headers.set(
 
         <div class="hero__intro">
           <p class="hero__lede">
-            NEMAR is an open-access <em>data, tools, and compute</em> resource for
-            finding, accessing, assessing, and processing human EEG, MEG, iEEG,
-            and EMG data — contributed by researchers, mirrored from
-            <a href="https://openneuro.org" rel="external">OpenNeuro</a>, and
+            NEMAR is an open-access <em>data, tools, and compute resource</em> for
+            finding, accessing, viewing, assessing, and analyzing human EEG, MEG,
+            iEEG, and EMG data — contributed by researchers, including data mirrored
+            from <a href="https://openneuro.org" rel="external">OpenNeuro</a>,
             BIDS-formatted with data-quality and HED event annotations.
           </p>
           <div class="hero__ctas">
@@ -282,7 +282,9 @@ Astro.response.headers.set(
        "deep space" look is applied under the dark selectors below (mirroring
        how tokens.css resolves light as default, dark when dark-resolved). */
     --hero-fg: #0f172a;
-    --hero-fg-muted: #475569;
+    /* Lede text sits over the brain image; slate-700, not slate-600, so it stays readable. */
+    --hero-fg-muted: #334155;
+    --hero-emphasis: #134e4a;
     --hero-eyebrow: #2563eb;
     --hero-bracket: rgb(37 99 235 / 55%);
     --hero-glow: rgb(91 186 213 / 22%);
@@ -317,7 +319,8 @@ Astro.response.headers.set(
   @media (prefers-color-scheme: dark) {
     :global(:root:not([data-theme="light"])) .hero {
       --hero-fg: #f1f5f9;
-      --hero-fg-muted: rgb(226 232 240 / 82%);
+      --hero-fg-muted: rgb(226 232 240 / 92%);
+      --hero-emphasis: #7dd3e8;
       --hero-eyebrow: #7dd3e8;
       --hero-bracket: rgb(125 211 232 / 70%);
       --hero-glow: rgb(91 186 213 / 30%);
@@ -338,7 +341,8 @@ Astro.response.headers.set(
   }
   :global(:root[data-theme="dark"]) .hero {
     --hero-fg: #f1f5f9;
-    --hero-fg-muted: rgb(226 232 240 / 82%);
+    --hero-fg-muted: rgb(226 232 240 / 92%);
+    --hero-emphasis: #7dd3e8;
     --hero-eyebrow: #7dd3e8;
     --hero-bracket: rgb(125 211 232 / 70%);
     --hero-glow: rgb(91 186 213 / 30%);
@@ -679,7 +683,8 @@ Astro.response.headers.set(
   }
   .hero__lede em {
     font-style: italic;
-    color: var(--hero-fg);
+    font-weight: var(--fw-bold);
+    color: var(--hero-emphasis);
   }
   .hero__lede a {
     color: inherit;
