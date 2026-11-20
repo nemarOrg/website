@@ -20,6 +20,11 @@ The release pull request from `staging` to `main` moves those entries under the 
   The index and meshes are checked (schema, version, hemisphere keys, SHA-256 before decoding); any mismatch hides the option with one console warning.
   Nothing is requested while the panel is closed.
 
+### Changed
+
+- **The landing page's introduction is reworded and easier to read.**
+  It now describes NEMAR as a "data, tools, and compute resource" (set in bold) for finding, accessing, viewing, assessing, and analyzing data, including data mirrored from OpenNeuro, and its text is darker so it reads clearly over the brain image (#569).
+
 ## [0.2.41] - 2026-11-19
 
 The signal viewer gets a spatial view for intracranial EEG (iEEG): a "Brain" panel that draws each recording's electrode contacts where the dataset's own files place them.
