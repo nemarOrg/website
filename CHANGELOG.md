@@ -20,6 +20,12 @@ The release pull request from `staging` to `main` moves those entries under the 
   The index and meshes are checked (schema, version, hemisphere keys, SHA-256 before decoding); any mismatch hides the option with one console warning.
   Nothing is requested while the panel is closed.
 
+### Changed
+
+- **The Brain panel pairs renamed iEEG channels with their electrode contacts** (#574).
+  Some datasets name channels as the recording headers do (`POL A1-AV`, `EEG G_03-REF`, `EEGGA_01REF`, bipolar `POL B1-B2`) while `electrodes.tsv` keeps the contact names (`A1`, `G03`, `GA01`).
+  The panel and the live Activity view now read the upper-case `EEG` or `POL` type word, an underscore after a shaft letter, leading zeros, and one trailing reference token, so those channels are drawn at their contacts again; an ambiguous name is still left unplaced rather than guessed.
+
 ## [0.2.43] - 2026-11-20
 
 ### Added
