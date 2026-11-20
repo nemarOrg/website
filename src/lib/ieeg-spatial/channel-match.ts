@@ -218,7 +218,7 @@ export const MATCH_RULES: readonly MatchRule[] = [
     kind: "normalized",
     form: "transform",
     pattern:
-      "a leading signal-type word before the contact name: EEG or POL (either case) and a space, or EEG run into the shaft letter",
+      "a leading signal-type word before the contact name: upper-case EEG or POL and one or more spaces, or EEG run into the shaft letter",
     example: { channel: "POL A3", contact: "A3" },
     datasets: [
       "on004194",
