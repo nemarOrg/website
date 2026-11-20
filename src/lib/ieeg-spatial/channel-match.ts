@@ -5,8 +5,9 @@
  * A wrong join is worse than no join, so the module only ever does three things:
  * 1. It tries the tiers in order, and the first tier with a hit decides. `exact` is the file's own
  *    name; `normalized` rewrites the channel name by rules that change no letter of the contact
- *    (whitespace, a leading type word, zeros in front of the index); `suffix` removes one trailing
- *    reference token; `close` is the tier for a one-character difference and has no rule today,
+ *    (whitespace, a leading upper-case type word, zeros in front of the index and an underscore
+ *    after a shaft letter, on either side, and the same for each half of a bipolar pair); `suffix`
+ *    removes one trailing reference token; `close` is the tier for a one-character difference and has no rule today,
  *    because the only surveyed candidate is right in one dataset and wrong in another. A tier with
  *    two different readings as candidates refuses (`ambiguous_name`); it never takes the first and
  *    never falls to a lower tier.
@@ -57,22 +58,29 @@ export interface NameIndex {
   /** How many rows carry exactly this name. */
   count(name: string): number;
   /**
-   * Distinct contact names equal to `form`, or, when `zeros` is set and none is, equal to it apart
-   * from leading zeros in the index, unless those zeros could be a digit of a shaft name the file
-   * also uses.
+   * Distinct contact names equal to `form`, or, when `zeros` is set and none is, equal to it
+   * apart from leading zeros in the index and an underscore before it (`zeroKey`), unless those
+   * zeros could be a digit of a shaft name the file also uses.
    */
   find(form: string, zeros: boolean): string[];
 }
 
 /**
- * `LSF01` and `LSF1` have the same key: the trailing digit run loses its leading zeros (and keeps
- * one digit, so `A00` is `A0`). A name without trailing digits is its own key.
+ * An underscore between a shaft letter and its index (`G_03`): the one separator the key drops. An
+ * underscore after a digit is part of the name (`G1_2` is not `G12`, `GRID_1_2` is not `GRID_12`).
+ */
+const SEPARATOR_BEFORE_INDEX = /(?<=[A-Za-z])_$/;
+
+/**
+ * `LSF01` and `LSF1` have the same key, and so do `G_03`, `G03` and `G3` (an underscore between the
+ * shaft and its index is no part of the name): the trailing digit run loses its leading zeros (and
+ * keeps one digit, so `A00` is `A0`). A name without trailing digits is its own key.
  */
 export function zeroKey(name: string): string {
   const m = /^(.*?)(\d+)$/.exec(name);
   if (!m) return name;
   const digits = m[2].replace(/^0+(?=\d)/, "");
-  return `${m[1]}${digits}`;
+  return `${m[1].replace(SEPARATOR_BEFORE_INDEX, "")}${digits}`;
 }
 
 /**
@@ -166,21 +174,22 @@ export interface CloseRule extends RuleFacts {
 export type MatchRule = TransformRule | ZeroRule | SuffixRule | CloseRule;
 
 /**
- * A leading type word followed by one space (`EEG A1-Ref`, `POL A3`): the EDF+ signal-label
- * convention and its polygraph variant. Case-sensitive, and only these words: the rest of the label
- * must be the contact name.
+ * A leading type word before the contact name: upper-case `EEG` or `POL` (no dataset writes another
+ * case; `pol A3` stays unread) and one or more spaces (`EEG A1-Ref`, `POL A3`, the EDF+
+ * signal-label convention and its polygraph variant), or `EEG` run straight into a shaft letter (`EEGGA_01REF`). The rest of the label must be a contact
+ * name, which the join checks; `POL` with no space is not read, so `POLAR1` stays a name.
  */
-const TYPE_PREFIX = /^(?:EEG|POL) (\S.*)$/;
+const TYPE_PREFIX = /^(?:(?:EEG|POL) +|EEG(?=[A-Za-z]))(\S.*)$/;
 
 /**
  * The tokens after the contact name that a suffix rule removes, each anchored at the end of the
  * name and each read, not known, to be a reference: `-REF` or `-Ref` (any case, with or without a
- * number), `-AV` exactly, and `-` with four or more digits (`-20000`, `-2000`). Fewer digits stay
- * unread: `A1-2` is a bipolar pair written in short form, and `T7-1` a repeat counter. No dataset
- * states what any of these tokens means (`iEEGReference` is `n/a` where it was checked); the rules
+ * number), `REF` right after the index with no hyphen (`GA_01REF`), `-AV` exactly, and `-` with
+ * four or more digits (`-20000`, `-2000`). Fewer digits stay unread: `A1-2` is a bipolar pair
+ * written in short form, and `T7-1` a repeat counter. No dataset states what any of these tokens means (`iEEGReference` is `n/a` where it was checked); the rules
  * rest on the survey and on the dataset's own `_channels.tsv` naming the contact at the same row.
  */
-const REFERENCE_NAME = /^(.+?)-ref\d*$/i;
+const REFERENCE_NAME = /^(?:(.+?)-ref\d*|(.+?\d)ref\d*)$/i;
 const AVERAGE_REFERENCE = /^(.+?)-AV$/;
 const NUMERIC_TAIL = /^(.+?)-([1-9]\d{3,})$/;
 
@@ -208,9 +217,11 @@ export const MATCH_RULES: readonly MatchRule[] = [
     id: "type_prefix",
     kind: "normalized",
     form: "transform",
-    pattern: "a leading signal-type word and one space before the contact name (EEG or POL)",
+    pattern:
+      "a leading signal-type word before the contact name: EEG or POL (either case) and a space, or EEG run into the shaft letter",
     example: { channel: "POL A3", contact: "A3" },
     datasets: [
+      "on004194",
       "on004551",
       "on005007",
       "on005670",
@@ -227,22 +238,26 @@ export const MATCH_RULES: readonly MatchRule[] = [
     id: "leading_zeros",
     kind: "normalized",
     form: "zeros",
-    pattern: "the same shaft and the same index, written with or without leading zeros",
+    pattern:
+      "the same shaft and the same index, written with or without leading zeros, and with or without an underscore before the index (G_03, G03, G3)",
     example: { channel: "LSF1", contact: "LSF01" },
-    datasets: ["on003848", "on004194"],
+    datasets: ["on003848", "on004194", "on005545", "on006233", "on006914"],
     sentence:
-      "channel names write the contact index with other leading zeros than the electrodes file",
+      "channel names write the contact index with other leading zeros or another separator than the electrodes file",
   },
   {
     id: "reference_name",
     kind: "suffix",
     form: "strip",
     pattern:
-      "the contact name, a hyphen, then REF or Ref (any case, with or without a number), read as a reference",
+      "the contact name, then REF or Ref (any case, with or without a number) after a hyphen, or with no hyphen right after the index, read as a reference",
     example: { channel: "O1-REF1", contact: "O1" },
-    datasets: ["nm000379", "on004551", "on005007", "on005670"],
-    sentence: "channel names end in -REF or -Ref with an optional number, read as a reference",
-    strip: (name) => REFERENCE_NAME.exec(name)?.[1] ?? null,
+    datasets: ["nm000379", "on004194", "on004551", "on005007", "on005670"],
+    sentence: "channel names end in REF or Ref with an optional number, read as a reference",
+    strip: (name) => {
+      const m = REFERENCE_NAME.exec(name);
+      return m ? (m[1] ?? m[2]) : null;
+    },
   },
   {
     id: "average_reference",
@@ -331,6 +346,14 @@ export const PENDING_PATTERNS: readonly PendingPattern[] = [
     datasets: ["nm000373"],
     reason:
       "one digit after a hyphen is also how a bipolar pair is shortened (A1-2) and how repeats are counted, and the file holds no contact of that name",
+  },
+  {
+    id: "ear_reference",
+    pattern: "a contact name, a hyphen, then A1 or A2 where the file has no such contact",
+    example: { channels: [], contacts: ["C3"] },
+    datasets: [],
+    reason:
+      "A1 and A2 are the ear references of a scalp montage and also contacts of an SEEG shaft A (on004551 reads EEG A1-Ref as the contact A1); no surveyed recording has the form, so no rule reads it, and where both ends are contacts the name is a bipolar pair, which the pair rule joins",
   },
   {
     id: "seeg_prefix",
@@ -435,22 +458,39 @@ interface Reading {
 
 /**
  * Every split of `text` at a hyphen whose two trimmed halves are different contact names: a
- * bipolar pair. More than one split is more than one reading.
+ * bipolar pair. More than one split is more than one reading. With `zeros`, a half that is no
+ * contact by its own name still counts when exactly one contact differs from it by leading zeros or
+ * an underscore before the index (`B1-B2` for the contacts `B01` and `B02`); the pair then names
+ * those contacts, and `tolerant` says that a half was read that way.
  */
-export function splitPairs(text: string, index: NameIndex): [string, string][] {
-  const pairs: [string, string][] = [];
+export function splitPairs(text: string, index: NameIndex, zeros = false): [string, string][] {
+  return splitPairsDetailed(text, index, zeros).map((p) => p.contacts);
+}
+
+interface PairReading {
+  contacts: [string, string];
+  /** True when a half was read through the zero-tolerant lookup. */
+  tolerant: boolean;
+}
+
+function splitPairsDetailed(text: string, index: NameIndex, zeros: boolean): PairReading[] {
+  const pairs: PairReading[] = [];
+  const half = (name: string): { contact: string; tolerant: boolean } | null => {
+    if (name === "") return null;
+    if (index.count(name) > 0) return { contact: name, tolerant: false };
+    if (!zeros) return null;
+    const found = index.find(name, true);
+    return found.length === 1 ? { contact: found[0], tolerant: true } : null;
+  };
   for (let i = 0; i < text.length; i++) {
     if (text[i] !== "-") continue;
-    const left = text.slice(0, i).trim();
-    const right = text.slice(i + 1).trim();
-    if (
-      left !== "" &&
-      right !== "" &&
-      left !== right &&
-      index.count(left) > 0 &&
-      index.count(right) > 0
-    ) {
-      pairs.push([left, right]);
+    const left = half(text.slice(0, i).trim());
+    const right = half(text.slice(i + 1).trim());
+    if (left && right && left.contact !== right.contact) {
+      pairs.push({
+        contacts: [left.contact, right.contact],
+        tolerant: left.tolerant || right.tolerant,
+      });
     }
   }
   return pairs;
@@ -529,6 +569,15 @@ export function matchName(
   // `normalized`: a rewrite by the transforms, the zero-tolerant comparison, or both; and, after a
   // rewrite, a bipolar pair of exact names. The bare name compared exactly is the `exact` tier's.
   const normalized: Reading[] = [];
+  const pairReadings = (f: Form) => {
+    for (const p of splitPairsDetailed(f.text, index, zeros)) {
+      // A pair of exact names after a rewrite keeps the rewrite's name; one read through the
+      // zero-tolerant lookup adds that rule.
+      const via = p.tolerant ? [...f.via, ZERO_ID] : f.via;
+      // The bare name's exact pair is the caller's; only a tolerant pair is left for this tier.
+      if (f.via.length > 0 || p.tolerant) normalized.push({ contacts: p.contacts, via });
+    }
+  };
   for (const f of forms) {
     if (f.via.length === 0) {
       if (zeros && index.find(f.text, false).length === 0) {
@@ -536,8 +585,8 @@ export function matchName(
       }
     } else {
       normalized.push(...reads(f.text, index, f.via, zeros));
-      for (const pair of splitPairs(f.text, index)) normalized.push({ contacts: pair, via: f.via });
     }
+    pairReadings(f);
   }
   if (normalized.length > 0) return decide(normalized, "normalized");
 
