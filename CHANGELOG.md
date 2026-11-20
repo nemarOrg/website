@@ -13,6 +13,13 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.43] - 2026-11-20
+
+### Added
+
+- **The landing page shows that NEMAR is an NIH BRAIN Initiative data archive.**
+  A badge beside the stat tiles, above the fold, carries the BRAIN Initiative logo, says that depositing here meets NIH BRAIN data sharing requirements and that the archive is open to all researchers, and links to NIH's BRAIN data repository requirements, which list NEMAR among the currently funded BRAIN data archives.
+
 ## [0.2.42] - 2026-11-20
 
 ### Changed
