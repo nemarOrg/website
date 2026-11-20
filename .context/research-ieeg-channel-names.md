@@ -149,7 +149,8 @@ The real name columns of eleven recordings are committed under `test/fixtures/ie
 | S12 | `EEG` run into the shaft letter: `EEGGA_01REF` for `GA01` | on004194 | 28,274 then 33,306 (with S13 and S14) | `normalized`, rule `type_prefix` |
 | S13 | `REF` right after the index, no hyphen: `EEGGA_01REF`, `DC1REF` | on004194 | included in the row above | `suffix`, rule `reference_name` |
 | S14 | an underscore after the shaft letters before the index: `G_03` for `G03` (an underscore after a digit is part of the name: `G1_2` is not `G12`) | on004194 | included in the row above | `normalized`, rule `leading_zeros` |
-| S15 | a bipolar pair whose halves lack the contacts' zeros: `POL B1-B2` for `B01` and `B02` | on005545 (also on006233 and on006914, whose rise of 42 each is attributed to this rule) | on005545 16,944 then 17,154; on006233 17,264 then 17,306; on006914 17,376 then 17,418 | `normalized`, rule `type_prefix+leading_zeros`, at the midpoint |
+| S15 | a bipolar pair whose halves lack the contacts' zeros: `POL B1-B2` for `B01` and `B02` | on005545 (sub-84) | on005545 16,944 then 17,154 | `normalized`, rule `type_prefix+leading_zeros`, at the midpoint |
 
+Not traced to a rule: the rise of 42 electrodes on on006233 (17,264 then 17,306) and on006914 (17,376 then 17,418); every located channel of the sampled recordings joins by `type_prefix` alone.
 Unchanged by the addendum: S4 and S11 (`POL A3`, `EEG A1-Ref`) and S10 (`POL A1-AV`) already joined on on004551, on005007, on005931 and on006107 (13,739 of 13,788, 3,337 of 3,388, 862 of 1,724 and 17,795 of 17,812 electrodes reached); the contacts left out are `POL $A..` (P8, still pending) and contacts no channel names.
 The check for a wrong join over all eleven recordings: every joined channel's shaft letters equal its contact's (per half for a pair), and no two differently written channels hold one contact.

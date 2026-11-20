@@ -174,9 +174,9 @@ export interface CloseRule extends RuleFacts {
 export type MatchRule = TransformRule | ZeroRule | SuffixRule | CloseRule;
 
 /**
- * A leading type word before the contact name: upper-case `EEG` or `POL` (no dataset writes another case; `pol A3` stays unread) and one or more
- * spaces (`EEG A1-Ref`, `POL A3`, the EDF+ signal-label convention and its polygraph variant), or
- * `EEG` run straight into a shaft letter (`EEGGA_01REF`). The rest of the label must be a contact
+ * A leading type word before the contact name: upper-case `EEG` or `POL` (no dataset writes another
+ * case; `pol A3` stays unread) and one or more spaces (`EEG A1-Ref`, `POL A3`, the EDF+
+ * signal-label convention and its polygraph variant), or `EEG` run straight into a shaft letter (`EEGGA_01REF`). The rest of the label must be a contact
  * name, which the join checks; `POL` with no space is not read, so `POLAR1` stays a name.
  */
 const TYPE_PREFIX = /^(?:(?:EEG|POL) +|EEG(?=[A-Za-z]))(\S.*)$/;
@@ -184,9 +184,9 @@ const TYPE_PREFIX = /^(?:(?:EEG|POL) +|EEG(?=[A-Za-z]))(\S.*)$/;
 /**
  * The tokens after the contact name that a suffix rule removes, each anchored at the end of the
  * name and each read, not known, to be a reference: `-REF` or `-Ref` (any case, with or without a
- * number), `REF` right after the index with no hyphen (`GA_01REF`), `-AV` exactly, and `-` with four or more digits (`-20000`, `-2000`).
- * Fewer digits stay unread: `A1-2` is a bipolar pair written in short form, and `T7-1` a repeat counter. No dataset
- * states what any of these tokens means (`iEEGReference` is `n/a` where it was checked); the rules
+ * number), `REF` right after the index with no hyphen (`GA_01REF`), `-AV` exactly, and `-` with
+ * four or more digits (`-20000`, `-2000`). Fewer digits stay unread: `A1-2` is a bipolar pair
+ * written in short form, and `T7-1` a repeat counter. No dataset states what any of these tokens means (`iEEGReference` is `n/a` where it was checked); the rules
  * rest on the survey and on the dataset's own `_channels.tsv` naming the contact at the same row.
  */
 const REFERENCE_NAME = /^(?:(.+?)-ref\d*|(.+?\d)ref\d*)$/i;
