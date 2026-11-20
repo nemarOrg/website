@@ -5,9 +5,9 @@
  * A wrong join is worse than no join, so the module only ever does three things:
  * 1. It tries the tiers in order, and the first tier with a hit decides. `exact` is the file's own
  *    name; `normalized` rewrites the channel name by rules that change no letter of the contact
- *    (whitespace, a leading type word in either case, zeros in front of the index and an underscore
- *    before it, on either side, and the same for each half of a bipolar pair); `suffix` removes one trailing
- *    reference token; `close` is the tier for a one-character difference and has no rule today,
+ *    (whitespace, a leading upper-case type word, zeros in front of the index and an underscore
+ *    after a shaft letter, on either side, and the same for each half of a bipolar pair); `suffix`
+ *    removes one trailing reference token; `close` is the tier for a one-character difference and has no rule today,
  *    because the only surveyed candidate is right in one dataset and wrong in another. A tier with
  *    two different readings as candidates refuses (`ambiguous_name`); it never takes the first and
  *    never falls to a lower tier.
@@ -58,15 +58,18 @@ export interface NameIndex {
   /** How many rows carry exactly this name. */
   count(name: string): number;
   /**
-   * Distinct contact names equal to `form`, or, when `zeros` is set and none is, equal to it apart
-   * from leading zeros in the index and an underscore before it (`zeroKey`), unless those zeros could be a digit of a shaft name the file
-   * also uses.
+   * Distinct contact names equal to `form`, or, when `zeros` is set and none is, equal to it
+   * apart from leading zeros in the index and an underscore before it (`zeroKey`), unless those
+   * zeros could be a digit of a shaft name the file also uses.
    */
   find(form: string, zeros: boolean): string[];
 }
 
-/** An underscore between a shaft and its index (`G_03`): the one separator the key drops. */
-const SEPARATOR_BEFORE_INDEX = /_$/;
+/**
+ * An underscore between a shaft letter and its index (`G_03`): the one separator the key drops. An
+ * underscore after a digit is part of the name (`G1_2` is not `G12`, `GRID_1_2` is not `GRID_12`).
+ */
+const SEPARATOR_BEFORE_INDEX = /(?<=[A-Za-z])_$/;
 
 /**
  * `LSF01` and `LSF1` have the same key, and so do `G_03`, `G03` and `G3` (an underscore between the
@@ -171,18 +174,18 @@ export interface CloseRule extends RuleFacts {
 export type MatchRule = TransformRule | ZeroRule | SuffixRule | CloseRule;
 
 /**
- * A leading type word before the contact name: `EEG` or `POL`, either case, and one or more
+ * A leading type word before the contact name: upper-case `EEG` or `POL` (no dataset writes another case; `pol A3` stays unread) and one or more
  * spaces (`EEG A1-Ref`, `POL A3`, the EDF+ signal-label convention and its polygraph variant), or
  * `EEG` run straight into a shaft letter (`EEGGA_01REF`). The rest of the label must be a contact
  * name, which the join checks; `POL` with no space is not read, so `POLAR1` stays a name.
  */
-const TYPE_PREFIX = /^(?:(?:eeg|pol) +|eeg(?=[A-Za-z]))(\S.*)$/i;
+const TYPE_PREFIX = /^(?:(?:EEG|POL) +|EEG(?=[A-Za-z]))(\S.*)$/;
 
 /**
  * The tokens after the contact name that a suffix rule removes, each anchored at the end of the
  * name and each read, not known, to be a reference: `-REF` or `-Ref` (any case, with or without a
- * number), `REF` right after the index with no hyphen (`GA_01REF`), `-AV` exactly, and `-` with four or more digits (`-20000`, `-2000`). Fewer digits stay
- * unread: `A1-2` is a bipolar pair written in short form, and `T7-1` a repeat counter. No dataset
+ * number), `REF` right after the index with no hyphen (`GA_01REF`), `-AV` exactly, and `-` with four or more digits (`-20000`, `-2000`).
+ * Fewer digits stay unread: `A1-2` is a bipolar pair written in short form, and `T7-1` a repeat counter. No dataset
  * states what any of these tokens means (`iEEGReference` is `n/a` where it was checked); the rules
  * rest on the survey and on the dataset's own `_channels.tsv` naming the contact at the same row.
  */
@@ -350,7 +353,7 @@ export const PENDING_PATTERNS: readonly PendingPattern[] = [
     example: { channels: [], contacts: ["C3"] },
     datasets: [],
     reason:
-      "A1 and A2 are the ear references of a scalp montage and also contacts of an SEEG shaft A (on004551 reads EEG A1-Ref as the contact A1); no fix-20261018 recording has the form, so no rule reads it, and where both ends are contacts the name is a bipolar pair, which the pair rule joins",
+      "A1 and A2 are the ear references of a scalp montage and also contacts of an SEEG shaft A (on004551 reads EEG A1-Ref as the contact A1); no surveyed recording has the form, so no rule reads it, and where both ends are contacts the name is a bipolar pair, which the pair rule joins",
   },
   {
     id: "seeg_prefix",

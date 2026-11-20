@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { repoPath } from "../../../test/node";
@@ -30,8 +31,11 @@ interface Fixture {
 }
 
 const DIR = repoPath("test/fixtures/ieeg-channel-renames");
+const EXPECTED = `${DIR}/_expected-joins.json`;
+/** SHA-256 of `_expected-joins.json`; the same file and digest are asserted in nemar-cli. */
+const EXPECTED_SHA256 = "9a9aa2aa451f27ef98bdac2ad897d4cbe484e3e0ba59a39acc3b6ca210be580f";
 const fixtures: Fixture[] = readdirSync(DIR)
-  .filter((f) => f.endsWith(".json"))
+  .filter((f) => f.endsWith(".json") && !f.startsWith("_"))
   .sort()
   .map((f) => JSON.parse(readFileSync(`${DIR}/${f}`, "utf8")) as Fixture);
 
@@ -114,15 +118,41 @@ describe("the renamed channels of the fix-20261018 pull requests find their cont
     });
   }
 
+  it("gives, channel by channel, the join map both repositories commit (digest pinned)", () => {
+    const raw = readFileSync(EXPECTED);
+    expect(createHash("sha256").update(raw).digest("hex")).toBe(EXPECTED_SHA256);
+    const expected = JSON.parse(raw.toString("utf8")) as Record<
+      string,
+      Record<string, string[] | "refused">
+    >;
+    const actual: typeof expected = {};
+    for (const f of fixtures) {
+      for (const r of f.recordings) {
+        const map: Record<string, string[] | "refused"> = {};
+        for (const j of joinChannels(spaceOf(r.contacts), r.channels)) {
+          map[j.channel] = j.status === "unlocated" ? "refused" : [...j.contacts].sort();
+        }
+        actual[`${f.dataset}/${r.channels_path}`] = map;
+      }
+    }
+    expect(actual).toEqual(expected);
+  });
+
   it("never puts a channel on a contact of another shaft, and no two names share one contact", () => {
+    // Type word and reference token off, then the shaft letters alone: they must EQUAL the contact's
+    // (per half for a bipolar pair), not merely contain them.
+    const bare = (name: string) =>
+      name.replace(/^(?:EEG|POL) */, "").replace(/(?:-ref\d*|-av|(?<=\d)ref\d*)$/i, "");
     const shaft = (name: string) => name.replace(/[^A-Za-z]/g, "").toUpperCase();
     for (const f of fixtures) {
       for (const r of f.recordings) {
         const joins = joinChannels(spaceOf(r.contacts), r.channels);
         const claimants = new Map<string, Set<string>>();
         for (const j of located(joins)) {
-          for (const c of j.contacts) {
-            expect(shaft(j.channel), `${f.dataset} ${j.channel}`).toContain(shaft(c));
+          const halves = j.contacts.length === 2 ? bare(j.channel).split("-") : [bare(j.channel)];
+          expect(halves.length, `${f.dataset} ${j.channel}`).toBe(j.contacts.length);
+          for (const [i, c] of j.contacts.entries()) {
+            expect(shaft(halves[i]), `${f.dataset} ${j.channel}`).toBe(shaft(c));
             if (j.status === "located") {
               const names = claimants.get(c) ?? new Set<string>();
               names.add(j.channel);
@@ -267,6 +297,13 @@ describe("the pieces of the rule, with known-answer names beside the files' own"
     // An underscore inside a name, not before the index, stays (nm000436 names such as Ant_d10a).
     expect(zeroKey("Ant_d10a")).toBe("Ant_d10a");
     expect(zeroKey("Ant_d10")).toBe("Ant_d10");
+    // An underscore after a digit is part of the name: G1_2 is not G12, GRID_1_2 is not GRID_12.
+    expect(zeroKey("G1_2")).not.toBe(zeroKey("G12"));
+    expect(zeroKey("GRID_1_2")).not.toBe(zeroKey("GRID_12"));
+    expect(matchName("G12", buildNameIndex(["G1_2"]))).toEqual({ kind: "none" });
+    expect(matchName("G1_2", buildNameIndex(["G12"]))).toEqual({ kind: "none" });
+    expect(matchName("GRID_12", buildNameIndex(["GRID_1_2"]))).toEqual({ kind: "none" });
+    expect(matchName("GRID_1_2", buildNameIndex(["GRID_12"]))).toEqual({ kind: "none" });
   });
 
   it("matches the other way round: a contact written G_03 is reached by the channel G03 and by G3", () => {
@@ -275,10 +312,11 @@ describe("the pieces of the rule, with known-answer names beside the files' own"
     expect(matchName("EEG G04-REF", index)).toMatchObject({ kind: "match", contacts: ["G_04"] });
   });
 
-  it("reads the type word in either case, with EEG run into a letter but POL only with a space", () => {
+  it("reads the upper-case type word, with EEG run into a letter but POL only with a space", () => {
     const index = buildNameIndex(["A1", "A3", "AR1"]);
-    expect(matchName("pol A3", index)).toMatchObject({ kind: "match", contacts: ["A3"] });
-    expect(matchName("Eeg A3", index)).toMatchObject({ kind: "match", contacts: ["A3"] });
+    // No dataset writes another case: lower and mixed case stay unread (owner decision 2026-11-20).
+    expect(matchName("pol A3", index)).toEqual({ kind: "none" });
+    expect(matchName("Eeg A3", index)).toEqual({ kind: "none" });
     expect(matchName("EEGA3", index)).toMatchObject({ kind: "match", contacts: ["A3"] });
     // POLAR1 is no `POL AR1`: with no space the word is part of the name (known-answer name).
     expect(matchName("POLAR1", index)).toEqual({ kind: "none" });
