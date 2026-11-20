@@ -108,7 +108,7 @@ describe("the tier list is data, and each rule carries its evidence", () => {
       "channel names end in -AV, read as the average reference",
     );
     expect((ruleById("reference_name") as MatchRule).sentence).toBe(
-      "channel names end in -REF or -Ref with an optional number, read as a reference",
+      "channel names end in REF or Ref with an optional number, read as a reference",
     );
     expect((ruleById("numeric_tail") as MatchRule).sentence).toBe(
       "channel names end in a numeric tail after the contact name",
@@ -503,9 +503,7 @@ describe("a name that only nearly fits a rule joins nothing (known-answer names,
     "A1-2",
     "A1-9",
     "A1-999",
-    "pol A3",
-    "Eeg A3",
-    "EEG  A3",
+    "POLA3",
     "XEEG A3",
     "A1-AVG",
     "A1-AV2",
@@ -537,6 +535,10 @@ describe("a name that only nearly fits a rule joins nothing (known-answer names,
       ["A1-2000", "suffix"],
       ["POL A3", "normalized"],
       ["EEG A3", "normalized"],
+      ["pol A3", "normalized"],
+      ["Eeg A3", "normalized"],
+      ["EEG  A3", "normalized"],
+      ["EEGA3", "normalized"],
     ];
     for (const [name, kind] of real) {
       expect(joinChannels(known, [name])[0], name).toMatchObject({

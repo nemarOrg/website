@@ -266,7 +266,7 @@ describe("the panel and the files say how many joined by which kind, and which n
     const chained = notes.find((n) => n.includes("EEG A1-Ref for A1"));
     expect(chained).toContain("by suffix match");
     expect(chained).toContain("start with a signal-type word");
-    expect(chained).toContain("end in -REF or -Ref with an optional number, read as a reference");
+    expect(chained).toContain("end in REF or Ref with an optional number, read as a reference");
   });
 
   it("the unlocated channels are listed by their original names with the cause (nm000463)", async () => {
