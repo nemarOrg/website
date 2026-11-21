@@ -54,8 +54,13 @@ export interface MailPrefsCard {
 
 export function createMailPrefsCard(deps: MailPrefsCardDeps): MailPrefsCard {
   const inFlight = new Set<string>();
+  // Bumped every time an answer is shown. A read captures it when it starts and is discarded if it
+  // moved meanwhile: a newer answer (a PUT's full set) is already on screen.
+  let generation = 0;
+  let loading: Promise<void> | null = null;
 
   const render = (prefs: CommunityMailPreferences): void => {
+    generation++;
     for (const input of deps.switches) {
       const category = input.dataset.mailPref;
       if (!isCommunityMailCategory(category) || inFlight.has(category)) continue;
@@ -72,9 +77,14 @@ export function createMailPrefsCard(deps: MailPrefsCardDeps): MailPrefsCard {
     }
   };
 
-  /** Read the account and show it, or lock the settled switches and offer "Try again". */
-  const refresh = async (): Promise<MailPreferencesResult> => {
+  /**
+   * Read the account and show it, or lock the settled switches and offer "Try again". `"stale"`
+   * when a newer answer was shown while the read was out; such a read changes nothing.
+   */
+  const refresh = async (): Promise<MailPreferencesResult | "stale"> => {
+    const startedAt = generation;
     const result = await deps.load();
+    if (generation !== startedAt) return "stale";
     if (result.ok) {
       render(result.prefs);
       deps.retryVisible(false);
@@ -88,11 +98,21 @@ export function createMailPrefsCard(deps: MailPrefsCardDeps): MailPrefsCard {
   return {
     inFlight,
 
-    async load(): Promise<void> {
-      deps.retryVisible(false);
-      const result = await refresh();
-      if (result.ok) deps.message(null);
-      else deps.message(mailPreferencesErrorText(result), "error");
+    load(): Promise<void> {
+      // One read at a time: a double-clicked "Try again" sends one request.
+      if (loading) return loading;
+      loading = (async () => {
+        try {
+          deps.retryVisible(false);
+          const result = await refresh();
+          if (result === "stale") return;
+          if (result.ok) deps.message(null);
+          else deps.message(mailPreferencesErrorText(result), "error");
+        } finally {
+          loading = null;
+        }
+      })();
+      return loading;
     },
 
     async change(input: MailPrefSwitch): Promise<void> {
@@ -122,6 +142,11 @@ export function createMailPrefsCard(deps: MailPrefsCardDeps): MailPrefsCard {
       }
       // The save may or may not have landed: show what the account says now.
       const reread = await refresh();
+      if (reread === "stale") return;
+      if (!reread.ok) {
+        // Nothing confirmed the change: show the value it had before, locked until "Try again".
+        input.checked = !wanted;
+      }
       deps.message(
         reread.ok ? `${failure} Your preferences below are as NEMAR has them now.` : failure,
         "error",

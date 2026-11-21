@@ -104,6 +104,19 @@ describe("load", () => {
   });
 });
 
+describe("Try again", () => {
+  it("sends one request for a double click", async () => {
+    const held = deferred<MailPreferencesResult>();
+    const h = harness({ loads: [held.promise] });
+    const first = h.card.load();
+    const second = h.card.load();
+    held.resolve(ok({ news: true, rfcs: true, maintenance: true }));
+    await Promise.all([first, second]);
+    expect(h.loadCalls).toBe(1);
+    expect(h.sw.news).toMatchObject({ checked: true, disabled: false });
+  });
+});
+
 describe("save", () => {
   const LOADED = { news: true, rfcs: true, maintenance: true };
 
@@ -145,7 +158,7 @@ describe("save", () => {
     expect(h.messages.at(-1)?.[1]).toBe("error");
   });
 
-  it("locks the switches and offers Try again when the re-read fails too", async () => {
+  it("locks the switches, shows the switch's old value and offers Try again when the re-read fails too", async () => {
     const h = harness({
       loads: [ok(LOADED), { ok: false, status: "network" }],
       saves: [{ ok: false, status: "network" }],
@@ -153,7 +166,33 @@ describe("save", () => {
     await h.card.load();
     await toggle(h, "rfcs");
     expect(Object.values(h.sw).every((s) => s.disabled)).toBe(true);
+    // rfcs was on; the change to off was never confirmed.
+    expect(h.sw.rfcs.checked).toBe(true);
     expect(h.retry).toBe(true);
+  });
+
+  it("discards a re-read that started before a newer PUT answer was shown", async () => {
+    const reread = deferred<MailPreferencesResult>();
+    const rfcsSave = deferred<MailPreferencesResult>();
+    const h = harness({
+      loads: [ok(LOADED), reread.promise],
+      saves: [{ ok: false, status: "network" }, rfcsSave.promise],
+    });
+    await h.card.load();
+    // A: news's save has an unknown outcome, so its re-read goes out and is held open.
+    const newsDone = toggle(h, "news");
+    for (let i = 0; i < 10 && h.loadCalls < 2; i++) await Promise.resolve();
+    expect(h.loadCalls).toBe(2);
+    // B: rfcs is turned off and its PUT answers with the account as it is now.
+    const rfcsDone = toggle(h, "rfcs");
+    rfcsSave.resolve(ok({ news: true, rfcs: false, maintenance: true }));
+    await rfcsDone;
+    expect(h.sw.rfcs).toMatchObject({ checked: false, disabled: false });
+    // The old read lands, from before rfcs changed: it must not put rfcs back on.
+    reread.resolve(ok(LOADED));
+    await newsDone;
+    expect(h.sw.rfcs).toMatchObject({ checked: false, disabled: false });
+    expect(h.sw.news).toMatchObject({ checked: true, disabled: false });
   });
 
   it("never lets one switch's answer overwrite or re-enable another switch still saving", async () => {
