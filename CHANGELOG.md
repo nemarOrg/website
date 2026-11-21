@@ -13,6 +13,8 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.44] - 2026-11-21
+
 ### Added
 
 - **The Brain panel can draw this subject's own anatomy** (ADR 0034).
