@@ -104,3 +104,24 @@ export function extractCategoryTable(source: string, name: string): CategoryFlag
   }
   return out;
 }
+
+/**
+ * `const NAME = /pattern/flags;` (exported or not) -> the pattern and flags, as `RegExp` reports
+ * them, so the comparison is between two compiled expressions rather than two spellings.
+ */
+export function extractRegexLiteral(
+  source: string,
+  name: string,
+): { source: string; flags: string } | undefined {
+  const re = new RegExp(
+    `(?:export\\s+)?const\\s+${name}\\s*=\\s*\\/((?:\\\\.|[^/\\\\\\n])+)\\/([a-z]*)\\s*;`,
+  );
+  const m = stripComments(source).match(re);
+  if (!m) return undefined;
+  try {
+    const compiled = new RegExp(m[1], m[2]);
+    return { source: compiled.source, flags: compiled.flags };
+  } catch {
+    return undefined;
+  }
+}

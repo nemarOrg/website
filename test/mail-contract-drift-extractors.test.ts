@@ -24,6 +24,7 @@ import {
   compareLists,
   extractAnnotatedStringArray,
   extractCategoryTable,
+  extractRegexLiteral,
   extractStringArray,
   extractStringConstant,
   extractStringUnion,
@@ -127,5 +128,22 @@ describe("the mail category extractors", () => {
     expect(
       extractAnnotatedStringArray('export const A: readonly string[] = ["x", "y"];', "A"),
     ).toEqual(["x", "y"]);
+  });
+});
+
+describe("extractRegexLiteral", () => {
+  it("reads a regex literal, exported or not, as RegExp reports it", () => {
+    const src =
+      "const SIG = /^x$/;\nconst TOKEN_RE = /^v1\\.(\\d{1,12})\\.([A-Za-z0-9_-]{43})$/;\nexport const OTHER = /a\\/b/gi;";
+    expect(extractRegexLiteral(src, "TOKEN_RE")).toEqual({
+      source: "^v1\\.(\\d{1,12})\\.([A-Za-z0-9_-]{43})$",
+      flags: "",
+    });
+    expect(extractRegexLiteral(src, "OTHER")).toEqual({ source: "a\\/b", flags: "gi" });
+  });
+
+  it("reports a name that is absent, commented out or built at runtime as absent", () => {
+    expect(extractRegexLiteral("// const TOKEN_RE = /x/;", "TOKEN_RE")).toBeUndefined();
+    expect(extractRegexLiteral('const TOKEN_RE = new RegExp("x");', "TOKEN_RE")).toBeUndefined();
   });
 });

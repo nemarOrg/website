@@ -21,10 +21,12 @@ import {
   RECALL_CATEGORY,
   SELF_MAIL_PREFERENCE_ERROR_CODES,
 } from "../src/lib/mail-categories";
+import { MAIL_UNSUBSCRIBE_TOKEN_RE } from "../src/lib/mail-unsubscribe";
 import {
   compareLists,
   extractAnnotatedStringArray,
   extractCategoryTable,
+  extractRegexLiteral,
   extractStringArray,
   extractStringConstant,
 } from "./mail-contract-drift";
@@ -119,5 +121,48 @@ describe.skipIf(SHOULD_SKIP)("against nemar-cli's mail category table", () => {
         extractAnnotatedStringArray(source(), "SELF_MAIL_PREFERENCE_ERROR_CODES"),
       ),
     ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The unsubscribe token's shape. PAIRING: `MAIL_UNSUBSCRIBE_TOKEN_RE` in
+// `src/lib/mail-unsubscribe.ts` is a copy of `TOKEN_RE` in nemar-cli's
+// `backend/src/services/mail-links.ts`, the verifier's own parser. A token the backend mints that
+// this site's pattern refuses would make every link render "not valid"; a looser pattern here would
+// splice paths the backend never minted into API URLs. Same strict/soft split as above, with its own
+// variable, `NEMAR_CLI_MAIL_LINKS`, and the same CI sparse checkout.
+// ---------------------------------------------------------------------------
+
+const LINKS_CANDIDATES = [
+  "../../nemar-cli-worktrees/epic-mail-categories/backend/src/services/mail-links.ts",
+  "../../nemar-cli/backend/src/services/mail-links.ts",
+];
+const LINKS_ENV = proc.env.NEMAR_CLI_MAIL_LINKS;
+const STRICT_LINKS_PATH = LINKS_ENV ? resolveFromCwd(LINKS_ENV, proc.cwd()) : undefined;
+const LINKS_PATH =
+  STRICT_LINKS_PATH ??
+  LINKS_CANDIDATES.map((rel) => pathFromUrl(new URL(rel, import.meta.url))).find((path) =>
+    fs.existsSync(path),
+  );
+const LINKS_EXISTS = LINKS_PATH !== undefined && fs.existsSync(LINKS_PATH);
+const SKIP_LINKS = !STRICT_LINKS_PATH && !LINKS_EXISTS;
+
+if (SKIP_LINKS) {
+  console.info(
+    `[mail-links drift] skipped: no nemar-cli mail-links.ts found at any of ${LINKS_CANDIDATES.join(", ")} (relative to test/), and NEMAR_CLI_MAIL_LINKS is unset.`,
+  );
+}
+
+describe.skipIf(SKIP_LINKS)("against nemar-cli's unsubscribe token parser", () => {
+  it("finds the source file", () => {
+    expect(LINKS_EXISTS).toBe(true);
+  });
+
+  it("checks tokens with the same pattern as the backend's TOKEN_RE", () => {
+    const backend = extractRegexLiteral(fs.readFileSync(LINKS_PATH as string, "utf8"), "TOKEN_RE");
+    expect(backend).toEqual({
+      source: MAIL_UNSUBSCRIBE_TOKEN_RE.source,
+      flags: MAIL_UNSUBSCRIBE_TOKEN_RE.flags,
+    });
   });
 });
