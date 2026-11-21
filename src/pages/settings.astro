@@ -20,6 +20,13 @@ import {
 } from "../lib/docs-base";
 import { formatDate } from "../lib/format";
 import { IDENTITY_CONFLICT_MESSAGES } from "../lib/identity-errors";
+import {
+  COMMUNITY_MAIL_CATEGORIES,
+  RECALL_CATEGORY,
+  mailCategoryDescription,
+  mailCategoryLabel,
+  mailRecallWhy,
+} from "../lib/mail-categories";
 import { gapTail, profileGaps } from "../lib/profile-gaps";
 
 const session = getSession(Astro.locals);
@@ -837,6 +844,59 @@ if (tier !== "unverified") {
         </fieldset>
       </article>
 
+      <!-- Email block -->
+      <article class="card" id="email-preferences">
+        <div class="card__rail" aria-hidden="true"></div>
+        <header class="card__head">
+          <h2 class="card__title">Email</h2>
+          <p class="card__lede">Choose which NEMAR community mail you receive.</p>
+        </header>
+        {/* Loaded and saved in the browser through the /api/v1 proxy (mail-prefs-api.ts). The
+            switches stay disabled until the load answers, so nothing here can claim a state the
+            account does not have. Labels and descriptions are the transcribed account copy. */}
+        <ul class="mail-prefs" role="list" data-mail-prefs>
+          {COMMUNITY_MAIL_CATEGORIES.map((category) => (
+            <li class="mail-prefs__row">
+              <label class="mail-prefs__switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  disabled
+                  data-mail-pref={category}
+                  aria-describedby={`mail-pref-${category}-desc`}
+                />
+                <span class="mail-prefs__text">
+                  <span class="mail-prefs__label">{mailCategoryLabel(category)}</span>
+                  <span class="mail-prefs__desc" id={`mail-pref-${category}-desc`}>
+                    {mailCategoryDescription(category)}
+                  </span>
+                </span>
+              </label>
+            </li>
+          ))}
+          <li class="mail-prefs__row mail-prefs__row--locked" data-mail-pref-locked={RECALL_CATEGORY}>
+            <label class="mail-prefs__switch">
+              <input
+                type="checkbox"
+                role="switch"
+                checked
+                disabled
+                aria-describedby="mail-pref-recall-desc"
+              />
+              <span class="mail-prefs__text">
+                <span class="mail-prefs__label">
+                  {mailCategoryLabel(RECALL_CATEGORY)}: always on
+                </span>
+                <span class="mail-prefs__desc" id="mail-pref-recall-desc">
+                  {mailRecallWhy()}
+                </span>
+              </span>
+            </label>
+          </li>
+        </ul>
+        <p class="flow__msg" role="status" data-mail-prefs-msg>Loading your email preferences…</p>
+      </article>
+
       <!-- Privacy block -->
       <article class="card">
         <div class="card__rail" aria-hidden="true"></div>
@@ -1595,6 +1655,50 @@ if (tier !== "unverified") {
     text-align: center;
   }
 
+  /* ---------- Email preferences ---------- */
+  .mail-prefs {
+    margin: 0 0 var(--space-3);
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: var(--space-3);
+  }
+  .mail-prefs__row {
+    padding: var(--space-3) var(--space-4);
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-md);
+  }
+  .mail-prefs__switch {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-3);
+    align-items: start;
+    cursor: pointer;
+  }
+  .mail-prefs__row--locked .mail-prefs__switch,
+  .mail-prefs__switch:has(input:disabled) {
+    cursor: default;
+  }
+  .mail-prefs__switch input {
+    margin-block-start: 3px;
+    inline-size: 18px;
+    block-size: 18px;
+    accent-color: var(--brand-teal);
+  }
+  .mail-prefs__text {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .mail-prefs__label {
+    font-weight: var(--fw-medium);
+    color: var(--color-fg);
+  }
+  .mail-prefs__desc {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    line-height: var(--lh-normal);
+  }
+
   /* ---------- Consent ---------- */
   .consent {
     display: grid;
@@ -1708,6 +1812,13 @@ if (tier !== "unverified") {
     validateUsername,
     validateWhy,
   } from "../lib/account-tier";
+  import { isCommunityMailCategory } from "../lib/mail-categories";
+  import {
+    type MailPreferencesResult,
+    getMailPreferences,
+    mailPreferencesErrorText,
+    putMailPreference,
+  } from "../lib/mail-prefs-api";
   import { describeGap, gapTail, gapsForFields } from "../lib/profile-gaps";
 
   // ---- Small helpers ----
@@ -2422,4 +2533,53 @@ if (tier !== "unverified") {
       refreshConsent();
     });
   });
+
+  // ---- Email preferences (nemar-cli ADR 0132) ----
+  // The switches render disabled; the load enables them with the account's values. A change is
+  // saved at once, the switch stays disabled while the PUT is in flight, and a refusal puts it back
+  // and shows the backend's sentence (`mailPreferencesErrorText`). The answer to every save is the
+  // full set, which replaces what the switches show, so they never drift from the account.
+  {
+    const mailMsg = $<HTMLElement>("[data-mail-prefs-msg]");
+    const mailSwitches = Array.from(
+      document.querySelectorAll<HTMLInputElement>("input[data-mail-pref]"),
+    );
+
+    const showPrefs = (result: Extract<MailPreferencesResult, { ok: true }>): void => {
+      for (const input of mailSwitches) {
+        const category = input.dataset.mailPref;
+        if (!isCommunityMailCategory(category)) continue;
+        input.checked = result.prefs[category];
+        input.disabled = false;
+      }
+    };
+
+    void getMailPreferences().then((result) => {
+      if (result.ok) {
+        showPrefs(result);
+        clearMsg(mailMsg);
+      } else {
+        setMsg(mailMsg, mailPreferencesErrorText(result), "error");
+      }
+    });
+
+    for (const input of mailSwitches) {
+      input.addEventListener("change", async () => {
+        const category = input.dataset.mailPref;
+        if (!isCommunityMailCategory(category)) return;
+        const wanted = input.checked;
+        input.disabled = true;
+        clearMsg(mailMsg);
+        const result = await putMailPreference(category, wanted);
+        if (result.ok) {
+          showPrefs(result);
+          setMsg(mailMsg, "Saved.", "success");
+        } else {
+          input.checked = !wanted;
+          input.disabled = false;
+          setMsg(mailMsg, mailPreferencesErrorText(result), "error");
+        }
+      });
+    }
+  }
 </script>
