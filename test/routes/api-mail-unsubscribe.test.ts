@@ -160,6 +160,37 @@ describe("POST /api/mail/unsubscribe: the body cap counts what arrives", () => {
     expect(seen).toEqual([]);
   });
 
+  /** A press padded to exactly `size` bytes. */
+  function pressOfSize(size: number): string {
+    const base = `token=${TOKEN}&scope=all&pad=`;
+    return base + "x".repeat(size - new TextEncoder().encode(base).length);
+  }
+
+  it("accepts a body of exactly 2048 bytes and refuses 2049, streamed or declared", async () => {
+    const seen = network(() => UNSUBSCRIBED("all"));
+    expect(new TextEncoder().encode(pressOfSize(2048)).length).toBe(2048);
+    expect((await streamed(pressOfSize(2048))).status).toBe(303);
+    expect((await streamed(pressOfSize(2049))).status).toBe(413);
+    expect(seen).toHaveLength(1);
+    const declared = (size: number) =>
+      callRoute(
+        POST,
+        ENDPOINT,
+        {},
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Content-Length": String(size),
+          },
+          body: pressOfSize(size),
+        },
+      );
+    expect((await declared(2048)).status).toBe(303);
+    expect((await declared(2049)).status).toBe(413);
+    expect(seen).toHaveLength(2);
+  });
+
   it("accepts a small chunked press", async () => {
     const seen = network(() => UNSUBSCRIBED("all"));
     const res = await streamed(`token=${TOKEN}&scope=all`);
