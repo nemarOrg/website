@@ -58,15 +58,20 @@ describe("the switches", () => {
 describe("load and save", () => {
   const script = SETTINGS.slice(SETTINGS.indexOf("// ---- Email preferences"));
 
-  it("loads and saves through the client module, never a hand-built fetch", () => {
-    expect(script).toContain("void getMailPreferences().then(");
-    expect(script).toContain("await putMailPreference(category, wanted)");
+  it("drives the card through the tested controller and client, never a hand-built fetch", () => {
+    expect(script).toContain("const mailCard = createMailPrefsCard({");
+    expect(script).toContain("load: () => getMailPreferences(),");
+    expect(script).toContain("save: (category, on) => putMailPreference(category, on),");
+    expect(script).toContain(
+      'input.addEventListener("change", () => void mailCard.change(input));',
+    );
     expect(script).not.toMatch(/fetch\(\s*["'`]\/api\/v1\/users/);
   });
 
-  it("puts a switch back and shows the error text when a save is refused", () => {
-    expect(script).toMatch(
-      /input\.checked = !wanted;\s*input\.disabled = false;\s*setMsg\(mailMsg, mailPreferencesErrorText\(result\), "error"\);/,
+  it("offers Try again after a failed load, wired to the same load", () => {
+    expect(CARD).toMatch(
+      /<button type="button" class="btn btn--ghost" data-mail-prefs-retry hidden>/,
     );
+    expect(script).toContain('mailRetry?.addEventListener("click", () => void mailCard.load());');
   });
 });

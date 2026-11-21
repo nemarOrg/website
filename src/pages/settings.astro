@@ -895,6 +895,11 @@ if (tier !== "unverified") {
           </li>
         </ul>
         <p class="flow__msg" role="status" data-mail-prefs-msg>Loading your email preferences…</p>
+        <div class="flow__actions">
+          <button type="button" class="btn btn--ghost" data-mail-prefs-retry hidden>
+            Try again
+          </button>
+        </div>
       </article>
 
       <!-- Privacy block -->
@@ -1812,13 +1817,8 @@ if (tier !== "unverified") {
     validateUsername,
     validateWhy,
   } from "../lib/account-tier";
-  import { isCommunityMailCategory } from "../lib/mail-categories";
-  import {
-    type MailPreferencesResult,
-    getMailPreferences,
-    mailPreferencesErrorText,
-    putMailPreference,
-  } from "../lib/mail-prefs-api";
+  import { createMailPrefsCard } from "../lib/mail-prefs-card";
+  import { getMailPreferences, putMailPreference } from "../lib/mail-prefs-api";
   import { describeGap, gapTail, gapsForFields } from "../lib/profile-gaps";
 
   // ---- Small helpers ----
@@ -2535,51 +2535,28 @@ if (tier !== "unverified") {
   });
 
   // ---- Email preferences (nemar-cli ADR 0132) ----
-  // The switches render disabled; the load enables them with the account's values. A change is
-  // saved at once, the switch stays disabled while the PUT is in flight, and a refusal puts it back
-  // and shows the backend's sentence (`mailPreferencesErrorText`). The answer to every save is the
-  // full set, which replaces what the switches show, so they never drift from the account.
+  // The rules (disabled until loaded, per-switch in-flight guard, re-read after a save whose
+  // outcome is unknown, "Try again" after a failed load) live in `mail-prefs-card.ts`.
   {
     const mailMsg = $<HTMLElement>("[data-mail-prefs-msg]");
+    const mailRetry = $<HTMLButtonElement>("[data-mail-prefs-retry]");
     const mailSwitches = Array.from(
       document.querySelectorAll<HTMLInputElement>("input[data-mail-pref]"),
     );
-
-    const showPrefs = (result: Extract<MailPreferencesResult, { ok: true }>): void => {
-      for (const input of mailSwitches) {
-        const category = input.dataset.mailPref;
-        if (!isCommunityMailCategory(category)) continue;
-        input.checked = result.prefs[category];
-        input.disabled = false;
-      }
-    };
-
-    void getMailPreferences().then((result) => {
-      if (result.ok) {
-        showPrefs(result);
-        clearMsg(mailMsg);
-      } else {
-        setMsg(mailMsg, mailPreferencesErrorText(result), "error");
-      }
+    const mailCard = createMailPrefsCard({
+      switches: mailSwitches,
+      load: () => getMailPreferences(),
+      save: (category, on) => putMailPreference(category, on),
+      message: (text, tone) => (text ? setMsg(mailMsg, text, tone ?? "error") : clearMsg(mailMsg)),
+      retryVisible: (visible) => {
+        if (mailRetry) mailRetry.hidden = !visible;
+      },
     });
 
+    void mailCard.load();
+    mailRetry?.addEventListener("click", () => void mailCard.load());
     for (const input of mailSwitches) {
-      input.addEventListener("change", async () => {
-        const category = input.dataset.mailPref;
-        if (!isCommunityMailCategory(category)) return;
-        const wanted = input.checked;
-        input.disabled = true;
-        clearMsg(mailMsg);
-        const result = await putMailPreference(category, wanted);
-        if (result.ok) {
-          showPrefs(result);
-          setMsg(mailMsg, "Saved.", "success");
-        } else {
-          input.checked = !wanted;
-          input.disabled = false;
-          setMsg(mailMsg, mailPreferencesErrorText(result), "error");
-        }
-      });
+      input.addEventListener("change", () => void mailCard.change(input));
     }
   }
 </script>
