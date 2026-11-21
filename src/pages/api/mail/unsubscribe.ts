@@ -88,7 +88,9 @@ export const POST: APIRoute = async ({ request }) => {
   try {
     form = urlencoded
       ? new URLSearchParams(new TextDecoder().decode(bytes))
-      : await new Response(bytes, { headers: { "content-type": contentType } }).formData();
+      : await new Response(bytes.buffer as ArrayBuffer, {
+          headers: { "content-type": contentType },
+        }).formData();
   } catch {
     return refuse("This is not an unsubscribe request.", 400);
   }
