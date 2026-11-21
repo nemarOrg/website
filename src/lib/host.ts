@@ -95,6 +95,11 @@ const APP_ROUTE_PREFIXES: readonly string[] = [
   // middleware would 301 browser-side dashboard calls away from app and
   // break the proxy entirely.
   "/api/v1",
+  // A community mail's unsubscribe page and the endpoint its buttons post to (nemar-cli ADR 0132).
+  // The backend's link points at `${APP_BASE_URL}/unsubscribe/<token>`, so this keeps the token from
+  // taking a pointless hop through the marketing host. Neither reads the session cookie.
+  "/unsubscribe",
+  "/api/mail",
 ];
 
 const DATASET_COLLABORATORS_RE = /^\/dataset\/[^/]+\/collaborators\/?$/;
