@@ -1,6 +1,6 @@
 # ADR 0034: Subject anatomy comes from NEMAR's geometry index, in the contacts' own frame, never mixed with the template
 
-**Status:** accepted (2026-11-21)
+**Status:** accepted
 **Date:** 2026-11-19
 **Owner:** Seyed Yahya Shirazi
 
