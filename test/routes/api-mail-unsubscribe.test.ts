@@ -110,6 +110,74 @@ describe("POST /api/mail/unsubscribe: the token is checked before anything is se
   });
 });
 
+describe("POST /api/mail/unsubscribe: the body cap counts what arrives", () => {
+  /** A streamed body with no Content-Length, the way a chunked upload arrives. */
+  function chunked(text: string, pieces = 8): ReadableStream<Uint8Array> {
+    const bytes = new TextEncoder().encode(text);
+    const size = Math.ceil(bytes.length / pieces);
+    let i = 0;
+    return new ReadableStream({
+      pull(controller) {
+        if (i >= bytes.length) return controller.close();
+        controller.enqueue(bytes.slice(i, i + size));
+        i += size;
+      },
+    });
+  }
+
+  function streamed(text: string): Promise<Response> {
+    return callRoute(POST, ENDPOINT, {}, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Origin: "https://app.nemar.org",
+      },
+      body: chunked(text),
+      duplex: "half",
+    } as RequestInit);
+  }
+
+  it("refuses an oversized chunked body with no Content-Length, and sends nothing", async () => {
+    const seen = network(() => UNSUBSCRIBED("all"));
+    const padded = `token=${TOKEN}&scope=all&pad=${"x".repeat(4096)}`;
+    const res = await streamed(padded);
+    expect(res.status).toBe(413);
+    expect(seen).toEqual([]);
+  });
+
+  it("refuses a body larger than its understated Content-Length", async () => {
+    const seen = network(() => UNSUBSCRIBED("all"));
+    const res = await callRoute(POST, ENDPOINT, {}, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Length": "40",
+      },
+      body: chunked(`token=${TOKEN}&scope=all&pad=${"x".repeat(4096)}`),
+      duplex: "half",
+    } as RequestInit);
+    expect(res.status).toBe(413);
+    expect(seen).toEqual([]);
+  });
+
+  it("accepts a small chunked press", async () => {
+    const seen = network(() => UNSUBSCRIBED("all"));
+    const res = await streamed(`token=${TOKEN}&scope=all`);
+    expect(res.status).toBe(303);
+    expect(seen).toHaveLength(1);
+  });
+
+  it("still reads a multipart press", async () => {
+    const seen = network(() => UNSUBSCRIBED("category"));
+    const form = new FormData();
+    form.set("token", TOKEN);
+    form.set("scope", "category");
+    const res = await callRoute(POST, ENDPOINT, {}, { method: "POST", body: form });
+    expect(res.status).toBe(303);
+    expect(new URLSearchParams(seen[0].body ?? "").get("from")).toBe("page");
+  });
+});
+
 describe("POST /api/mail/unsubscribe: forwarding", () => {
   it("forwards the category button as a one-click POST from the page", async () => {
     const seen = network(() => UNSUBSCRIBED("category"));

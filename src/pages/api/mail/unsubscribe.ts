@@ -36,21 +36,59 @@ function refuse(message: string, status: number): Response {
   });
 }
 
+/**
+ * Read at most {@link MAX_BODY_BYTES} bytes, counting what actually arrives: a declared
+ * Content-Length is a hint a client may omit (chunked) or understate. Null when the body is larger;
+ * the stream is cancelled at the first byte over. Undefined when the stream fails.
+ */
+async function readBounded(request: Request): Promise<Uint8Array | null | undefined> {
+  const stream = request.body;
+  if (!stream) return new Uint8Array(0);
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return undefined;
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 export const POST: APIRoute = async ({ request }) => {
   const declared = Number(request.headers.get("content-length") ?? "0");
   if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
     return refuse("This is not an unsubscribe request.", 413);
   }
-  const type = (request.headers.get("content-type") ?? "").toLowerCase();
-  if (
-    !type.startsWith("application/x-www-form-urlencoded") &&
-    !type.startsWith("multipart/form-data")
-  ) {
+  const contentType = request.headers.get("content-type") ?? "";
+  const type = contentType.toLowerCase();
+  const urlencoded = type.startsWith("application/x-www-form-urlencoded");
+  if (!urlencoded && !type.startsWith("multipart/form-data")) {
     return refuse("This is not an unsubscribe request.", 415);
   }
-  let form: FormData;
+  const bytes = await readBounded(request);
+  if (bytes === null) return refuse("This is not an unsubscribe request.", 413);
+  if (bytes === undefined) return refuse("This is not an unsubscribe request.", 400);
+  let form: URLSearchParams | FormData;
   try {
-    form = await request.formData();
+    form = urlencoded
+      ? new URLSearchParams(new TextDecoder().decode(bytes))
+      : await new Response(bytes, { headers: { "content-type": contentType } }).formData();
   } catch {
     return refuse("This is not an unsubscribe request.", 400);
   }
