@@ -126,6 +126,9 @@ jobs:
       # test/oidc-authorize-contract-drift.test.ts is a SEVENTH, against
       # shared/contract/oidc-authorize.ts (the authorization endpoint's routes, answer kinds, codes
       # and reasons) and shared/oidc.ts beside it (the page's path). Same `dev` pairing, and strict.
+      # test/mail-categories-drift.test.ts is an EIGHTH, against shared/contract/mail-categories.ts
+      # (the community mail categories the Settings card and the unsubscribe page read). Same `dev`
+      # pairing, and strict: red until nemar-cli epic #2260 reaches `dev`.
       - uses: actions/checkout@v4
         with:
           repository: nemarOrg/nemar-cli
@@ -134,6 +137,7 @@ jobs:
             /shared/contract/account-copy.ts
             /shared/contract/docs-auth.ts
             /shared/contract/mail-admin.ts
+            /shared/contract/mail-categories.ts
             /shared/contract/oidc-authorize.ts
             /shared/contract/private-site.ts
             /shared/contract/publication-review-copy.ts
@@ -148,6 +152,7 @@ jobs:
           NEMAR_CLI_ACCOUNT_COPY: nemar-cli-contract/shared/contract/account-copy.ts
           NEMAR_CLI_DOCS_CONTRACT: nemar-cli-contract/shared/contract/docs-auth.ts
           NEMAR_CLI_MAIL_ADMIN_CONTRACT: nemar-cli-contract/shared/contract/mail-admin.ts
+          NEMAR_CLI_MAIL_CATEGORIES: nemar-cli-contract/shared/contract/mail-categories.ts
           NEMAR_CLI_OIDC_AUTHORIZE_CONTRACT: nemar-cli-contract/shared/contract/oidc-authorize.ts
           NEMAR_CLI_PRIVATE_SITE_CONTRACT: nemar-cli-contract/shared/contract/private-site.ts
           NEMAR_CLI_REVIEW_COPY: nemar-cli-contract/shared/contract/publication-review-copy.ts

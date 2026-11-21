@@ -55,3 +55,52 @@ export function compareLists(
   const onlyContract = contract.filter((v) => !ours.includes(v));
   return `${name}: this repo has ${JSON.stringify(ours)}, the contract has ${JSON.stringify(contract)} (only here: ${JSON.stringify(onlyHere)}; only in the contract: ${JSON.stringify(onlyContract)})`;
 }
+
+/**
+ * `export const NAME: readonly string[] = ["a", "b"];` (a type annotation, with or without
+ * `as const`) -> the strings, in order. A list that spreads another (`[...A, "b"]`) is built from
+ * an expression and is reported as absent, never as its literal tail.
+ */
+export function extractAnnotatedStringArray(source: string, name: string): string[] | undefined {
+  const re = new RegExp(
+    `export\\s+const\\s+${name}\\s*(?::[^=]*)?=\\s*\\[([^\\]]*)\\]\\s*(?:as\\s+const\\s*)?;`,
+  );
+  const m = stripComments(source).match(re);
+  if (!m || m[1].includes("...")) return undefined;
+  return quoted(m[1]);
+}
+
+/** `export const NAME = "value" as const;` -> the value. */
+export function extractStringConstant(source: string, name: string): string | undefined {
+  const re = new RegExp(`export\\s+const\\s+${name}\\s*(?::[^=]*)?=\\s*"([^"]*)"`);
+  return stripComments(source).match(re)?.[1];
+}
+
+/** One category's switches, as the mail category table declares them. */
+export interface CategoryFlags {
+  readonly id: string;
+  readonly canBeTurnedOff: boolean;
+  readonly defaultOn: boolean;
+}
+
+/**
+ * The `id`, `canBeTurnedOff` and `defaultOn` of every entry of `export const NAME ... = { ... };`,
+ * in declaration order. An entry missing one of the three, or giving one as anything but a literal,
+ * makes the whole table absent (`undefined`), so a refactor the extractor cannot read fails loudly.
+ */
+export function extractCategoryTable(source: string, name: string): CategoryFlags[] | undefined {
+  const re = new RegExp(`export\\s+const\\s+${name}\\b[^=]*=\\s*\\{([\\s\\S]*?)\\n\\};`);
+  const m = stripComments(source).match(re);
+  if (!m) return undefined;
+  const entries = [...m[1].matchAll(/(\w+)\s*:\s*\{([^}]*)\}/g)];
+  if (entries.length === 0) return undefined;
+  const out: CategoryFlags[] = [];
+  for (const [, key, body] of entries) {
+    const id = body.match(/\bid\s*:\s*"([^"]*)"/)?.[1];
+    const off = body.match(/\bcanBeTurnedOff\s*:\s*(true|false)\b/)?.[1];
+    const on = body.match(/\bdefaultOn\s*:\s*(true|false)\b/)?.[1];
+    if (id === undefined || off === undefined || on === undefined || id !== key) return undefined;
+    out.push({ id, canBeTurnedOff: off === "true", defaultOn: on === "true" });
+  }
+  return out;
+}
