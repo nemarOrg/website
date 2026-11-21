@@ -124,8 +124,8 @@ describe("the mail category extractors", () => {
     expect(
       extractAnnotatedStringArray('export const A = [...B, "recall"] as const;', "A"),
     ).toBeUndefined();
-    expect(extractAnnotatedStringArray('export const A: readonly string[] = ["x", "y"];', "A")).toEqual(
-      ["x", "y"],
-    );
+    expect(
+      extractAnnotatedStringArray('export const A: readonly string[] = ["x", "y"];', "A"),
+    ).toEqual(["x", "y"]);
   });
 });
