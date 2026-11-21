@@ -83,3 +83,20 @@ describe("privacy", () => {
     expect(BASE).toContain('{noindex && <meta name="robots" content="noindex, nofollow" />}');
   });
 });
+
+describe("the head carries no copy of the token", () => {
+  it("omits the canonical link and og:url on a noindex page", () => {
+    expect(BASE).toContain("{!noindex && <link rel=\"canonical\" href={canonicalUrl} />}");
+    expect(BASE).toContain("{!noindex && <meta property=\"og:url\" content={canonicalUrl} />}");
+    // Nothing else in the layout's head names the request path.
+    const head = BASE.slice(BASE.indexOf("<head>"), BASE.indexOf("</head>"));
+    const pathUses = head.match(/canonicalUrl|Astro\.url/g) ?? [];
+    expect(pathUses).toHaveLength(2);
+  });
+
+  it("names the token only in the two hidden form fields", () => {
+    const markup = PAGE.slice(PAGE.indexOf("<Base "));
+    expect(markup.match(/\{token\}/g) ?? []).toHaveLength(2);
+    expect(markup.match(/name="token" value=\{token\}/g) ?? []).toHaveLength(2);
+  });
+});
