@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { apiFetch, resetApiFetchWarningsForTests } from "./api-fetch";
+import { apiFetch, pathOf, resetApiFetchWarningsForTests } from "./api-fetch";
 import { type ApiBinding, runWithRequestContext } from "./request-context";
 
 const API = "https://api.nemar.org";
@@ -975,5 +975,22 @@ describe("apiFetch notices a rate-limit count that never falls", () => {
       await call(b.binding, "198.51.100.1");
     }
     expect(error).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("pathOf, the path a log line names", () => {
+  const token = `v1.42.news.7.${"A".repeat(43)}`;
+
+  it("drops the query", () => {
+    expect(pathOf("https://api.nemar.org/datasets?search=private")).toBe("/datasets");
+  });
+
+  it("never names an unsubscribe link's token, on either mount or with a suffix", () => {
+    expect(pathOf(`https://api.nemar.org/mail/unsubscribe/${token}/info`)).toBe(
+      "/mail/unsubscribe/(token)/info",
+    );
+    expect(pathOf(`https://api.nemar.org/nemar/mail/unsubscribe/${token}`)).toBe(
+      "/nemar/mail/unsubscribe/(token)",
+    );
   });
 });

@@ -88,10 +88,14 @@ function isApiUrl(url: string): boolean {
   }
 }
 
-/** The path of `url` for a log line or an error: never the query, which can carry what a visitor typed. */
-function pathOf(url: string): string {
+/**
+ * The path of `url` for a log line or an error: never the query, which can carry what a visitor typed,
+ * and never an unsubscribe link's token, which is that link's whole authority (nemar-cli ADR 0132).
+ * Exported for the unit tests.
+ */
+export function pathOf(url: string): string {
   try {
-    return new URL(url).pathname;
+    return new URL(url).pathname.replace(/(\/mail\/unsubscribe\/)[^/]+/, "$1(token)");
   } catch {
     return "(unreadable URL)";
   }

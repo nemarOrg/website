@@ -5,7 +5,7 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { POST } from "../../src/pages/api/v1/[...path]";
+import { POST, PUT } from "../../src/pages/api/v1/[...path]";
 import { callRoute } from "./harness";
 
 const realFetch = globalThis.fetch;
@@ -50,5 +50,50 @@ describe("/api/v1 proxy request headers", () => {
     });
     expect(seen.get("authorization")).toBeNull();
     expect(seen.get("x-forwarded-for")).toBeNull();
+  });
+});
+
+describe("/api/v1 proxy: the Settings email card's save", () => {
+  it("forwards a PUT to /users/me/email-preferences with the cookie and the browser's Origin", async () => {
+    let seenUrl = "";
+    let seenMethod = "";
+    let seen = new Headers();
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      seenUrl = String(input);
+      seenMethod = init?.method ?? "";
+      seen = new Headers(init?.headers);
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            news: false,
+            rfcs: true,
+            maintenance: true,
+            recall: { on: true, locked: true },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+    const res = await callRoute(
+      PUT,
+      "https://app.nemar.org/api/v1/users/me/email-preferences",
+      { path: "users/me/email-preferences" },
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: "__Host-nemar_session=abc",
+          Origin: "https://app.nemar.org",
+        },
+        body: JSON.stringify({ news: false }),
+      },
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(seenMethod).toBe("PUT");
+    expect(seenUrl).toBe("https://api.nemar.org/users/me/email-preferences");
+    // The backend refuses a cookie-authenticated PUT without a NEMAR Origin.
+    expect(seen.get("origin")).toBe("https://app.nemar.org");
+    expect(seen.get("cookie")).toBe("__Host-nemar_session=abc");
   });
 });

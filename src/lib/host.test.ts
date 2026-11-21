@@ -72,6 +72,10 @@ describe("isAppRoute", () => {
     // CLI device-authorization page (epic #1272 phase 2).
     "/cli/authorize",
     "/cli/authorize/",
+    // A community mail's unsubscribe page and its endpoint (nemar-cli ADR 0132): the backend's
+    // link points at the app host.
+    "/unsubscribe/v1.42.news.7.signature",
+    "/api/mail/unsubscribe",
   ])("treats %s as app", (path) => {
     expect(isAppRoute(path)).toBe(true);
   });
