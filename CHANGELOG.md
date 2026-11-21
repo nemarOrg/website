@@ -13,6 +13,22 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.44] - 2026-11-21
+
+### Added
+
+- **The Brain panel can draw this subject's own anatomy** (ADR 0034).
+  When the dataset's geometry index has a verified surface for the electrodes file on screen, the Frame selector offers "Subject anatomy", the default for that file, and draws the subject's cortical surface under the contacts in their own frame, with the label "This subject's anatomy, from the dataset's own surfaces" (plus "approximate alignment (depth contacts)" for depth contacts), the source surfaces in the notes, and the same words in PNG and SVG exports.
+  The index and meshes are checked (schema, version, hemisphere keys, SHA-256 before decoding); any mismatch hides the option with one console warning.
+  Nothing is requested while the panel is closed.
+
+### Changed
+
+- **The Brain panel is ready for renamed iEEG channels** (#574).
+  Corrections pending on some iEEG mirror datasets rename channels as the recording headers do (`EEG G_03-REF`, `EEGGA_01REF`, bipolar `POL B1-B2`), while `electrodes.tsv` keeps the contact names (`G03`, `GA01`, `B01`, `B02`).
+  The panel and the live Activity view now also read `EEG` run straight into a shaft letter, more than one space after `EEG` or `POL`, an underscore between a shaft letter and its index, `REF` right after the index with no hyphen, and each half of a bipolar pair with or without leading zeros or that underscore, so those channels stay at their contacts once the corrections merge.
+  An ambiguous name is still left unplaced rather than guessed, and the join note under the panel (and in saved PNG and SVG files) now words the zero and reference rules to cover them.
+
 ## [0.2.43] - 2026-11-20
 
 ### Added

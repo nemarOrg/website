@@ -71,6 +71,8 @@ import {
   type BrainTheme,
   MAX_CONTACTS,
   MIN_PICK_PX,
+  SUBJECT_MESH_STYLE,
+  TEMPLATE_MESH_STYLE,
   createBrainRenderer,
   parseColor,
 } from "./brain-gl";
@@ -124,6 +126,18 @@ import {
   unlocatedCauseHeads,
   unlocatedChannelName,
 } from "./name-refusal";
+import {
+  IntegrityError,
+  SUBJECT_ANATOMY_LABEL,
+  type SubjectEntry,
+  entryFor,
+  geometryIndexFor,
+  subjectLabel,
+  subjectNotes,
+  subjectOutlines,
+  subjectSurfaceFor,
+  warnOnce,
+} from "./subject-anatomy";
 import {
   TEMPLATE_DIRECTORY,
   TEMPLATE_FAILED_SENTENCE,
@@ -814,6 +828,26 @@ export type GeometryStatus =
  */
 export type TemplateStatus = "idle" | "loading" | "ready" | "failed";
 
+/** Which anatomy the reader chose for the shown space: the subject's own surface, or the template. */
+export type AnatomyChoice = "subject" | "template";
+
+/**
+ * The dataset's geometry index (ADR 0034): `idle` until the panel is open on contacts, then one
+ * request per dataset. `ready` with no entries is a dataset without subject anatomy (a 404 or an
+ * invalid index). `rejected` lists the electrodes files whose surface failed a check; their option
+ * is hidden for the session.
+ */
+export interface SubjectsState {
+  status: TemplateStatus;
+  entries: readonly SubjectEntry[];
+  rejected: readonly string[];
+  /** The index took longer than `SUBJECTS_WAIT_MS`: the surface no longer waits for it. */
+  timedOut: boolean;
+}
+
+/** How long the first surface waits for the geometry index before it loads the template anyway. */
+export const SUBJECTS_WAIT_MS = 2000;
+
 export interface PanelState {
   recording: RecordingRef | null;
   group: GroupInfo | null;
@@ -832,6 +866,15 @@ export interface PanelState {
   template: TemplateStatus;
   /** The template outlines of the 2D views and the SVG (IS-V3): the same states, for `views.json`. */
   outlines: TemplateStatus;
+  /** The subject-anatomy index and what is known about it (ADR 0034). */
+  subjects: SubjectsState;
+  /** The anatomy chosen for the shown space; the subject's own when there is one. */
+  anatomy: AnatomyChoice;
+  /**
+   * Which surface `template` and `outlines` describe: `template`, or `subject:<dataset>|<electrodes>`.
+   * Null until one is requested. A result for another key is stale and ignored.
+   */
+  surfaceKey: string | null;
   disposed: boolean;
 }
 
@@ -866,6 +909,9 @@ export function initialState(): PanelState {
     activity: idleActivity(),
     template: "idle",
     outlines: "idle",
+    subjects: { status: "idle", entries: [], rejected: [], timedOut: false },
+    anatomy: "subject",
+    surfaceKey: null,
     disposed: false,
   };
 }
@@ -878,7 +924,7 @@ export type PanelEvent =
   | { type: "toggle_open"; open?: boolean }
   | { type: "webgl_unavailable" }
   | { type: "view_changed"; view2d: boolean }
-  | { type: "frame_changed"; spaceIndex: number }
+  | { type: "frame_changed"; spaceIndex: number; anatomy?: AnatomyChoice }
   | { type: "select_contact"; contact: number | null; toggle?: boolean }
   | { type: "select_channel"; label: string | null }
   /** Empty space was clicked, or the Clear selection button or Escape was used. Never toggles. */
@@ -891,11 +937,18 @@ export type PanelEvent =
   | { type: "activity_report"; report: ActivityReport }
   | { type: "activity_failed"; token: number; reason: ActivityFailure }
   /** The DOM half holds the decoded surface. */
-  | { type: "template_loaded" }
-  | { type: "template_failed" }
+  | { type: "template_loaded"; key?: string }
+  | { type: "template_failed"; key?: string }
   /** The DOM half holds the parsed outlines of `views.json` (IS-V3). */
-  | { type: "outlines_loaded" }
-  | { type: "outlines_failed" }
+  | { type: "outlines_loaded"; key?: string }
+  | { type: "outlines_failed"; key?: string }
+  /** The dataset's geometry index arrived (possibly with no usable entry), or could not be read. */
+  | { type: "subjects_loaded"; datasetId?: string; entries: readonly SubjectEntry[] }
+  | { type: "subjects_failed"; datasetId?: string }
+  /** The index has not answered within `SUBJECTS_WAIT_MS`. */
+  | { type: "subjects_timeout"; datasetId?: string }
+  /** A subject surface failed a check or a read: its option is hidden from now on. */
+  | { type: "subject_rejected"; electrodes: string }
   | { type: "disposed" };
 
 export type PanelEffect =
@@ -903,10 +956,12 @@ export type PanelEffect =
   | { type: "abort_geometry" }
   | { type: "read_activity"; plan: ActivityPlan }
   | { type: "abort_activity" }
-  /** Fetch the template surface, once a canvas exists to draw it on. Never emitted for another frame. */
-  | { type: "load_template" }
-  /** Fetch the template outlines of the 2D views, once, for a registered frame with the panel open (IS-V3). */
-  | { type: "load_outlines" }
+  /** Fetch the surface (the template's, or the subject's own), once a canvas exists to draw it on. */
+  | { type: "load_template"; key: string; subject: SubjectEntry | null }
+  /** Fetch the outlines of the 2D views (the template's, or computed from the subject's surface). */
+  | { type: "load_outlines"; key: string; subject: SubjectEntry | null }
+  /** Fetch the dataset's geometry index; never while the panel is closed. */
+  | { type: "load_subjects"; datasetId: string }
   /** Highlight this channel's trace in the scope; null clears the highlight. */
   | { type: "select_trace"; label: string | null };
 
@@ -1026,6 +1081,9 @@ function reduceCore(state: PanelState, event: PanelEvent): Transition {
         view2d: state.view2d,
         template: state.template,
         outlines: state.outlines,
+        surfaceKey: state.surfaceKey,
+        // The index is the dataset's, not the recording's: a rejected surface stays rejected.
+        subjects: { ...initialState().subjects, rejected: state.subjects.rejected },
         activity: idleActivity(state.activity),
       };
       return {
@@ -1129,6 +1187,7 @@ function reduceCore(state: PanelState, event: PanelEvent): Transition {
       const next: PanelState = {
         ...state,
         spaceIndex: event.spaceIndex,
+        anatomy: event.anatomy ?? "template",
         placement: placementFor(state.geometry.geometry, event.spaceIndex, state.group),
         selection: NO_SELECTION,
       };
@@ -1230,6 +1289,10 @@ function reduceCore(state: PanelState, event: PanelEvent): Transition {
     case "template_failed":
     case "outlines_loaded":
     case "outlines_failed":
+    case "subjects_loaded":
+    case "subjects_failed":
+    case "subjects_timeout":
+    case "subject_rejected":
       // Decided by `reduce`, which owns the template's status.
       return same(state);
 
@@ -1271,7 +1334,38 @@ export function bannerOf(placement: Placement | null): UnitsBanner | null {
 export function templateRuleOf(state: PanelState): TemplatePlacementRule | null {
   const placement = state.placement;
   if (!placement || bannerOf(placement)) return null;
+  // The subject's own surface and the template are never mixed (ADR 0034): while the subject's
+  // surface is the anatomy, no template row applies and the contacts stay as declared.
+  if (subjectEntryOf(state) !== null) return null;
   return placementRuleFor(placement.space.frame, placement.space.units);
+}
+
+/**
+ * The subject's surface for one space, or null: the index has an entry whose electrodes path is
+ * this space's file, the positions are millimeters under no units banner (the mesh is in
+ * millimeters in the contacts' frame), and the surface has not failed a check.
+ */
+export function subjectEntryForSpace(state: PanelState, spaceIndex: number): SubjectEntry | null {
+  if (state.geometry.kind !== "ready" || state.subjects.status !== "ready") return null;
+  const space = state.geometry.geometry.spaces[spaceIndex];
+  if (!space || space.reason !== null || space.units.unit !== "mm") return null;
+  const entry = entryFor(state.subjects.entries, space.electrodesPath);
+  if (!entry || state.subjects.rejected.includes(entry.electrodes)) return null;
+  const positions = space.contacts.flatMap((c) => (c.position ? [c.position] : []));
+  return unitsBanner(space.units, positions) === null ? entry : null;
+}
+
+/** The subject's surface that is the anatomy right now: chosen (the default) and available. */
+export function subjectEntryOf(state: PanelState): SubjectEntry | null {
+  if (state.anatomy !== "subject" || state.spaceIndex === null) return null;
+  return subjectEntryForSpace(state, state.spaceIndex);
+}
+
+/** Which surface the statuses describe for this state, or null when no anatomy applies. */
+function surfaceKeyOf(state: PanelState): string | null {
+  const subject = subjectEntryOf(state);
+  if (subject) return `subject:${state.recording?.datasetId ?? ""}|${subject.electrodes}`;
+  return templateRuleOf(state) ? "template" : null;
 }
 
 /**
@@ -1281,7 +1375,7 @@ export function templateRuleOf(state: PanelState): TemplatePlacementRule | null 
 function wantsTemplate(state: PanelState): boolean {
   return (
     state.open &&
-    templateRuleOf(state) !== null &&
+    surfaceKeyOf(state) !== null &&
     stageModel(state, DEFAULT_LIMITS).kind === "canvas"
   );
 }
@@ -1291,13 +1385,18 @@ export function drawnTemplate(state: PanelState): TemplatePlacementRule | null {
   return state.template === "ready" ? templateRuleOf(state) : null;
 }
 
+/** A surface is drawn right now: the template's under a registered frame, or the subject's own. */
+export function drawnSurface(state: PanelState): boolean {
+  return state.template === "ready" && surfaceKeyOf(state) !== null;
+}
+
 /**
  * The outlines of `views.json` are wanted only while the panel is open on a registered frame and
  * contacts are drawn (3D, 2D or without WebGL2: the SVG export is always the 2D views). No other
  * frame, no EEG recording and no closed panel ever asks for them.
  */
 function wantsOutlines(state: PanelState): boolean {
-  if (!state.open || templateRuleOf(state) === null) return false;
+  if (!state.open || surfaceKeyOf(state) === null) return false;
   const kind = stageModel(state, DEFAULT_LIMITS).kind;
   return kind === "canvas" || kind === "views2d" || kind === "no_webgl";
 }
@@ -1335,11 +1434,47 @@ export function reduce(state: PanelState, event: PanelEvent): Transition {
   if (state.disposed) return same(state);
   if (event.type === "template_loaded" || event.type === "template_failed") {
     if (state.template !== "loading") return same(state);
+    if (event.key !== undefined && event.key !== state.surfaceKey) return same(state);
     return same({ ...state, template: event.type === "template_loaded" ? "ready" : "failed" });
   }
   if (event.type === "outlines_loaded" || event.type === "outlines_failed") {
     if (state.outlines !== "loading") return same(state);
+    if (event.key !== undefined && event.key !== state.surfaceKey) return same(state);
     return same({ ...state, outlines: event.type === "outlines_loaded" ? "ready" : "failed" });
+  }
+  if (event.type === "subjects_loaded" || event.type === "subjects_failed") {
+    if (
+      state.subjects.status !== "loading" ||
+      (event.datasetId !== undefined && state.recording?.datasetId !== event.datasetId)
+    ) {
+      return same(state);
+    }
+    const subjects: SubjectsState =
+      event.type === "subjects_loaded"
+        ? { ...state.subjects, status: "ready", entries: event.entries }
+        : { ...state.subjects, status: "failed" };
+    return startLoads({ ...state, subjects }, []);
+  }
+  if (event.type === "subjects_timeout") {
+    if (
+      state.subjects.status !== "loading" ||
+      (event.datasetId !== undefined && state.recording?.datasetId !== event.datasetId)
+    ) {
+      return same(state);
+    }
+    return startLoads({ ...state, subjects: { ...state.subjects, timedOut: true } }, []);
+  }
+  if (event.type === "subject_rejected") {
+    if (state.subjects.rejected.includes(event.electrodes)) return same(state);
+    // Whatever was loading for the subject's surface is void: the fallback loads its own.
+    const next: PanelState = {
+      ...state,
+      subjects: { ...state.subjects, rejected: [...state.subjects.rejected, event.electrodes] },
+      template: "idle",
+      outlines: "idle",
+      surfaceKey: null,
+    };
+    return startLoads(next, []);
   }
   const t = reduceCore(state, event);
   let next = t.state;
@@ -1349,19 +1484,66 @@ export function reduce(state: PanelState, event: PanelEvent): Transition {
     (event.type === "toggle_open" && next.open);
   if (next.template === "failed" && retries) next = { ...next, template: "idle" };
   if (next.outlines === "failed" && retries) next = { ...next, outlines: "idle" };
+  if (next.subjects.status === "failed" && retries) {
+    next = { ...next, subjects: { ...next.subjects, status: "idle" } };
+  }
   if (next.template === "loading" && event.type === "webgl_unavailable") {
     next = { ...next, template: "idle" };
   }
-  let effects = t.effects;
-  if (next.template === "idle" && wantsTemplate(next)) {
-    next = { ...next, template: "loading" };
-    effects = [...effects, { type: "load_template" }];
+  const settled = startLoads(next, t.effects);
+  return settled.state === t.state && settled.effects === t.effects ? t : settled;
+}
+
+/**
+ * Start what the state wants and has not asked for: the geometry index when the panel is open on
+ * contacts, and the surface and outlines of the anatomy that applies. A change of surface (the
+ * subject's own, the template, another subject's) voids the statuses of the one before; the
+ * template's own status survives a recording change, as it always has.
+ */
+function startLoads(from: PanelState, carried: PanelEffect[]): Transition {
+  let next = from;
+  let effects = carried;
+  const want = surfaceKeyOf(next);
+  const had =
+    next.surfaceKey ?? (next.template !== "idle" || next.outlines !== "idle" ? "template" : null);
+  if (want !== null && had !== null && want !== had) {
+    next = { ...next, template: "idle", outlines: "idle", surfaceKey: null };
   }
-  if (next.outlines === "idle" && wantsOutlines(next)) {
-    next = { ...next, outlines: "loading" };
-    effects = [...effects, { type: "load_outlines" }];
+  const datasetId = next.recording?.datasetId;
+  if (
+    next.subjects.status === "idle" &&
+    datasetId !== undefined &&
+    next.open &&
+    next.geometry.kind === "ready" &&
+    (next.placement?.contacts.length ?? 0) > 0
+  ) {
+    next = { ...next, subjects: { ...next.subjects, status: "loading" } };
+    effects = [...effects, { type: "load_subjects", datasetId }];
   }
-  return next === t.state && effects === t.effects ? t : { state: next, effects };
+  // While the index is still to answer, nothing is loaded or drawn: the template would flash and
+  // be replaced. A 404, an invalid index, a failure or two seconds end the wait.
+  const waiting =
+    next.open &&
+    (next.subjects.status === "idle" || next.subjects.status === "loading") &&
+    !next.subjects.timedOut;
+  if (waiting) {
+    return next === from && effects === carried
+      ? { state: from, effects: carried }
+      : { state: next, effects };
+  }
+  const key = surfaceKeyOf(next);
+  const subject = subjectEntryOf(next);
+  if (next.template === "idle" && wantsTemplate(next) && key !== null) {
+    next = { ...next, template: "loading", surfaceKey: key };
+    effects = [...effects, { type: "load_template", key, subject }];
+  }
+  if (next.outlines === "idle" && wantsOutlines(next) && key !== null) {
+    next = { ...next, outlines: "loading", surfaceKey: key };
+    effects = [...effects, { type: "load_outlines", key, subject }];
+  }
+  return next === from && effects === carried
+    ? { state: from, effects: carried }
+    : { state: next, effects };
 }
 
 // ---------------------------------------------------------------------------
@@ -1386,8 +1568,18 @@ export type StageModel =
   | { kind: "refusal"; sentence: string; retry: boolean };
 
 export interface FrameSelectorModel {
+  /** The space shown. */
   selected: number;
-  options: { index: number; label: string; refused: boolean }[];
+  /** The `value` of the selected option: a space with the subject's surface has two options. */
+  selectedValue: string;
+  options: {
+    index: number;
+    /** `"<index>"`, or `"<index>:subject"` for the option that draws the subject's own surface. */
+    value: string;
+    anatomy: AnatomyChoice;
+    label: string;
+    refused: boolean;
+  }[];
 }
 
 export interface ActivityModel {
@@ -1471,9 +1663,10 @@ export type TemplateModel =
       status: "ready";
       label: string;
       approximate: boolean;
-      reference: { text: string; href: string };
-      license: { text: string; href: string };
-      /** The notice as one sentence ("Template surface: ...; ...."): the words of the links beside it. */
+      /** Null for the subject's own surface, which has no reference or notice (its notes cite the source). */
+      reference: { text: string; href: string } | null;
+      license: { text: string; href: string } | null;
+      /** The notice as one sentence ("Template surface: ...; ...."): the words of the links beside it; empty for the subject's. */
       notice: string;
     };
 
@@ -1612,6 +1805,10 @@ function statusLine(state: PanelState): string | null {
   return `${base}; joined by name rules: ${counts.map((c) => `${c.count} ${matchTag(c.kind)}`).join(", ")}`;
 }
 
+const SUBJECT_LOADING_SENTENCE = "Loading this subject's anatomy...";
+const SUBJECT_FAILED_SENTENCE =
+  "This subject's anatomy could not be loaded, so the contacts are shown without it. Close and reopen this panel to try again.";
+
 /** What the notice under a drawn template says, in plain words; the live box links its two parts. */
 export const TEMPLATE_NOTICE_PREFIX = "Template surface: ";
 export const TEMPLATE_LICENSE_TEXT = "MNI copyright notice";
@@ -1622,9 +1819,23 @@ export function templateNotice(): string {
 function templateModel(state: PanelState, stage: StageModel): TemplateModel | null {
   // The 3D canvas waits on the surface; the 2D views (chosen, or for want of WebGL2) on the outlines.
   if (stage.kind !== "canvas" && stage.kind !== "views2d" && stage.kind !== "no_webgl") return null;
+  const subject = subjectEntryOf(state);
   const rule = templateRuleOf(state);
-  if (!rule) return null;
+  if (!rule && !subject) return null;
   const status = stage.kind === "canvas" ? state.template : state.outlines;
+  if (subject) {
+    if (status === "failed") return { status: "failed", sentence: SUBJECT_FAILED_SENTENCE };
+    if (status !== "ready") return { status: "loading", sentence: SUBJECT_LOADING_SENTENCE };
+    return {
+      status: "ready",
+      label: subjectLabel(subject),
+      approximate: subject.grade === "plausible",
+      reference: null,
+      license: null,
+      notice: "",
+    };
+  }
+  if (!rule) return null;
   if (status === "failed") {
     return { status: "failed", sentence: TEMPLATE_FAILED_SENTENCE };
   }
@@ -1641,7 +1852,7 @@ function templateModel(state: PanelState, stage: StageModel): TemplateModel | nu
   };
 }
 
-function frameNotes(placement: Placement): string[] {
+function frameNotes(placement: Placement, subject: SubjectEntry | null): string[] {
   const { space } = placement;
   const notes: string[] = [];
   const frame = space.frame;
@@ -1658,8 +1869,10 @@ function frameNotes(placement: Placement): string[] {
   if (frame?.kind === "unknown" && frame.why === "no_coordsystem") {
     notes.push("No coordinate system file pairs with these positions.");
   }
+  // The subject's own surface is a brain surface: the "No brain surface" sentence would contradict it.
   const surface = noSurfaceReason(frame, space.units, bannerOf(placement) !== null);
-  if (surface !== null) notes.push(noSurfaceSentence(surface, frame));
+  if (subject) notes.push(...subjectNotes(subject));
+  else if (surface !== null) notes.push(noSurfaceSentence(surface, frame));
   notes.push(unitsSentence(space.units));
   notes.push(...matchNotes(placement.joins));
   notes.push(...unlocatedNotes(placement.joins));
@@ -1672,14 +1885,33 @@ function frameNotes(placement: Placement): string[] {
 function frameSelector(state: PanelState): FrameSelectorModel | null {
   if (state.geometry.kind !== "ready") return null;
   const spaces = state.geometry.geometry.spaces;
-  if (spaces.length < 2) return null;
-  return {
-    selected: state.spaceIndex ?? 0,
-    options: spaces.map((s, index) => ({
+  const options: FrameSelectorModel["options"] = [];
+  spaces.forEach((s, index) => {
+    options.push({
       index,
+      value: String(index),
+      anatomy: "template",
       label: s.reason === null ? spaceLabel(s) : `${spaceLabel(s)} (unavailable)`,
       refused: s.reason !== null,
-    })),
+    });
+    // The subject's own surface is one more way to look at the same space (ADR 0034).
+    if (subjectEntryForSpace(state, index)) {
+      options.push({
+        index,
+        value: `${index}:subject`,
+        anatomy: "subject",
+        label:
+          spaces.length > 1 ? `${spaceLabel(s)}: ${SUBJECT_ANATOMY_LABEL}` : SUBJECT_ANATOMY_LABEL,
+        refused: false,
+      });
+    }
+  });
+  if (options.length < 2) return null;
+  const selected = state.spaceIndex ?? 0;
+  return {
+    selected,
+    selectedValue: subjectEntryOf(state) ? `${selected}:subject` : String(selected),
+    options,
   };
 }
 
@@ -1888,7 +2120,7 @@ export function viewModel(state: PanelState, limits: ModelLimits = DEFAULT_LIMIT
     template: templateModel(state, stage),
     frames: frameSelector(state),
     status: placement ? statusLine(state) : null,
-    notes: placement ? frameNotes(placement) : [],
+    notes: placement ? frameNotes(placement, drawn ? subjectEntryOf(state) : null) : [],
     selectedChannel: placement ? selectedChannelSentence(state) : null,
     banner: banner?.text ?? null,
     scale: banner?.scale ?? null,
@@ -2016,6 +2248,11 @@ export function templatePlacementFor(
 ): TemplatePlacement | null {
   const rule = templateRuleOf(state);
   const placement = state.placement;
+  const subject = subjectEntryOf(state);
+  if (subject && placement && outlines && state.outlines === "ready") {
+    // The subject's surface and the contacts share the declared frame: no positions to replace.
+    return { outlines, approximate: false, labels: [subjectLabel(subject)], references: [] };
+  }
   if (!rule || !placement || !outlines || state.outlines !== "ready") return null;
   return {
     outlines,
@@ -2266,6 +2503,71 @@ export async function computeActivityPlan(
 }
 
 /**
+ * What a failed surface load means: a subject's file that arrived wrong (`IntegrityError`) is
+ * given up for good (`reject`); everything else, the template's own failures and a subject's
+ * transport failures (a rejected request, a 403, a 5xx), is tried again on reopening, a frame
+ * change or a recording change (`retry`), as the template's always was.
+ */
+export function surfaceFailure(subject: SubjectEntry | null, err: unknown): "reject" | "retry" {
+  return subject !== null && err instanceof IntegrityError ? "reject" : "retry";
+}
+
+export interface IndexWaiterEnv {
+  load(datasetId: string): Promise<{ kind: string; entries?: readonly SubjectEntry[] }>;
+  schedule(fn: () => void, ms: number): number;
+  cancel(handle: number): void;
+  dispatch(event: PanelEvent): void;
+}
+
+/**
+ * Asks for a dataset's geometry index and starts the `SUBJECTS_WAIT_MS` clock the first surface
+ * waits on. Each `start` is a new load: an older request that settles late changes nothing (it
+ * neither clears the newer clock nor dispatches), so a dataset change while the first index is in
+ * flight cannot cancel the second's timeout.
+ */
+export function createIndexWaiter(env: IndexWaiterEnv): {
+  start(datasetId: string): void;
+  dispose(): void;
+} {
+  let token = 0;
+  let timer: number | null = null;
+  const clear = () => {
+    if (timer !== null) env.cancel(timer);
+    timer = null;
+  };
+  return {
+    start(datasetId) {
+      const mine = ++token;
+      clear();
+      timer = env.schedule(() => {
+        if (mine === token) env.dispatch({ type: "subjects_timeout", datasetId });
+      }, SUBJECTS_WAIT_MS);
+      env.load(datasetId).then(
+        (result) => {
+          if (mine !== token) return;
+          clear();
+          env.dispatch({
+            type: "subjects_loaded",
+            datasetId,
+            entries: result.kind === "found" ? (result.entries ?? []) : [],
+          });
+        },
+        (err) => {
+          if (mine !== token) return;
+          clear();
+          console.warn("[ieeg-spatial] the subject-anatomy index could not be read:", err);
+          env.dispatch({ type: "subjects_failed", datasetId });
+        },
+      );
+    },
+    dispose() {
+      token++;
+      clear();
+    },
+  };
+}
+
+/**
  * The decoded surface, shared by every panel of the page: the same two small files for any
  * dataset, so a second panel (or a reopened one) never fetches them again. A failure is not kept,
  * so the next ask tries again. Never aborted: the promise is shared, so aborting it for one panel
@@ -2304,6 +2606,17 @@ export function templateOutlines(
       throw err;
     });
   return outlinesLoad;
+}
+
+/** The outlines of a subject's surface, computed once per mesh (a few milliseconds, but per open). */
+const subjectOutlineCache = new WeakMap<BrainMesh, TemplateOutlines>();
+function subjectOutlinesOf(mesh: BrainMesh): TemplateOutlines {
+  let outlines = subjectOutlineCache.get(mesh);
+  if (!outlines) {
+    outlines = subjectOutlines(mesh);
+    subjectOutlineCache.set(mesh, outlines);
+  }
+  return outlines;
 }
 
 /** Forget the shared outlines, so a test can start from a page that has not read them. */
@@ -2612,7 +2925,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   /** The surface, once the shared fetch has delivered it to this panel. */
   let templateMesh: BrainMesh | null = null;
   /** A `load_template` effect waits for a renderer: no WebGL2, no fetch. */
-  let templateRequested = false;
+  let templateRequested: { key: string; subject: SubjectEntry | null } | null = null;
   /** The parsed outlines, once `load_outlines` has finished. */
   let outlinesData: TemplateOutlines | null = null;
   let palette: ColorPalette = { neutral: [0.96, 0.72, 0.18], noData: [0.4, 0.45, 0.5] };
@@ -3044,9 +3357,13 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     // The surface is drawn only for a registered frame whose surface has arrived, and the contacts
     // go through that frame's affine only then; `PlacedContact` index i is renderer contact i.
     const rule = drawnTemplate(state);
-    const mesh = rule ? templateMesh : null;
+    const mesh = drawnSurface(state) ? templateMesh : null;
     if (mesh !== drawnMesh) {
-      renderer.setMesh(mesh);
+      renderer.setMesh(
+        mesh,
+        undefined,
+        subjectEntryOf(state) ? SUBJECT_MESH_STYLE : TEMPLATE_MESH_STYLE,
+      );
       drawnMesh = mesh;
     }
     if (placement && (placement !== drawnPlacement || rule !== drawnRule)) {
@@ -3087,14 +3404,12 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     frameWrap.hidden = model.frames === null;
     head.hidden = frameWrap.hidden && viewCtl === null;
     if (model.frames) {
-      const want = model.frames.options.map((o) => `${o.index}|${o.label}`).join("\n");
+      const want = model.frames.options.map((o) => `${o.value}|${o.label}`).join("\n");
       if (frameSel.dataset.key !== want) {
-        frameSel.replaceChildren(
-          ...model.frames.options.map((o) => option(String(o.index), o.label)),
-        );
+        frameSel.replaceChildren(...model.frames.options.map((o) => option(o.value, o.label)));
         frameSel.dataset.key = want;
       }
-      frameSel.value = String(model.frames.selected);
+      frameSel.value = model.frames.selectedValue;
     }
 
     // The template's words
@@ -3104,7 +3419,8 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     if (tm) {
       setText(templateLine, tm.status === "ready" ? tm.label : tm.sentence);
       templateNotice.hidden = tm.status !== "ready";
-      if (tm.status === "ready") {
+      templateNotice.hidden = tm.status !== "ready" || tm.reference === null || tm.license === null;
+      if (tm.status === "ready" && tm.reference !== null && tm.license !== null) {
         setText(referenceLink, tm.reference.text);
         referenceLink.href = tm.reference.href;
         setText(licenseLink, tm.license.text);
@@ -3209,40 +3525,73 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
 
     syncRenderer(vs);
     if (templateRequested && renderer) {
-      templateRequested = false;
-      startTemplateLoad();
+      const request = templateRequested;
+      templateRequested = null;
+      startTemplateLoad(request.key, request.subject);
     }
   }
 
-  function startOutlinesLoad(): void {
-    templateOutlines().then(
+  /** The surface or the outlines of `key` still matter: the state has not moved on to another surface. */
+  const current = (key: string) => !disposed && state.surfaceKey === key;
+
+  function startOutlinesLoad(key: string, subject: SubjectEntry | null): void {
+    const load = subject
+      ? subjectSurfaceFor(state.recording?.datasetId ?? "", subject).then(subjectOutlinesOf)
+      : templateOutlines();
+    load.then(
       (data) => {
-        if (disposed) return;
+        if (!current(key)) return;
         outlinesData = data;
-        dispatch({ type: "outlines_loaded" });
+        dispatch({ type: "outlines_loaded", key });
       },
       (err) => {
-        if (disposed) return;
-        console.error("[ieeg-spatial] loading the template outlines failed:", err);
-        dispatch({ type: "outlines_failed" });
+        if (!current(key)) return;
+        if (surfaceFailure(subject, err) === "reject" && subject) rejectSubject(subject, err);
+        else {
+          console.error("[ieeg-spatial] loading the outlines failed:", err);
+          dispatch({ type: "outlines_failed", key });
+        }
       },
     );
   }
 
-  function startTemplateLoad(): void {
-    templateSurface().then(
+  function startTemplateLoad(key: string, subject: SubjectEntry | null): void {
+    const load = subject
+      ? subjectSurfaceFor(state.recording?.datasetId ?? "", subject)
+      : templateSurface();
+    load.then(
       (mesh) => {
-        if (disposed) return;
+        if (!current(key)) return;
         templateMesh = mesh;
-        dispatch({ type: "template_loaded" });
+        dispatch({ type: "template_loaded", key });
       },
       (err) => {
-        if (disposed) return;
-        console.error("[ieeg-spatial] loading the template brain failed:", err);
-        dispatch({ type: "template_failed" });
+        if (!current(key)) return;
+        // A file that arrived wrong is given up for good; a transport failure is tried again on
+        // reopening, a frame change or a recording change, as the template's is.
+        if (surfaceFailure(subject, err) === "reject" && subject) rejectSubject(subject, err);
+        else {
+          console.error("[ieeg-spatial] loading the brain surface failed:", err);
+          dispatch({ type: "template_failed", key });
+        }
       },
     );
   }
+
+  /** A subject surface failed a read or a check: one warning, and the option is gone. */
+  function rejectSubject(subject: SubjectEntry, err: unknown): void {
+    warnOnce(`${subject.electrodes}: its surface failed a check`, err);
+    dispatch({ type: "subject_rejected", electrodes: subject.electrodes });
+  }
+
+  const indexWaiter = createIndexWaiter({
+    load: (datasetId) => geometryIndexFor(datasetId),
+    schedule: (fn, ms) => window.setTimeout(fn, ms),
+    cancel: (handle) => window.clearTimeout(handle),
+    dispatch: (event) => {
+      if (!disposed) dispatch(event);
+    },
+  });
 
   // --- 2D views and exports (IS-V3) ---------------------------------------
   function figureInput(model: PanelModel): ExportInput {
@@ -3403,10 +3752,13 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         activityRunner?.run(effect);
         return;
       case "load_outlines":
-        startOutlinesLoad();
+        startOutlinesLoad(effect.key, effect.subject);
         return;
       case "load_template":
-        templateRequested = true;
+        templateRequested = { key: effect.key, subject: effect.subject };
+        return;
+      case "load_subjects":
+        indexWaiter.start(effect.datasetId);
         return;
       case "select_trace":
         host.showTrace(effect.label);
@@ -3595,7 +3947,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     dispatch({ type: "clear_selection" });
   });
   frameSel.addEventListener("change", () =>
-    dispatch({ type: "frame_changed", spaceIndex: Number(frameSel.value) }),
+    dispatch({
+      type: "frame_changed",
+      spaceIndex: Number.parseInt(frameSel.value, 10),
+      anatomy: frameSel.value.endsWith(":subject") ? "subject" : "template",
+    }),
   );
   actSwitch.addEventListener("change", () =>
     dispatch({ type: "activity_switch", on: actSwitch.checked }),
@@ -3696,6 +4052,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       state = t.state;
       for (const effect of t.effects) run(effect);
       disposed = true;
+      indexWaiter.dispose();
       activityRunner?.dispose();
       resizeObserver?.disconnect();
       ensureRenderer(false);

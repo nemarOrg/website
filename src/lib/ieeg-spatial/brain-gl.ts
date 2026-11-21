@@ -89,7 +89,7 @@ export interface BrainRenderer {
    * The mesh to draw, or null for none. `alpha` defaults to the theme's (`meshAlphaFor`). Re-fits
    * the camera.
    */
-  setMesh(mesh: BrainMesh | null, alpha?: number): void;
+  setMesh(mesh: BrainMesh | null, alpha?: number, style?: MeshStyle): void;
   /** Replace the contacts. Resets colors and selection and re-fits the camera. */
   setContacts(contacts: readonly BrainContact[]): void;
   /**
@@ -151,11 +151,28 @@ export interface BrainRenderer {
 export function meshAlphaFor(
   background: readonly [number, number, number],
   emphasis: boolean,
+  scale = 1,
 ): number {
   const luma = 0.2126 * background[0] + 0.7152 * background[1] + 0.0722 * background[2];
   const base = luma > 0.5 ? MESH_ALPHA_LIGHT : MESH_ALPHA;
-  return emphasis ? base * EMPHASIS_ALPHA_FACTOR : base;
+  return (emphasis ? base * EMPHASIS_ALPHA_FACTOR : base) * scale;
 }
+
+/**
+ * How a mesh is drawn beyond its alpha. `frontOnly` culls back faces, so a folded surface (a
+ * subject's pial) is one translucent shell and not every fold stacked; `alphaScale` multiplies the
+ * theme's and Activity's alpha (the template's value, 1, is the default).
+ */
+export interface MeshStyle {
+  frontOnly: boolean;
+  alphaScale: number;
+}
+export const TEMPLATE_MESH_STYLE: MeshStyle = { frontOnly: false, alphaScale: 1 };
+/**
+ * A subject's own pial surface is folded and closed: drawn two-sided at the template's alpha its
+ * folds stack to near opaque and hide the contacts. Front faces only, at half the alpha.
+ */
+export const SUBJECT_MESH_STYLE: MeshStyle = { frontOnly: true, alphaScale: 0.5 };
 
 /** radius = sqrt(size / pi), clamped to 0.5-3 mm; 1.5 mm when the size is n/a. */
 export function contactRadius(size: number | null | undefined): number {
@@ -376,6 +393,7 @@ export function createBrainRenderer(
   let meshNormals: Float32Array | null = null;
   /** An alpha the caller chose; null lets the theme and `emphasis` decide. */
   let meshAlphaOverride: number | null = null;
+  let meshStyle: MeshStyle = TEMPLATE_MESH_STYLE;
   let emphasis = false;
   let spheres: Float32Array = new Float32Array(0);
   let colors = new Uint8Array(0);
@@ -709,10 +727,16 @@ export function createBrainRenderer(
       gl.uniformMatrix4fv(u.u_v, false, v);
       gl.uniform3fv(u.u_c, theme.mesh);
       gl.uniform3fv(u.u_o, theme.outline);
-      gl.uniform1f(u.u_a, meshAlphaOverride ?? meshAlphaFor(theme.background, emphasis));
+      gl.uniform1f(
+        u.u_a,
+        meshAlphaOverride ?? meshAlphaFor(theme.background, emphasis, meshStyle.alphaScale),
+      );
       gl.enable(gl.DEPTH_TEST);
       gl.depthMask(false);
-      gl.disable(gl.CULL_FACE);
+      if (meshStyle.frontOnly) {
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(gl.BACK);
+      } else gl.disable(gl.CULL_FACE);
       gl.drawElements(gl.TRIANGLES, meshIndexCount, meshIndexType, 0);
       gl.depthMask(true);
     }
@@ -828,7 +852,7 @@ export function createBrainRenderer(
   canvas.addEventListener("webglcontextrestored", onRestored);
 
   return {
-    setMesh(input, alpha) {
+    setMesh(input, alpha, style) {
       if (disposed) return;
       const next = input && input.positions.length > 0 ? input : null;
       if (next) {
@@ -843,6 +867,7 @@ export function createBrainRenderer(
         }
       }
       mesh = next;
+      meshStyle = style ?? TEMPLATE_MESH_STYLE;
       meshNormals = next ? vertexNormals(next) : null;
       meshAlphaOverride = alpha === undefined ? null : Math.min(1, Math.max(0, alpha));
       if (!isLost()) uploadMesh();
