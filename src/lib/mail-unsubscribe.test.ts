@@ -149,10 +149,19 @@ describe("unsubscribeView: the page's states", () => {
     expect(unsubscribeView(valid(INFO_ON), "error")).toMatchObject({ state: "ask", retry: true });
   });
 
-  it("renders the invalid state for a dead link, from the info call or from the press", () => {
+  it("renders the invalid state only when the backend says the link is dead", () => {
     expect(unsubscribeView({ kind: "invalid" }, null)).toEqual({ state: "invalid" });
-    expect(unsubscribeView(valid(INFO_ON), "invalid")).toEqual({ state: "invalid" });
+    expect(unsubscribeView({ kind: "invalid" }, "invalid")).toEqual({ state: "invalid" });
     expect(statusForView({ state: "invalid" })).toBe(410);
+  });
+
+  it("does not take a hand-typed ?result=invalid on a live link on trust", () => {
+    expect(unsubscribeView(valid(INFO_ON), "invalid")).toMatchObject({ state: "ask", retry: true });
+    expect(unsubscribeView(valid(INFO_OFF), "invalid")).toMatchObject({
+      state: "ask",
+      alreadyOff: true,
+      retry: true,
+    });
   });
 
   it("renders the unavailable state, with no buttons, when the backend could not be asked", () => {

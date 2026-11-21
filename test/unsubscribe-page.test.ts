@@ -63,6 +63,13 @@ describe("what the page says", () => {
   });
 });
 
+describe("the all-mail result says only what the backend confirmed", () => {
+  it("words a hand-typed or real ?result=all as an accepted request, not as state", () => {
+    expect(PAGE).toContain("Your request to stop all NEMAR community mail to");
+    expect(PAGE).not.toContain("will no longer receive NEMAR community mail");
+  });
+});
+
 describe("privacy", () => {
   it("sets the privacy headers and answers with the view's status", () => {
     expect(frontmatter).toMatch(

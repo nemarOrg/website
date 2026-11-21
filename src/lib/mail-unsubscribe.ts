@@ -127,14 +127,16 @@ export function unsubscribeView(
   outcome: InfoOutcome,
   result: UnsubscribeResult | null,
 ): UnsubscribeView {
-  if (result === "invalid" || outcome.kind === "invalid") return { state: "invalid" };
+  // Only the backend's own answer makes a link invalid: a hand-typed `?result=invalid` on a live
+  // link falls through to the buttons, as a press that did not go through.
+  if (outcome.kind === "invalid") return { state: "invalid" };
   if (outcome.kind === "unavailable") return { state: "unavailable" };
   const { info } = outcome;
   if ((result === "category" || result === "all") && !info.on) {
     return { state: "done", info, scope: result };
   }
-  // A claimed success the backend does not confirm is shown as a press that did not go through.
-  const retry = result === "error" || ((result === "category" || result === "all") && info.on);
+  // A claimed result the backend does not confirm is shown as a press that did not go through.
+  const retry = result !== null && !(result === "category" && !info.on);
   return { state: "ask", info, alreadyOff: !info.on, retry };
 }
 
