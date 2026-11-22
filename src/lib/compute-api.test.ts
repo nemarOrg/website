@@ -29,6 +29,7 @@ import {
   parseComputeJobs,
   parseComputeMe,
   parseComputeUsage,
+  readComputeError,
 } from "./compute-api";
 
 const json = (body: unknown, status = 200): Response =>
@@ -335,6 +336,32 @@ describe("where the call goes", () => {
 });
 
 describe("errors", () => {
+  it("reads a 400's fields, keeping only a string path with a word for its code", async () => {
+    const read = (body: unknown) =>
+      readComputeError(new Response(JSON.stringify(body), { status: 400 }));
+    expect(
+      await read({
+        error: "The request body is not valid. notice: notice_required",
+        code: "invalid_body",
+        fields: [
+          { path: "notice", code: "notice_required" },
+          { path: "reason", code: "Not A Word" },
+          { path: 3, code: "too_big" },
+          "junk",
+        ],
+      }),
+    ).toEqual({
+      code: "invalid_body",
+      sentence: "The request body is not valid. notice: notice_required",
+      fields: [{ path: "notice", code: "notice_required" }],
+    });
+    expect(await read({ error: "x y", code: "invalid_body", fields: "notice" })).toEqual({
+      code: "invalid_body",
+      sentence: "x y",
+      fields: undefined,
+    });
+  });
+
   it("maps no session to `session`", async () => {
     const { fn } = answering(json(errors.no_credential.body, 401));
     const err = await failure(getComputeMe({ fetch: fn }));
