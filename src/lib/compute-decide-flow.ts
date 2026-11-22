@@ -17,7 +17,8 @@
  *  - A refusal that says the state moved (`not_requested`, `already_active`, `not_active`,
  *    `stale_state`) is followed by exactly one read too.
  *  - A refusal that changed nothing (`self_decision`, `account_not_in_good_standing`,
- *    `policy_unreadable`, a 400, a 403) reads nothing: the row is as it was.
+ *    `policy_unreadable`, a 400 such as a refused notice, a 403) reads nothing: the row is as it
+ *    was.
  */
 
 import { ACCOUNT_COPY } from "./account-copy";
@@ -38,6 +39,8 @@ export interface DecideRequest {
   readonly id: number;
   readonly decision: ComputeAccessDecision;
   readonly reason?: string;
+  /** What the person is emailed; undefined for a grant (`COMPUTE_ACCESS_NOTICE_RULE`). */
+  readonly notice?: string;
 }
 
 export type DecideOutcome =
@@ -69,6 +72,7 @@ export function createDecideFlow(options: {
     id: number,
     decision: ComputeAccessDecision,
     reason: string | undefined,
+    notice: string | undefined,
   ) => Promise<ComputeDecisionResult>;
   /** Reads one account; null when it is not listed. */
   reread: (id: number) => Promise<ComputeAccessRow | null>;
@@ -83,7 +87,12 @@ export function createDecideFlow(options: {
       busy = true;
       try {
         try {
-          const result = await options.decide(request.id, request.decision, request.reason);
+          const result = await options.decide(
+            request.id,
+            request.decision,
+            request.reason,
+            request.notice,
+          );
           return { outcome: "done", row: result.account, note: describeDecision(result) };
         } catch (err) {
           const kind = classifyDecisionFailure(err);

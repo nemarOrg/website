@@ -28,6 +28,8 @@ import { dashboardApiBase } from "./api-base";
 import {
   COMPUTE_ACCESS_DECISIONS,
   COMPUTE_ACCESS_LISTED_STATES,
+  COMPUTE_ACCESS_NOTICE_MAX_CHARS,
+  COMPUTE_ACCESS_NOTICE_PROBLEMS,
   COMPUTE_ACCESS_PAGE_MAX,
   COMPUTE_ACCESS_REASON_MAX_CHARS,
   COMPUTE_JOB_FLAGS,
@@ -37,10 +39,12 @@ import {
   type ComputeAccessAdminErrorCode,
   type ComputeAccessDecision,
   type ComputeAccessListedState,
+  type ComputeAccessNoticeProblem,
   type ComputeJobFlag,
   type ComputePoolHolderKind,
+  computeAccessNoticeProblem,
 } from "./compute-admin-contract";
-import { readComputeError } from "./compute-api";
+import { type ComputeErrorField, readComputeError } from "./compute-api";
 import { COMPUTE_JOB_STATES } from "./compute-contract";
 import { COMPUTE_LABELS } from "./compute-labels";
 import { resolveSignal } from "./request-deadline";
@@ -83,7 +87,14 @@ export class ComputeAdminApiError extends Error {
   readonly code?: string;
   /** The body's `error` text: a sentence from the API, or a word from the proxy. */
   readonly sentence?: string;
-  constructor(status: number, code?: string, sentence?: string) {
+  /** The fields a 400 names, each with a fixed word (`[{ path: "notice", code: "notice_required" }]`). */
+  readonly fields?: readonly ComputeErrorField[];
+  constructor(
+    status: number,
+    code?: string,
+    sentence?: string,
+    fields?: readonly ComputeErrorField[],
+  ) {
     super(
       sentence ??
         code ??
@@ -93,6 +104,40 @@ export class ComputeAdminApiError extends Error {
     this.status = status;
     this.code = code;
     this.sentence = sentence;
+    this.fields = fields;
+  }
+}
+
+/**
+ * The notice rule's word when a decision was refused for its notice (a 400 `invalid_body` naming
+ * `notice`), else null. A word this build does not know is not one of these, and reads as null.
+ */
+export function noticeProblemOf(err: unknown): ComputeAccessNoticeProblem | null {
+  if (!(err instanceof ComputeAdminApiError) || err.code !== "invalid_body") return null;
+  for (const field of err.fields ?? []) {
+    if (
+      field.path === "notice" &&
+      (COMPUTE_ACCESS_NOTICE_PROBLEMS as readonly string[]).includes(field.code)
+    ) {
+      return field.code as ComputeAccessNoticeProblem;
+    }
+  }
+  return null;
+}
+
+/** The sentence for each notice word, from the copy. */
+export function noticeProblemText(problem: ComputeAccessNoticeProblem): string {
+  switch (problem) {
+    case "notice_required":
+      return ACCOUNT_COPY["compute_admin.error.notice_required"];
+    case "notice_refused":
+      return ACCOUNT_COPY["compute_admin.error.notice_refused"];
+    case "notice_too_long":
+      return fillCopy(ACCOUNT_COPY["compute_admin.error.notice_too_long"], {
+        max: String(COMPUTE_ACCESS_NOTICE_MAX_CHARS),
+      });
+    case "notice_control_char":
+      return ACCOUNT_COPY["compute_admin.error.notice_control_char"];
   }
 }
 
@@ -117,6 +162,10 @@ export function computeAdminErrorText(err: unknown): string {
     if (err.status === 404 && err.code === undefined) {
       return `${COMPUTE_LABELS.notice.notAvailableTitle}.`;
     }
+    // A notice the rule refused: the backend's sentence names the field and the word
+    // ("notice: notice_required"), so the page says it in the copy's words instead.
+    const notice = noticeProblemOf(err);
+    if (notice) return noticeProblemText(notice);
     if (err.sentence) return err.sentence;
     if (err.status === 401) return ACCOUNT_COPY["compute_admin.result.signed_out"];
     if (err.status === 429) return ACCOUNT_COPY["compute_admin.error.rate_limited"];
@@ -154,8 +203,8 @@ async function computeFetch<T>(
     signal: resolveSignal({ signal: init.signal, timeoutMs: init.timeoutMs ?? options.timeoutMs }),
   });
   if (!res.ok) {
-    const { code, sentence } = await readComputeError(res);
-    throw new ComputeAdminApiError(res.status, code, sentence);
+    const { code, sentence, fields } = await readComputeError(res);
+    throw new ComputeAdminApiError(res.status, code, sentence, fields);
   }
   let body: unknown;
   try {
@@ -692,16 +741,22 @@ export function getComputeStatus(init: Init = {}): Promise<ComputeStatus> {
 // ---------------------------------------------------------------------------
 
 /**
- * Post one decision for one account by id (a web account has no username). The body is `{}` or
- * `{ reason }` with the reason trimmed and omitted when empty, as the route trims it. Posts once:
+ * Post one decision for one account by id (a web account has no username). Two texts that never
+ * mix: `reason` is for the audit record and never mailed; `notice` is what the PERSON is emailed.
+ * The body carries each trimmed, and omits one that is empty, as the route trims both. Posts once:
  * the state flip is guarded by the from-state, so a repeat changes nothing, but this client never
- * repeats a POST on its own. A reason over the bound is refused here with the route's own word
- * (`invalid_body`) and sends nothing.
+ * repeats a POST on its own.
+ *
+ * Checked here first, and refused with the route's own word (`invalid_body`, with `fields` naming
+ * `notice` and the rule's word for a notice) so nothing is sent: a reason over its bound, and a
+ * notice the rule refuses (`computeAccessNoticeProblem`: required for suspend and revoke, optional
+ * for deny, and for a grant `notice` must be undefined).
  */
 export function decideComputeAccess(
   id: number,
   decision: ComputeAccessDecision,
   reason: string | undefined,
+  notice: string | undefined,
   init: Init = {},
 ): Promise<ComputeDecisionResult> {
   if (!Number.isSafeInteger(id) || id < 1) {
@@ -730,7 +785,18 @@ export function decideComputeAccess(
       ),
     );
   }
-  const body = trimmed ? { reason: trimmed } : {};
+  const problem = computeAccessNoticeProblem(decision, notice);
+  if (problem) {
+    return Promise.reject(
+      new ComputeAdminApiError(400, "invalid_body", noticeProblemText(problem), [
+        { path: "notice", code: problem },
+      ]),
+    );
+  }
+  const noticeText = (notice ?? "").trim();
+  const body: { reason?: string; notice?: string } = {};
+  if (trimmed) body.reason = trimmed;
+  if (noticeText) body.notice = noticeText;
   return computeFetch("POST", `/access/${decision}/by-id/${id}`, init, parseDecisionResult, {
     body,
     timeoutMs: DECISION_TIMEOUT_MS,

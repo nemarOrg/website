@@ -61,14 +61,36 @@ export class ComputeApiError extends Error {
 
 const TRANSPORT_WORD = /^[a-z][a-z0-9_]*$/;
 
+/** One field a 400 names: where, and the fixed word for what is wrong (never the value sent). */
+export interface ComputeErrorField {
+  readonly path: string;
+  readonly code: string;
+}
+
 interface ErrorBody {
   readonly code?: string;
   readonly sentence?: string;
+  /** `fields` of a validation refusal, kept only where both parts are strings and `code` is a word. */
+  readonly fields?: readonly ComputeErrorField[];
+}
+
+function readFields(value: unknown): readonly ComputeErrorField[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: ComputeErrorField[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const { path, code } = item as Record<string, unknown>;
+    if (typeof path === "string" && typeof code === "string" && TRANSPORT_WORD.test(code)) {
+      out.push({ path, code });
+    }
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 /**
  * Reads `{ error: <sentence>, code: <word> }`, and the 403 `{ error, status, message }` shape. Neutral by
- * name and exported so the admin compute tab reads the same envelope with the same function.
+ * name and exported so the admin compute tab reads the same envelope with the same function. A 400's
+ * `fields` (`[{ path, code }]`) comes back too, for a caller that words a field's refusal itself.
  */
 export async function readComputeError(res: Response): Promise<ErrorBody> {
   let body: unknown;
@@ -78,18 +100,19 @@ export async function readComputeError(res: Response): Promise<ErrorBody> {
     return {};
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) return {};
-  const { error, code, message } = body as Record<string, unknown>;
+  const { error, code, message, fields: rawFields } = body as Record<string, unknown>;
   const word = typeof code === "string" && TRANSPORT_WORD.test(code) ? code : undefined;
+  const fields = readFields(rawFields);
   // The 403 "Account not approved" shape carries the explanation in `message`.
   if (typeof message === "string" && message.trim().length > 0) {
-    return { code: word, sentence: message };
+    return { code: word, sentence: message, fields };
   }
   if (typeof error === "string" && error.trim().length > 0) {
     // The proxy answers with a bare word (`upstream_unreachable`): that is a code, not a sentence.
-    if (TRANSPORT_WORD.test(error)) return { code: word ?? error };
-    return { code: word, sentence: error };
+    if (TRANSPORT_WORD.test(error)) return { code: word ?? error, fields };
+    return { code: word, sentence: error, fields };
   }
-  return { code: word };
+  return { code: word, fields };
 }
 
 function kindOf(status: number, code: string | undefined): ComputeErrorKind {

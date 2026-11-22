@@ -36,8 +36,8 @@ function world(
     return get(gets.length - 1);
   }) as unknown as typeof fetch;
   const flow = createDecideFlow({
-    decide: (id, decision, reason) =>
-      decideComputeAccess(id, decision, reason, { fetch: fetchImpl }),
+    decide: (id, decision, reason, notice) =>
+      decideComputeAccess(id, decision, reason, notice, { fetch: fetchImpl }),
     reread: (id) => getComputeAccount(id, { fetch: fetchImpl }),
   });
   return { flow, posts, gets };
@@ -110,6 +110,56 @@ describe("a refusal that changed nothing", () => {
       expect(w.gets, key).toEqual([]);
       expect(w.posts, key).toHaveLength(1);
     }
+  });
+});
+
+describe("the notice to the person", () => {
+  it("sends a suspension's and a revocation's notice, and the decision goes through", async () => {
+    for (const [decision, key] of [
+      ["suspend", "suspend"],
+      ["revoke", "revoke"],
+    ] as const) {
+      const bodies: unknown[] = [];
+      const fetchImpl = (async (_url: string, init: RequestInit) => {
+        bodies.push(init.body);
+        return json(dec[key]);
+      }) as unknown as typeof fetch;
+      const flow = createDecideFlow({
+        decide: (id, d, reason, notice) =>
+          decideComputeAccess(id, d, reason, notice, { fetch: fetchImpl }),
+        reread: (id) => getComputeAccount(id, { fetch: fetchImpl }),
+      });
+      const out = await flow.submit({ id: 5, decision, reason: "audit", notice: " For you. " });
+      expect(out.outcome, key).toBe("done");
+      expect(bodies, key).toEqual([JSON.stringify({ reason: "audit", notice: "For you." })]);
+    }
+  });
+
+  it("refuses a missing required notice before sending, restores the row and reads nothing", async () => {
+    for (const decision of ["suspend", "revoke"] as const) {
+      const w = world(() => json(dec[decision]));
+      const out = await w.flow.submit({ id: 5, decision, notice: "   " });
+      expect(out.outcome, decision).toBe("failed");
+      if (out.outcome !== "failed") continue;
+      expect(out.note.text, decision).toBe(ACCOUNT_COPY["compute_admin.error.notice_required"]);
+      expect(out.note.restore, decision).toBe(true);
+      expect(out.row, decision).toBeNull();
+      expect(w.posts, decision).toEqual([]);
+      expect(w.gets, decision).toEqual([]);
+      expect(w.flow.busy, decision).toBe(false);
+    }
+  });
+
+  it("words the backend's notice refusal from the copy and reads nothing", async () => {
+    const w = world(() => json(dec.refused_notice_required_suspend));
+    // A notice the client accepts, refused by the backend anyway (a rule that moved first there).
+    const out = await w.flow.submit({ id: 5, decision: "deny" });
+    expect(out.outcome).toBe("failed");
+    if (out.outcome !== "failed") return;
+    expect(out.note.text).toBe(ACCOUNT_COPY["compute_admin.error.notice_required"]);
+    expect(out.note.restore).toBe(true);
+    expect(w.posts).toHaveLength(1);
+    expect(w.gets).toEqual([]);
   });
 });
 

@@ -199,6 +199,36 @@ describe("approval is a person's decision", () => {
     expect(DIALOG).toContain("reason.value.length");
   });
 
+  it("asks for a notice to the person: required for suspend and revoke, optional for deny, never for grant", () => {
+    const script = code(DIALOG.slice(DIALOG.indexOf("<script>")));
+    for (const key of [
+      "compute_admin.dialog.notice_label",
+      "compute_admin.dialog.notice_label_optional",
+      "compute_admin.dialog.notice_help",
+    ]) {
+      expect(DIALOG, key).toContain(`ACCOUNT_COPY["${key}"]`);
+    }
+    expect(script).toContain('ACCOUNT_COPY["compute_admin.dialog.notice_required_hint"]');
+    // The one rule, transcribed and drift-tested, decides; the dialog holds no table of its own.
+    expect(script).toContain("COMPUTE_ACCESS_NOTICE_RULE[current.decision");
+    expect(script).toContain("computeAccessNoticeProblem(");
+    expect(script).toContain("noticeProblemText(problem)");
+    expect(script).toMatch(/noticeField\.hidden = rule === null \|\| rule === "refused"/);
+    // A grant sends no notice at all, not an empty one.
+    expect(script).toMatch(/rule === "refused" \? undefined/);
+    expect(script).toContain("notice: noticeValue()");
+    // The confirm waits for a notice the rule accepts.
+    expect(script).toContain("const noticeOk = noticeProblem() === null;");
+    expect(script).toContain("!(ackOk && typedOk && noticeOk)");
+    // Counted as the rule counts: code points after trimming.
+    expect(script).toContain("[...notice.value.trim()].length");
+    expect(DIALOG).toMatch(/<div class="compute-dialog__field" data-notice-field hidden>/);
+    // The page passes the notice through to the flow.
+    const page = PAGE.slice(PAGE.lastIndexOf("<script>"));
+    expect(page).toContain("flow.submit({ id, decision, reason, notice })");
+    expect(page).toContain("decideComputeAccess(id, decision, reason, notice)");
+  });
+
   it("opens the dialog on a click and decides only on its confirm event", () => {
     const script = PAGE.slice(PAGE.lastIndexOf("<script>"));
     expect(script).toContain('"nemar:compute-decision-open"');

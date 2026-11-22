@@ -62,7 +62,7 @@ const { COMPUTE_TERMS_VERSION } = await load("shared/contract/compute-terms.ts")
 const dailyDoc = (await import(join(root, "test/fixtures/compute-observation/daily.v1.json")))
   .default;
 
-const COMMIT = "81d4e050";
+const COMMIT = "485352dd";
 const handle = makeComputeApp();
 const routes = makeRoutesApp();
 const fx = await startLifecycleFixture();
@@ -248,6 +248,12 @@ p.granted = seedPerson({ username: "granted" });
 p.suspended = seedPerson({ username: "suspended" });
 p.denied = seedPerson({ username: "denied" });
 p.revoked = seedPerson({ username: "revoked" });
+// A suspension and a revocation require a notice to the person (COMPUTE_ACCESS_NOTICE_RULE).
+const LIST_BODY = {
+  deny: { reason: "outside scope" },
+  suspend: { notice: "Your jobs exceeded the agreed allocation." },
+  revoke: { notice: "Compute was used outside the stated purpose." },
+};
 for (const [who, decisions] of [
   [p.granted, ["grant"]],
   [p.suspended, ["grant", "suspend"]],
@@ -255,7 +261,7 @@ for (const [who, decisions] of [
   [p.revoked, ["grant", "revoke"]],
 ]) {
   for (const d of decisions) {
-    const r = await decide(d, "admin", who, d === "deny" ? { reason: "outside scope" } : {});
+    const r = await decide(d, "admin", who, LIST_BODY[d] ?? {});
     if (r.status !== 200) throw new Error(`${d} failed: ${JSON.stringify(r)}`);
   }
 }
@@ -302,9 +308,14 @@ await setDefaultGrant(50_000, 5_000);
 {
   const id = seedPerson();
   decisions.grant_allocated = await decide("grant", "admin", id);
-  decisions.suspend = await decide("suspend", "admin", id, { reason: "pending a review" });
+  decisions.suspend = await decide("suspend", "admin", id, {
+    reason: "pending a review",
+    notice: "Your jobs exceeded the agreed allocation; access is paused while we review.",
+  });
   decisions.lift_suspension_already_granted = await decide("grant", "admin", id);
-  decisions.revoke = await decide("revoke", "admin", id);
+  decisions.revoke = await decide("revoke", "admin", id, {
+    notice: "Compute was used for work outside the purpose you stated.",
+  });
   decisions.grant_again_after_revoke = await decide("grant", "owner", id);
   const d = seedPerson();
   decisions.deny = await decide("deny", "admin", d, { reason: "outside the stated scope" });
@@ -317,13 +328,27 @@ await setDefaultGrant(50_000, 5_000);
   decisions.refused_not_requested_deny = await decide("deny", "admin", id);
   decisions.refused_already_active = await decide("grant", "admin", s);
   const req = seedPerson();
-  decisions.refused_not_active = await decide("suspend", "admin", req);
+  decisions.refused_not_active = await decide("suspend", "admin", req, {
+    notice: "Your jobs exceeded the agreed allocation.",
+  });
   decisions.refused_account_not_found = await decide("grant", "admin", 999999);
   decisions.refused_invalid_id = await call("POST", "/access/grant/by-id/abc", "admin", {});
   decisions.refused_invalid_body_reason = await decide("deny", "admin", req, {
     reason: "x".repeat(501),
   });
   decisions.refused_invalid_body_key = await decide("deny", "admin", req, { note: "x" });
+  // The notice rule (COMPUTE_ACCESS_NOTICE_RULE): each refusal names `notice` and the rule's word.
+  decisions.refused_notice_required_suspend = await decide("suspend", "admin", id, {
+    reason: "pending a review",
+  });
+  decisions.refused_notice_required_revoke = await decide("revoke", "admin", id, { notice: "  \n " });
+  decisions.refused_notice_refused = await decide("grant", "admin", req, { notice: "Welcome." });
+  decisions.refused_notice_too_long = await decide("deny", "admin", req, {
+    notice: "x".repeat(1001),
+  });
+  decisions.refused_notice_control_char = await decide("deny", "admin", req, {
+    notice: "Outside scope.\u0007",
+  });
   const bad = seedPerson({ status: "revoked" });
   decisions.refused_not_in_good_standing = await decide("grant", "admin", bad);
   // An administrator granting their OWN compute access; the same call by an owner is allowed.
@@ -344,6 +369,12 @@ await setDefaultGrant(50_000, 5_000);
   decisions.refused_unauthenticated = await decide("grant", null, req);
   decisions.refused_member = await decide("grant", "member", req);
   decisions.refused_owner_only_policy = await call("GET", "/policy", "admin");
+  // Seeded last so the ids above stay as they were captured before the notice existed.
+  const dn = seedPerson();
+  decisions.deny_with_notice = await decide("deny", "admin", dn, {
+    reason: "outside the stated scope",
+    notice: "The stated purpose is outside what this allocation supports.",
+  });
 }
 // An unreadable policy fails closed.
 await world();
@@ -364,7 +395,7 @@ const pools = { _provenance: provenance("GET /admin/compute/pools") };
   const b = seedPerson({ username: "frozen" });
   await decide("grant", "admin", a);
   await decide("grant", "admin", b);
-  await decide("suspend", "admin", b);
+  await decide("suspend", "admin", b, { notice: "Paused while we review." });
   await fundPartner(realD1(db), "example-client", 20_000, "cpu");
   // Raise a charge past the grant: an overrun can take a balance below zero.
   const adjust = await handle(

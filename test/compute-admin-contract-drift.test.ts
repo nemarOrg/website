@@ -24,6 +24,9 @@ import {
   COMPUTE_ACCESS_ADMIN_ERROR_CODES,
   COMPUTE_ACCESS_DECISIONS,
   COMPUTE_ACCESS_LISTED_STATES,
+  COMPUTE_ACCESS_NOTICE_MAX_CHARS,
+  COMPUTE_ACCESS_NOTICE_PROBLEMS,
+  COMPUTE_ACCESS_NOTICE_RULE,
   COMPUTE_ACCESS_PAGE_MAX,
   COMPUTE_ACCESS_REASON_MAX_CHARS,
   COMPUTE_ACCESS_TRANSITIONS,
@@ -35,7 +38,13 @@ import {
   COMPUTE_POOL_HOLDER_KINDS,
   COMPUTE_REPORT_PAGE_MAX,
 } from "../src/lib/compute-admin-contract";
-import { extractTargets, extractTransitions } from "./compute-contract-drift";
+import contractSource from "../src/lib/compute-admin-contract.ts?raw";
+import {
+  extractFunctionBody,
+  extractStringUnion,
+  extractTargets,
+  extractTransitions,
+} from "./compute-contract-drift";
 import { compareConstants, extractConstants, formatDifference } from "./docs-contract-drift";
 import { compareLists, extractStringArray } from "./mail-contract-drift";
 
@@ -78,6 +87,23 @@ describe("the extractors read inline sources", () => {
       active: ["suspended", "revoked"],
     });
     expect(extractTargets(source, "D")).toEqual({ grant: "active", deny: "denied" });
+  });
+
+  it("lifts a string union and a function body, token for token", () => {
+    const source = `
+      /** a | "b" */
+      export type P =
+        | "one"
+        | "two";
+      export function f(a: string, b: (x: number) => void): string | null {
+        // a comment { inside }
+        if (a === "") { return null; }
+        return a;
+      }`;
+    expect(extractStringUnion(source, "P")).toEqual(["one", "two"]);
+    expect(extractFunctionBody(source, "f")).toBe('if(a===""){returnnull;}returna;');
+    expect(extractStringUnion("export type P = string | 1;", "P")).toBeUndefined();
+    expect(extractFunctionBody("const f = 1;", "f")).toBeUndefined();
   });
 
   it("reports a list or a record it cannot find as absent, never empty", () => {
@@ -193,11 +219,27 @@ describe.skipIf(SHOULD_SKIP)("against nemar-cli's compute contracts", () => {
     const ours = new Map<string, number>([
       ["COMPUTE_ACCESS_REASON_MAX_CHARS", COMPUTE_ACCESS_REASON_MAX_CHARS],
       ["COMPUTE_ACCESS_PAGE_MAX", COMPUTE_ACCESS_PAGE_MAX],
+      ["COMPUTE_ACCESS_NOTICE_MAX_CHARS", COMPUTE_ACCESS_NOTICE_MAX_CHARS],
       ["COMPUTE_POOLS_PAGE_MAX", COMPUTE_POOLS_PAGE_MAX],
       ["COMPUTE_REPORT_PAGE_MAX", COMPUTE_REPORT_PAGE_MAX],
     ]);
     const result = compareConstants(ours, merged);
     expect(result.changed.map(formatDifference)).toEqual([]);
     expect(result.missing).toEqual([]);
+  });
+
+  it("transcribes the notice rule: the record, the words and the function, text for text", () => {
+    const access = read(sibling("compute-access.ts"));
+    expect(extractTargets(access, "COMPUTE_ACCESS_NOTICE_RULE")).toEqual({
+      ...COMPUTE_ACCESS_NOTICE_RULE,
+    });
+    expect(extractStringUnion(access, "ComputeAccessNoticeProblem")).toEqual([
+      ...COMPUTE_ACCESS_NOTICE_PROBLEMS,
+    ]);
+    for (const fn of ["computeAccessNoticeProblem", "hasPurposeControlChar"]) {
+      const theirs = extractFunctionBody(access, fn);
+      expect(theirs, fn).toBeDefined();
+      expect(extractFunctionBody(contractSource, fn), fn).toBe(theirs);
+    }
   });
 });

@@ -142,7 +142,9 @@ jobs:
       # test/compute-admin-contract-drift.test.ts is an ELEVENTH: the compute state machine, the decision
       # words and the bounds the admin Compute tab branches on (compute-access-state.ts,
       # compute-state.ts, contract/compute-access.ts, contract/compute-admin.ts). Same `dev` pairing,
-      # and strict: red on a phase PR until the compute epic reaches nemar-cli `dev`.
+      # and strict: red on a phase PR until the compute epic reaches nemar-cli `dev`. It also holds the
+      # decision dialog's notice rule (COMPUTE_ACCESS_NOTICE_RULE, its words, bound and function
+      # bodies) to contract/compute-access.ts text for text.
       # test/compute-job-contract-drift.test.ts is a TWELFTH, against shared/compute-state.ts,
       # shared/contract/compute-submit.ts and compute-responses.ts: the failure codes, the refusal
       # statuses, the truncated-log header, the bounds and the cancel outcomes the job page

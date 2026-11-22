@@ -16,6 +16,7 @@ import flagged from "../../test/fixtures/compute/admin-jobs-flagged.json";
 import unmatched from "../../test/fixtures/compute/admin-jobs-unmatched.json";
 import pools from "../../test/fixtures/compute/admin-pools.json";
 import status from "../../test/fixtures/compute/admin-status.json";
+import { ACCOUNT_COPY } from "./account-copy";
 import {
   ComputeAdminApiError,
   classifyDecisionFailure,
@@ -32,9 +33,14 @@ import {
   listComputeJobs,
   listComputePools,
   listUnmatchedAccounting,
+  noticeProblemOf,
+  noticeProblemText,
   resetComputeBadgeWarning,
 } from "./compute-admin-api";
-import { COMPUTE_ACCESS_ADMIN_ERROR_CODES } from "./compute-admin-contract";
+import {
+  COMPUTE_ACCESS_ADMIN_ERROR_CODES,
+  COMPUTE_ACCESS_NOTICE_PROBLEMS,
+} from "./compute-admin-contract";
 
 interface Seen {
   url: string;
@@ -288,19 +294,19 @@ describe("queries drop what the route would refuse", () => {
 });
 
 describe("decideComputeAccess", () => {
-  it("posts to the by-id route for each decision with an empty body", async () => {
-    for (const [decision, key] of [
-      ["grant", "grant_allocated"],
-      ["deny", "deny"],
-      ["suspend", "suspend"],
-      ["revoke", "revoke"],
+  it("posts to the by-id route for each decision, with only the notice a decision requires", async () => {
+    for (const [decision, key, notice, body] of [
+      ["grant", "grant_allocated", undefined, "{}"],
+      ["deny", "deny", undefined, "{}"],
+      ["suspend", "suspend", "Paused.", '{"notice":"Paused."}'],
+      ["revoke", "revoke", "Ended.", '{"notice":"Ended."}'],
     ] as const) {
       const { seen, fetchImpl } = recorder(() => captured(dec[key]));
-      const out = await decideComputeAccess(42, decision, undefined, { fetch: fetchImpl });
+      const out = await decideComputeAccess(42, decision, undefined, notice, { fetch: fetchImpl });
       expect(seen).toHaveLength(1);
       expect(seen[0].url).toBe(`/api/v1/admin/compute/access/${decision}/by-id/42`);
       expect(seen[0].init.method).toBe("POST");
-      expect(seen[0].init.body).toBe("{}");
+      expect(seen[0].init.body).toBe(body);
       expect((seen[0].init.headers as Record<string, string>)["Content-Type"]).toBe(
         "application/json",
       );
@@ -309,7 +315,7 @@ describe("decideComputeAccess", () => {
   });
 
   it("parses every captured success, with and without an allocation", async () => {
-    const granted = await decideComputeAccess(1, "grant", undefined, {
+    const granted = await decideComputeAccess(1, "grant", undefined, undefined, {
       fetch: recorder(() => captured(dec.grant_allocated)).fetchImpl,
     });
     expect(granted.allocation).toEqual({
@@ -320,19 +326,19 @@ describe("decideComputeAccess", () => {
       policy_version: 1,
     });
     expect(granted.email_sent).toBe(true);
-    const zero = await decideComputeAccess(1, "grant", undefined, {
+    const zero = await decideComputeAccess(1, "grant", undefined, undefined, {
       fetch: recorder(() => captured(dec.grant_default_zero)).fetchImpl,
     });
     expect(zero.allocation?.reason).toBe("policy_default_zero");
-    const already = await decideComputeAccess(1, "grant", undefined, {
+    const already = await decideComputeAccess(1, "grant", undefined, undefined, {
       fetch: recorder(() => captured(dec.lift_suspension_already_granted)).fetchImpl,
     });
     expect(already.allocation?.reason).toBe("already_granted");
-    const denied = await decideComputeAccess(1, "deny", undefined, {
+    const denied = await decideComputeAccess(1, "deny", undefined, undefined, {
       fetch: recorder(() => captured(dec.deny)).fetchImpl,
     });
     expect(denied.allocation).toBeNull();
-    const unsent = await decideComputeAccess(1, "grant", undefined, {
+    const unsent = await decideComputeAccess(1, "grant", undefined, undefined, {
       fetch: recorder(() => captured(dec.grant_email_not_sent)).fetchImpl,
     });
     expect(unsent.email_sent).toBe(false);
@@ -340,30 +346,141 @@ describe("decideComputeAccess", () => {
 
   it("sends the reason trimmed, omits an empty one, and holds the 500 boundary", async () => {
     const r = recorder(() => captured(dec.deny));
-    await decideComputeAccess(3, "deny", "  outside scope \n", { fetch: r.fetchImpl });
+    await decideComputeAccess(3, "deny", "  outside scope \n", undefined, { fetch: r.fetchImpl });
     expect(r.seen[0].init.body).toBe(JSON.stringify({ reason: "outside scope" }));
-    await decideComputeAccess(3, "deny", "   ", { fetch: r.fetchImpl });
+    await decideComputeAccess(3, "deny", "   ", undefined, { fetch: r.fetchImpl });
     expect(r.seen[1].init.body).toBe("{}");
-    await decideComputeAccess(3, "deny", "x".repeat(500), { fetch: r.fetchImpl });
+    await decideComputeAccess(3, "deny", "x".repeat(500), undefined, { fetch: r.fetchImpl });
     expect(r.seen).toHaveLength(3);
     await expect(
-      decideComputeAccess(3, "deny", "x".repeat(501), { fetch: r.fetchImpl }),
+      decideComputeAccess(3, "deny", "x".repeat(501), undefined, { fetch: r.fetchImpl }),
     ).rejects.toMatchObject({ code: "invalid_body" });
     // Over-long only by the whitespace the route trims: allowed, sent trimmed.
-    await decideComputeAccess(3, "deny", `${"x".repeat(500)}   `, { fetch: r.fetchImpl });
+    await decideComputeAccess(3, "deny", `${"x".repeat(500)}   `, undefined, {
+      fetch: r.fetchImpl,
+    });
     expect(r.seen).toHaveLength(4);
     expect(r.seen[3].init.body).toBe(JSON.stringify({ reason: "x".repeat(500) }));
+  });
+
+  it("sends the notice trimmed beside the reason, and omits an empty optional one", async () => {
+    const r = recorder(() => captured(dec.deny_with_notice));
+    await decideComputeAccess(
+      3,
+      "deny",
+      " outside scope ",
+      "  Outside what we support.\n\tThanks. \n",
+      {
+        fetch: r.fetchImpl,
+      },
+    );
+    expect(r.seen[0].init.body).toBe(
+      JSON.stringify({ reason: "outside scope", notice: "Outside what we support.\n\tThanks." }),
+    );
+    await decideComputeAccess(3, "deny", undefined, " \n\t ", { fetch: r.fetchImpl });
+    expect(r.seen[1].init.body).toBe("{}");
+    await decideComputeAccess(3, "suspend", "for the record", "For you.", { fetch: r.fetchImpl });
+    expect(r.seen[2].init.body).toBe(
+      JSON.stringify({ reason: "for the record", notice: "For you." }),
+    );
+  });
+
+  it("refuses a notice the rule refuses, in the copy's words, and sends nothing", async () => {
+    const r = recorder(() => captured(dec.deny));
+    const cases: ReadonlyArray<
+      [Parameters<typeof decideComputeAccess>[1], string | undefined, string]
+    > = [
+      ["suspend", undefined, "notice_required"],
+      ["revoke", "", "notice_required"],
+      ["revoke", " \n\t ", "notice_required"],
+      ["grant", "", "notice_refused"],
+      ["grant", "Welcome.", "notice_refused"],
+      ["deny", "x".repeat(1001), "notice_too_long"],
+      ["suspend", "\u{1F600}".repeat(1001), "notice_too_long"],
+      ["deny", "Outside scope.\u0007", "notice_control_char"],
+      ["suspend", "Line one.\r\nLine two.", "notice_control_char"],
+      ["suspend", "Bad \u007f byte.", "notice_control_char"],
+    ];
+    for (const [decision, notice, word] of cases) {
+      const err = await decideComputeAccess(3, decision, undefined, notice, {
+        fetch: r.fetchImpl,
+      }).catch((e) => e);
+      expect(err, word).toBeInstanceOf(ComputeAdminApiError);
+      expect(err.status, word).toBe(400);
+      expect(err.code, word).toBe("invalid_body");
+      expect(err.fields, word).toEqual([{ path: "notice", code: word }]);
+      expect(noticeProblemOf(err), word).toBe(word);
+      expect(classifyDecisionFailure(err), word).toBe("refused");
+      expect(computeAdminErrorText(err), word).toBe(
+        ACCOUNT_COPY[
+          `compute_admin.error.${word}` as "compute_admin.error.notice_required"
+        ].replace("{max}", "1000"),
+      );
+    }
+    expect(r.seen).toHaveLength(0);
+  });
+
+  it("holds the notice bound in code points after trimming", async () => {
+    const r = recorder(() => captured(dec.suspend));
+    // 1000 astral characters are 2000 UTF-16 units and still within the bound.
+    await decideComputeAccess(3, "suspend", undefined, "\u{1F600}".repeat(1000), {
+      fetch: r.fetchImpl,
+    });
+    await decideComputeAccess(3, "suspend", undefined, `  ${"x".repeat(1000)}\n `, {
+      fetch: r.fetchImpl,
+    });
+    expect(r.seen).toHaveLength(2);
+    expect(r.seen[1].init.body).toBe(JSON.stringify({ notice: "x".repeat(1000) }));
+  });
+
+  it("words every captured notice refusal from the copy, and reads nothing for it", async () => {
+    for (const [key, word] of [
+      ["refused_notice_required_suspend", "notice_required"],
+      ["refused_notice_required_revoke", "notice_required"],
+      ["refused_notice_refused", "notice_refused"],
+      ["refused_notice_too_long", "notice_too_long"],
+      ["refused_notice_control_char", "notice_control_char"],
+    ] as const) {
+      // Past the client's own check: the backend is the one that refuses here.
+      const err = await decideComputeAccess(5, "deny", undefined, undefined, {
+        fetch: recorder(() => captured(dec[key])).fetchImpl,
+      }).catch((e) => e);
+      expect(err, key).toBeInstanceOf(ComputeAdminApiError);
+      expect(err.status, key).toBe(400);
+      expect(err.code, key).toBe("invalid_body");
+      expect(noticeProblemOf(err), key).toBe(word);
+      expect(classifyDecisionFailure(err), key).toBe("refused");
+      expect(computeAdminErrorText(err), key).toBe(noticeProblemText(word));
+      // The backend's own sentence names the field and the word; the page does not show it.
+      expect(computeAdminErrorText(err), key).not.toContain("notice_");
+    }
+  });
+
+  it("has a sentence for every notice word, and none for a word it does not know", () => {
+    for (const word of COMPUTE_ACCESS_NOTICE_PROBLEMS) {
+      expect(noticeProblemText(word), word).toMatch(/^[A-Z].*\.$/);
+      expect(noticeProblemText(word), word).not.toContain("{");
+    }
+    const unknown = new ComputeAdminApiError(400, "invalid_body", "Not valid. notice: new_word", [
+      { path: "notice", code: "new_word" },
+    ]);
+    expect(noticeProblemOf(unknown)).toBeNull();
+    expect(computeAdminErrorText(unknown)).toBe("Not valid. notice: new_word");
+    const otherField = new ComputeAdminApiError(400, "invalid_body", "Not valid.", [
+      { path: "reason", code: "notice_required" },
+    ]);
+    expect(noticeProblemOf(otherField)).toBeNull();
   });
 
   it("sends nothing for an id or a decision it cannot send", async () => {
     const r = recorder(() => captured(dec.deny));
     for (const id of [0, -1, 1.5, Number.NaN]) {
       await expect(
-        decideComputeAccess(id, "grant", undefined, { fetch: r.fetchImpl }),
+        decideComputeAccess(id, "grant", undefined, undefined, { fetch: r.fetchImpl }),
       ).rejects.toBeInstanceOf(ComputeAdminApiError);
     }
     await expect(
-      decideComputeAccess(1, "delete" as never, undefined, { fetch: r.fetchImpl }),
+      decideComputeAccess(1, "delete" as never, undefined, undefined, { fetch: r.fetchImpl }),
     ).rejects.toBeInstanceOf(ComputeAdminApiError);
     expect(r.seen).toHaveLength(0);
   });
@@ -388,7 +505,7 @@ describe("decideComputeAccess", () => {
     };
     for (const [key, want] of Object.entries(expected)) {
       const c = dec[key];
-      const err = await decideComputeAccess(5, "grant", undefined, {
+      const err = await decideComputeAccess(5, "grant", undefined, undefined, {
         fetch: recorder(() => captured(c)).fetchImpl,
       }).catch((e) => e);
       expect(err, key).toBeInstanceOf(ComputeAdminApiError);
@@ -425,17 +542,17 @@ describe("decideComputeAccess", () => {
   });
 
   it("an unrouted 404 reads as not available on this server; a coded 404 keeps the backend's sentence", async () => {
-    const unrouted = await decideComputeAccess(5, "grant", undefined, {
+    const unrouted = await decideComputeAccess(5, "grant", undefined, undefined, {
       fetch: recorder(() =>
         json({ error: "Not Found", message: "Route POST /admin/compute/access/5 not found" }, 404),
       ).fetchImpl,
     }).catch((e) => e);
     expect(computeAdminErrorText(unrouted)).toBe("Compute is not available on this server yet.");
-    const bare = await decideComputeAccess(5, "grant", undefined, {
+    const bare = await decideComputeAccess(5, "grant", undefined, undefined, {
       fetch: recorder(() => new Response("Not Found", { status: 404 })).fetchImpl,
     }).catch((e) => e);
     expect(computeAdminErrorText(bare)).toBe("Compute is not available on this server yet.");
-    const coded = await decideComputeAccess(5, "grant", undefined, {
+    const coded = await decideComputeAccess(5, "grant", undefined, undefined, {
       fetch: recorder(() => json({ error: "No such account.", code: "account_not_found" }, 404))
         .fetchImpl,
     }).catch((e) => e);
@@ -443,35 +560,35 @@ describe("decideComputeAccess", () => {
   });
 
   it("a lost answer is an unknown outcome: gateway page, proxy word, timeout, network, unreadable body", async () => {
-    const gateway = await decideComputeAccess(5, "grant", undefined, {
+    const gateway = await decideComputeAccess(5, "grant", undefined, undefined, {
       fetch: recorder(() => new Response("<html>bad gateway</html>", { status: 502 })).fetchImpl,
     }).catch((e) => e);
     expect(classifyDecisionFailure(gateway)).toBe("unknown_outcome");
-    const proxy = await decideComputeAccess(5, "grant", undefined, {
+    const proxy = await decideComputeAccess(5, "grant", undefined, undefined, {
       fetch: recorder(() => json({ error: "upstream_unreachable" }, 502)).fetchImpl,
     }).catch((e) => e);
     expect(proxy.code).toBe("upstream_unreachable");
     expect(classifyDecisionFailure(proxy)).toBe("unknown_outcome");
     expect(computeAdminErrorText(proxy)).toContain("could not be reached");
-    const redirect = await decideComputeAccess(5, "grant", undefined, {
+    const redirect = await decideComputeAccess(5, "grant", undefined, undefined, {
       fetch: recorder(() => json({ error: "upstream_redirect" }, 502)).fetchImpl,
     }).catch((e) => e);
     expect(classifyDecisionFailure(redirect)).toBe("unknown_outcome");
-    const timeout = await decideComputeAccess(5, "grant", undefined, {
+    const timeout = await decideComputeAccess(5, "grant", undefined, undefined, {
       fetch: recorder(() => Promise.reject(new DOMException("timed out", "TimeoutError")))
         .fetchImpl,
     }).catch((e) => e);
     expect(classifyDecisionFailure(timeout)).toBe("unknown_outcome");
     expect(computeAdminErrorText(timeout)).toContain("did not answer in time");
-    const network = await decideComputeAccess(5, "grant", undefined, {
+    const network = await decideComputeAccess(5, "grant", undefined, undefined, {
       fetch: recorder(() => Promise.reject(new TypeError("Failed to fetch"))).fetchImpl,
     }).catch((e) => e);
     expect(classifyDecisionFailure(network)).toBe("unknown_outcome");
-    const unreadable = await decideComputeAccess(5, "grant", undefined, {
+    const unreadable = await decideComputeAccess(5, "grant", undefined, undefined, {
       fetch: recorder(() => new Response("ok", { status: 200 })).fetchImpl,
     }).catch((e) => e);
     expect(classifyDecisionFailure(unreadable)).toBe("unknown_outcome");
-    const odd = await decideComputeAccess(5, "grant", undefined, {
+    const odd = await decideComputeAccess(5, "grant", undefined, undefined, {
       fetch: recorder(() => json({ ok: true })).fetchImpl,
     }).catch((e) => e);
     expect(classifyDecisionFailure(odd)).toBe("unknown_outcome");

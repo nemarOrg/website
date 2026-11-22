@@ -1,7 +1,7 @@
 {
   "_provenance": {
     "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-admin-fixtures.mjs",
-    "nemar_cli_commit": "81d4e050",
+    "nemar_cli_commit": "485352dd",
     "route": "POST /admin/compute/access/{grant|deny|suspend|revoke}/by-id/:id",
     "note": "Real routes over a real migrated database. Wall-clock stamps are pinned to fixed values and job ids to a stable sequence. Emails are @example.org. A success body has no sentence; a refusal carries { error, code }."
   },
@@ -376,6 +376,71 @@
       ]
     }
   },
+  "refused_notice_required_suspend": {
+    "status": 400,
+    "body": {
+      "error": "The request body is not valid. notice: notice_required",
+      "code": "invalid_body",
+      "fields": [
+        {
+          "path": "notice",
+          "code": "notice_required"
+        }
+      ]
+    }
+  },
+  "refused_notice_required_revoke": {
+    "status": 400,
+    "body": {
+      "error": "The request body is not valid. notice: notice_required",
+      "code": "invalid_body",
+      "fields": [
+        {
+          "path": "notice",
+          "code": "notice_required"
+        }
+      ]
+    }
+  },
+  "refused_notice_refused": {
+    "status": 400,
+    "body": {
+      "error": "The request body is not valid. notice: notice_refused",
+      "code": "invalid_body",
+      "fields": [
+        {
+          "path": "notice",
+          "code": "notice_refused"
+        }
+      ]
+    }
+  },
+  "refused_notice_too_long": {
+    "status": 400,
+    "body": {
+      "error": "The request body is not valid. notice: notice_too_long",
+      "code": "invalid_body",
+      "fields": [
+        {
+          "path": "notice",
+          "code": "notice_too_long"
+        }
+      ]
+    }
+  },
+  "refused_notice_control_char": {
+    "status": 400,
+    "body": {
+      "error": "The request body is not valid. notice: notice_control_char",
+      "code": "invalid_body",
+      "fields": [
+        {
+          "path": "notice",
+          "code": "notice_control_char"
+        }
+      ]
+    }
+  },
   "refused_not_in_good_standing": {
     "status": 409,
     "body": {
@@ -450,6 +515,35 @@
     "body": {
       "error": "Only an owner can do that.",
       "code": "owner_only"
+    }
+  },
+  "deny_with_notice": {
+    "status": 200,
+    "body": {
+      "decision": "deny",
+      "from": "requested",
+      "to": "denied",
+      "account": {
+        "id": 14,
+        "username": "person8",
+        "email": "person8@example.org",
+        "given_name": "Ada",
+        "family_name": "Rivers",
+        "affiliation": "Example Institute",
+        "city": "San Diego",
+        "country": "USA",
+        "orcid": "0000-0002-1825-0104",
+        "account_kind": "person",
+        "compute_access": "denied",
+        "compute_access_requested_at": "2026-11-08 09:30:00",
+        "compute_access_notified_at": null,
+        "compute_access_granted_at": null,
+        "compute_access_granted_by": null,
+        "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+        "compute_terms_version": "2026-11-draft",
+        "compute_terms_accepted_at": "2026-11-08 09:29:00"
+      },
+      "email_sent": true
     }
   },
   "refused_policy_unreadable": {

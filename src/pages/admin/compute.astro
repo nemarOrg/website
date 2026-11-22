@@ -912,7 +912,7 @@ if (view === "drift") {
   if (page) {
     const viewer = { userId: page.dataset.viewerId ?? "", isOwner: page.dataset.viewerOwner === "1" };
     const flow = createDecideFlow({
-      decide: (id, decision, reason) => decideComputeAccess(id, decision, reason),
+      decide: (id, decision, reason, notice) => decideComputeAccess(id, decision, reason, notice),
       reread: (id) => getComputeAccount(id),
     });
 
@@ -997,14 +997,20 @@ if (view === "drift") {
     });
 
     document.addEventListener("nemar:compute-decision-confirm", async (event) => {
-      const { id, decision, reason } = (
-        event as CustomEvent<{ id: number; decision: ComputeAccessDecision; reason: string }>
+      const { id, decision, reason, notice } = (
+        event as CustomEvent<{
+          id: number;
+          decision: ComputeAccessDecision;
+          reason: string;
+          /** Undefined for a grant, which takes no notice. */
+          notice?: string;
+        }>
       ).detail;
       const row = rowOf(id);
       if (!row || flow.busy) return;
       lockPage(true);
       setRowWorking(row, true, ACCOUNT_COPY["compute_admin.result.working"]);
-      const out = await flow.submit({ id, decision, reason });
+      const out = await flow.submit({ id, decision, reason, notice });
       lockPage(false);
       setRowWorking(row, false, "");
       if (out.outcome === "ignored") return;

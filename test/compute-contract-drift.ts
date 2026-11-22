@@ -115,3 +115,44 @@ export function extractProduct(source: string, name: string): number | undefined
   if (!m) return undefined;
   return m[1].split("*").reduce((a, n) => a * Number(n.trim()), 1);
 }
+
+/** `export type NAME = | "a" | "b";` -> ["a", "b"] (a union of string literals only). */
+export function extractStringUnion(source: string, name: string): string[] | undefined {
+  const m = stripComments(source).match(new RegExp(`export\\s+type\\s+${name}\\s*=([^;]*);`));
+  if (!m) return undefined;
+  const parts = m[1]
+    .split("|")
+    .map((p) => p.trim())
+    .filter((p) => p !== "");
+  if (parts.length === 0 || !parts.every((p) => /^"[^"]*"$/.test(p))) return undefined;
+  return parts.map((p) => p.slice(1, -1));
+}
+
+/**
+ * The body of `function NAME(...) ... { body }`, comments removed and every run of whitespace
+ * dropped, so two transcriptions compare equal exactly when their code is the same token for token.
+ * The braces are matched by depth; a body holding a brace inside a string is not supported and
+ * reads as whatever the depth count finds, which a comparison then reports as drift.
+ */
+export function extractFunctionBody(source: string, name: string): string | undefined {
+  const stripped = stripComments(source);
+  const start = stripped.search(new RegExp(`function\\s+${name}\\s*\\(`));
+  if (start < 0) return undefined;
+  // The body opens at the first `{` after the parameter list closes.
+  let i = stripped.indexOf("(", start);
+  let parens = 0;
+  for (; i < stripped.length; i++) {
+    if (stripped[i] === "(") parens++;
+    else if (stripped[i] === ")" && --parens === 0) break;
+  }
+  const open = stripped.indexOf("{", i);
+  if (open < 0) return undefined;
+  let depth = 0;
+  for (let j = open; j < stripped.length; j++) {
+    if (stripped[j] === "{") depth++;
+    else if (stripped[j] === "}" && --depth === 0) {
+      return stripped.slice(open + 1, j).replace(/\s+/g, "");
+    }
+  }
+  return undefined;
+}
