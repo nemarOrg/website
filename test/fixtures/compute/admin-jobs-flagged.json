@@ -1,7 +1,7 @@
 {
   "_provenance": {
     "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-admin-fixtures.mjs",
-    "nemar_cli_commit": "e0685a25",
+    "nemar_cli_commit": "81d4e050",
     "route": "GET /admin/compute/jobs?flag=",
     "note": "Real routes over a real migrated database. Wall-clock stamps are pinned to fixed values and job ids to a stable sequence. Emails are @example.org."
   },
@@ -39,7 +39,16 @@
           "results_bytes": null,
           "records_copied": false,
           "partner_state": null,
-          "partner_flag": null
+          "partner_flag": null,
+          "executor": "tapis",
+          "accounting": "su",
+          "runner_backend": null,
+          "runner_id": null,
+          "runner_claimed_at": null,
+          "runner_wall_seconds": null,
+          "runner_cpu_seconds": null,
+          "runner_max_rss_mb": null,
+          "runner_usage_partial": null
         }
       ],
       "next_after": null
@@ -79,7 +88,16 @@
           "results_bytes": null,
           "records_copied": false,
           "partner_state": null,
-          "partner_flag": null
+          "partner_flag": null,
+          "executor": "tapis",
+          "accounting": "su",
+          "runner_backend": null,
+          "runner_id": null,
+          "runner_claimed_at": null,
+          "runner_wall_seconds": null,
+          "runner_cpu_seconds": null,
+          "runner_max_rss_mb": null,
+          "runner_usage_partial": null
         }
       ],
       "next_after": null
@@ -119,7 +137,16 @@
           "results_bytes": null,
           "records_copied": false,
           "partner_state": "mismatch",
-          "partner_flag": "owner_mismatch"
+          "partner_flag": "owner_mismatch",
+          "executor": "tapis",
+          "accounting": "su",
+          "runner_backend": null,
+          "runner_id": null,
+          "runner_claimed_at": null,
+          "runner_wall_seconds": null,
+          "runner_cpu_seconds": null,
+          "runner_max_rss_mb": null,
+          "runner_usage_partial": null
         },
         {
           "id": "job_000000000000000000000004",
@@ -151,7 +178,16 @@
           "results_bytes": null,
           "records_copied": true,
           "partner_state": null,
-          "partner_flag": null
+          "partner_flag": null,
+          "executor": "tapis",
+          "accounting": "su",
+          "runner_backend": null,
+          "runner_id": null,
+          "runner_claimed_at": null,
+          "runner_wall_seconds": null,
+          "runner_cpu_seconds": null,
+          "runner_max_rss_mb": null,
+          "runner_usage_partial": null
         }
       ],
       "next_after": null
@@ -191,7 +227,16 @@
           "results_bytes": null,
           "records_copied": true,
           "partner_state": null,
-          "partner_flag": null
+          "partner_flag": null,
+          "executor": "tapis",
+          "accounting": "su",
+          "runner_backend": null,
+          "runner_id": null,
+          "runner_claimed_at": null,
+          "runner_wall_seconds": null,
+          "runner_cpu_seconds": null,
+          "runner_max_rss_mb": null,
+          "runner_usage_partial": null
         }
       ],
       "next_after": null
@@ -231,7 +276,16 @@
           "results_bytes": null,
           "records_copied": false,
           "partner_state": "mismatch",
-          "partner_flag": "owner_mismatch"
+          "partner_flag": "owner_mismatch",
+          "executor": "tapis",
+          "accounting": "su",
+          "runner_backend": null,
+          "runner_id": null,
+          "runner_claimed_at": null,
+          "runner_wall_seconds": null,
+          "runner_cpu_seconds": null,
+          "runner_max_rss_mb": null,
+          "runner_usage_partial": null
         }
       ],
       "next_after": 5
@@ -271,7 +325,16 @@
           "results_bytes": null,
           "records_copied": true,
           "partner_state": null,
-          "partner_flag": null
+          "partner_flag": null,
+          "executor": "tapis",
+          "accounting": "su",
+          "runner_backend": null,
+          "runner_id": null,
+          "runner_claimed_at": null,
+          "runner_wall_seconds": null,
+          "runner_cpu_seconds": null,
+          "runner_max_rss_mb": null,
+          "runner_usage_partial": null
         }
       ],
       "next_after": null
@@ -311,7 +374,16 @@
           "results_bytes": null,
           "records_copied": false,
           "partner_state": "mismatch",
-          "partner_flag": "owner_mismatch"
+          "partner_flag": "owner_mismatch",
+          "executor": "tapis",
+          "accounting": "su",
+          "runner_backend": null,
+          "runner_id": null,
+          "runner_claimed_at": null,
+          "runner_wall_seconds": null,
+          "runner_cpu_seconds": null,
+          "runner_max_rss_mb": null,
+          "runner_usage_partial": null
         },
         {
           "id": "job_000000000000000000000005",
@@ -343,7 +415,16 @@
           "results_bytes": null,
           "records_copied": true,
           "partner_state": null,
-          "partner_flag": null
+          "partner_flag": null,
+          "executor": "tapis",
+          "accounting": "su",
+          "runner_backend": null,
+          "runner_id": null,
+          "runner_claimed_at": null,
+          "runner_wall_seconds": null,
+          "runner_cpu_seconds": null,
+          "runner_max_rss_mb": null,
+          "runner_usage_partial": null
         },
         {
           "id": "job_000000000000000000000004",
@@ -375,7 +456,16 @@
           "results_bytes": null,
           "records_copied": true,
           "partner_state": null,
-          "partner_flag": null
+          "partner_flag": null,
+          "executor": "tapis",
+          "accounting": "su",
+          "runner_backend": null,
+          "runner_id": null,
+          "runner_claimed_at": null,
+          "runner_wall_seconds": null,
+          "runner_cpu_seconds": null,
+          "runner_max_rss_mb": null,
+          "runner_usage_partial": null
         },
         {
           "id": "job_000000000000000000000002",
@@ -407,7 +497,16 @@
           "results_bytes": null,
           "records_copied": false,
           "partner_state": null,
-          "partner_flag": null
+          "partner_flag": null,
+          "executor": "tapis",
+          "accounting": "su",
+          "runner_backend": null,
+          "runner_id": null,
+          "runner_claimed_at": null,
+          "runner_wall_seconds": null,
+          "runner_cpu_seconds": null,
+          "runner_max_rss_mb": null,
+          "runner_usage_partial": null
         },
         {
           "id": "job_000000000000000000000001",
@@ -439,7 +538,16 @@
           "results_bytes": null,
           "records_copied": false,
           "partner_state": null,
-          "partner_flag": null
+          "partner_flag": null,
+          "executor": "tapis",
+          "accounting": "su",
+          "runner_backend": null,
+          "runner_id": null,
+          "runner_claimed_at": null,
+          "runner_wall_seconds": null,
+          "runner_cpu_seconds": null,
+          "runner_max_rss_mb": null,
+          "runner_usage_partial": null
         }
       ],
       "next_after": null

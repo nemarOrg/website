@@ -1,7 +1,7 @@
 {
   "_provenance": {
     "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-admin-fixtures.mjs",
-    "nemar_cli_commit": "e0685a25",
+    "nemar_cli_commit": "81d4e050",
     "route": "GET /admin/compute/access",
     "note": "Real routes over a real migrated database. Wall-clock stamps are pinned to fixed values and job ids to a stable sequence. Emails are @example.org."
   },

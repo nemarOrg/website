@@ -62,7 +62,7 @@ const { COMPUTE_TERMS_VERSION } = await load("shared/contract/compute-terms.ts")
 const dailyDoc = (await import(join(root, "test/fixtures/compute-observation/daily.v1.json")))
   .default;
 
-const COMMIT = "e0685a25";
+const COMMIT = "81d4e050";
 const handle = makeComputeApp();
 const routes = makeRoutesApp();
 const fx = await startLifecycleFixture();
