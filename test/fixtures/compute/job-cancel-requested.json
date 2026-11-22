@@ -1,7 +1,7 @@
 {
   "_provenance": {
     "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-job-fixtures.mjs",
-    "nemar_cli_commit": "27eecff9",
+    "nemar_cli_commit": "81d4e050",
     "route": "GET /compute/me/jobs/:id",
     "request": "a running job with a cancel recorded",
     "note": "Real route over a row written with fixed times: `cancel_requested` is true while the state is still live."
@@ -10,7 +10,7 @@
     "status": 200,
     "body": {
       "job": {
-        "id": "job_00000000000000000000001c",
+        "id": "job_00000000000000000000001d",
         "kind": "batch",
         "source": "cli",
         "state": "running",

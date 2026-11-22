@@ -1,7 +1,7 @@
 {
   "_provenance": {
     "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-job-fixtures.mjs",
-    "nemar_cli_commit": "27eecff9",
+    "nemar_cli_commit": "81d4e050",
     "route": "GET /compute/jobs/:id/logs",
     "request": "a running job (from Tapis), an empty log, a hostile log, a log over 1 MiB, a job that has not started, an ended job",
     "note": "Real route. The body is the job's own bytes as `text/plain`, `nosniff`, `no-store`; `X-Nemar-Truncated: true` only when cut at 1 MiB. The route serves the FIRST 1 MiB and has no `tail` (nemar-cli#2094). The hostile log's bytes are written to the Tapis stand-in's output and read back through the route."

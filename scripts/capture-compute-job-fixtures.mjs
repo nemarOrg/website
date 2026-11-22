@@ -5,7 +5,7 @@
  *   NEMAR_CLI_DIR=<checkout of nemar-cli's Epic D branch> \
  *     bun scripts/capture-compute-job-fixtures.mjs
  *
- * Captured from nemar-cli commit 27eecff9 (Epic D, `feature/issue-2021-epic-compute-users`; phases D1
+ * Captured from nemar-cli commit 81d4e050 (Epic D, `feature/issue-2021-epic-compute-users`; phases D1
  * to D4 and the copy keys are in it). The checkout needs `bun install` at its root and in `backend/`.
  *
  * Nothing is stood in for. The script runs outside `bun test` (step 0 of the phase plan: it can) on the
@@ -24,7 +24,7 @@
  *
  * Writes under test/fixtures/compute/:
  *   job-states.json         GET /compute/me/jobs/:id, one job in each of the ten states
- *   job-failure-codes.json  the same, one failed job per failure code (17)
+ *   job-failure-codes.json  the same, one failed job per failure code (18)
  *   job-cancel-requested.json  a running job with a cancel recorded
  *   job-stale.json          a live job whose cluster read failed: `stale: true`
  *   job-lifecycle.json      a job read at running and again at finished, through the real lifecycle
@@ -71,7 +71,7 @@ const { COMPUTE_LOG_MAX_BYTES, COMPUTE_RESULTS_PAGE_MAX } = await import(
 );
 const { startLifecycleFixture, makeJob, playLauncher, reread, setTapisTimes, MINUTE } = lifecycle;
 
-const COMMIT = "27eecff9";
+const COMMIT = "81d4e050";
 const COMMAND = "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-job-fixtures.mjs";
 
 const provenance = (route, request, note) => ({
@@ -172,7 +172,7 @@ for (const state of COMPUTE_STATES) {
 const jobFailureCodes = {
   _provenance: provenance(
     "GET /compute/me/jobs/:id",
-    "one failed job per failure code (COMPUTE_FAILURE_CODES, 17)",
+    "one failed job per failure code (COMPUTE_FAILURE_CODES, 18)",
     "Real route over rows written with fixed times. The user view carries `failure_code` only: `failure_detail` and `platform_failure` are not served.",
   ),
 };

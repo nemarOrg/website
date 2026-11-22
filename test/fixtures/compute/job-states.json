@@ -1,7 +1,7 @@
 {
   "_provenance": {
     "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-job-fixtures.mjs",
-    "nemar_cli_commit": "27eecff9",
+    "nemar_cli_commit": "81d4e050",
     "route": "GET /compute/me/jobs/:id",
     "request": "one job in each of the ten states, by id",
     "note": "Real route over rows written with fixed times. A live job has no Tapis job, so nothing is refreshed and `stale` is absent. Times are the database's `YYYY-MM-DD HH:MM:SS` UTC. The route serves no name, no fault attribution and no hold."
