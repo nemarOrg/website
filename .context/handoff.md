@@ -454,7 +454,8 @@ never auto-close issues (default branch is `main`); close them by hand.
 - `staging` leads; feature PRs target `staging`; promotion is a `staging` → `main`
   **release PR with a regular merge commit** after Prepare release (a direct push is
   rejected by the ruleset even with green checks — see AGENTS.md). `keep-main`
-  requires green lint/typecheck/test/build.
+  requires green lint/typecheck/test and the `Cloudflare Pages` check
+  (the CI build job was dropped 2026-11-19; Cloudflare's own build is the build gate).
 - test.nemar.org runs single-host mode — cross-host redirects, signed-in redirect
   suppression, canonical origins are all inert there (website#212).
 - Staging D1 (`nemar-db-dev`) holds ~600 real user emails + a live RESEND key.

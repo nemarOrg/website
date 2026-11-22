@@ -357,6 +357,9 @@ export const OSA_WIDGET_EXCLUDED_PATHS = [
   // on a job page, bearer result links that must never reach a third-party script or the model
   // provider through "Share page URL".
   "/compute",
+  // A community mail's unsubscribe link (nemar-cli ADR 0132): its URL carries the token that is the
+  // link's whole authority, and the widget's "Share page URL" would send it to OSA.
+  "/unsubscribe",
 ] as const;
 
 export function isOsaWidgetExcludedPath(pathname: string): boolean {

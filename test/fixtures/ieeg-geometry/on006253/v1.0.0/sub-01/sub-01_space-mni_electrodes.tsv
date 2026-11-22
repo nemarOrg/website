@@ -1,0 +1,427 @@
+name	x	y	z	size	mars	aal
+b01	23.776	-15.39	-18.577	1	R_ICC	Hippocampus_R
+b02	27.457	-15.924	-18.078	1	R_ICC	Hippocampus_R
+b03	31.142	-16.443	-17.666	1	R_ICC	Hippocampus_R
+b04	34.813	-16.981	-17.354	1	R_ICC	Hippocampus_R
+b05	38.48	-17.556	-17.149	1	R_ICC	Hippocampus_R
+b06	42.191	-18.154	-16.977	1	R_VCcm	Hippocampus_R
+b07	45.898	-18.754	-16.751	1	not in a mars atlas parcel	Temporal_Inf_R
+b08	49.666	-19.419	-16.624	1	R_MTCc	Temporal_Mid_R
+b09	53.47	-20.154	-16.588	1	R_MTCc	Temporal_Mid_R
+b10	57.249	-20.851	-16.351	1	R_MTCc	Temporal_Mid_R
+b11	60.943	-21.497	-15.875	1	R_MTCc	Temporal_Mid_R
+b12	64.482	-22.15	-15.233	1	R_MTCc	Temporal_Mid_R
+b13	67.947	-22.873	-14.559	1	R_MTCc	Temporal_Mid_R
+b14	71.347	-23.645	-13.935	1	R_MTCc	Temporal_Mid_R
+b15	74.748	-24.422	-13.369	1	not in a mars atlas parcel	Temporal_Mid_R
+c01	24.48	-31.815	-6.095	1	R_ICC	Hippocampus_R
+c02	27.78	-33.014	-7.007	1	R_ICC	Hippocampus_R
+c03	30.985	-34.21	-7.978	1	R_ICC	Hippocampus_R
+c04	34.054	-35.405	-9.067	1	R_VCrm	Hippocampus_R
+c05	37.098	-36.594	-10.139	1	not in a mars atlas parcel	Hippocampus_R
+c06	40.298	-37.828	-11.076	1	not in a mars atlas parcel	Fusiform_R
+c07	43.448	-39.093	-11.98	1	R_VCl	not in a AAL parcel
+c08	46.567	-40.38	-12.927	1	R_VCl	Temporal_Inf_R
+c09	49.671	-41.648	-13.803	1	R_VCl	Temporal_Mid_R
+c10	52.766	-42.928	-14.681	1	R_VCl	Temporal_Inf_R
+c11	55.871	-44.235	-15.587	1	R_VCl	Temporal_Inf_R
+c12	58.986	-45.578	-16.466	1	R_VCl	Temporal_Inf_R
+c13	62.178	-46.96	-17.293	1	R_VCl	Temporal_Inf_R
+c14	65.528	-48.389	-18.152	1	R_VCl	Temporal_Inf_R
+c15	69.078	-49.843	-19.115	1	not in a mars atlas parcel	Temporal_Inf_R
+d01	53.182	-45.002	2.293	1	R_MTCc	Temporal_Mid_R
+d02	56.732	-45.151	1.016	1	R_MTCc	Temporal_Mid_R
+d03	60.192	-45.376	-0.365	1	R_MTCc	Temporal_Mid_R
+d04	63.571	-45.658	-1.84	1	R_MTCc	Temporal_Mid_R
+d05	66.98	-46	-3.348	1	R_MTCc	Temporal_Mid_R
+d06	70.589	-46.405	-4.813	1	R_MTCc	Temporal_Mid_R
+d07	74.314	-46.803	-6.209	1	not in a mars atlas parcel	Temporal_Mid_R
+d08	78.029	-47.191	-7.61	1	not in a mars atlas parcel	not in a AAL parcel
+d09	81.704	-47.577	-9.048	1	not in a mars atlas parcel	not in a AAL parcel
+d10	85.27	-47.922	-10.512	1	not in a mars atlas parcel	not in a AAL parcel
+e01	25.504	-29.007	-17.818	1	R_VCrm	ParaHippocampal_R
+e02	29.146	-29.282	-17.699	1	R_VCrm	ParaHippocampal_R
+e03	32.789	-29.553	-17.668	1	R_VCrm	Fusiform_R
+e04	36.425	-29.876	-17.786	1	R_VCcm	Fusiform_R
+e05	40.029	-30.242	-17.973	1	R_VCcm	Fusiform_R
+e06	43.657	-30.62	-17.926	1	R_VCcm	Fusiform_R
+e07	47.38	-31.008	-17.698	1	not in a mars atlas parcel	Temporal_Inf_R
+e08	51.128	-31.486	-17.662	1	R_VCl	Temporal_Inf_R
+e09	54.8	-31.943	-17.579	1	R_VCl	Temporal_Inf_R
+e10	58.33	-32.391	-17.401	1	R_MTCc	Temporal_Inf_R
+e11	61.851	-32.905	-17.276	1	R_MTCc	Temporal_Inf_R
+e12	65.428	-33.496	-17.192	1	R_MTCc	Temporal_Inf_R
+f01	14.136	-52.331	0.96	1	R_VCrm	Lingual_R
+f02	17.773	-52.865	0.533	1	R_VCrm	Lingual_R
+f03	21.348	-53.369	0.121	1	R_VCrm	Lingual_R
+f04	24.86	-53.882	-0.365	1	R_VCrm	Lingual_R
+f05	28.334	-54.386	-0.861	1	R_VCrm	Lingual_R
+f06	31.825	-54.884	-1.349	1	not in a mars atlas parcel	Fusiform_R
+f07	35.36	-55.344	-1.904	1	not in a mars atlas parcel	Fusiform_R
+f08	38.914	-55.758	-2.463	1	R_VCl	not in a AAL parcel
+f09	42.405	-56.098	-2.928	1	R_VCl	Temporal_Mid_R
+f10	45.773	-56.315	-3.302	1	R_VCl	Temporal_Mid_R
+f11	49.125	-56.486	-3.627	1	R_VCl	Temporal_Mid_R
+f12	52.526	-56.724	-3.933	1	R_VCl	Temporal_Inf_R
+f13	56.007	-57.065	-4.255	1	R_VCl	Temporal_Inf_R
+f14	59.598	-57.501	-4.597	1	R_MTCc	Temporal_Inf_R
+f15	63.291	-58.008	-4.957	1	R_MTCc	Temporal_Inf_R
+g01	5.736	36.771	13.596	1	R_ACC	Cingulum_Ant_R
+g02	9.402	36.36	13.17	1	R_ACC	Cingulum_Ant_R
+g03	13.091	36.008	12.858	1	R_ACC	Cingulum_Ant_R
+g04	16.775	35.71	12.667	1	not in a mars atlas parcel	Cingulum_Ant_R
+g05	20.426	35.411	12.552	1	not in a mars atlas parcel	not in a AAL parcel
+g06	24.072	35.123	12.508	1	not in a mars atlas parcel	not in a AAL parcel
+g07	27.694	34.867	12.497	1	R_Pfrdli	not in a AAL parcel
+g08	31.226	34.496	12.309	1	R_Pfrdli	not in a AAL parcel
+g09	34.692	33.961	11.917	1	R_Pfrdli	Frontal_Mid_R
+g10	38.252	33.424	11.538	1	R_PFrvl	Frontal_Inf_Tri_R
+g11	41.969	32.998	11.297	1	R_PFrvl	Frontal_Inf_Tri_R
+g12	45.744	32.525	11.018	1	R_PFrvl	Frontal_Inf_Tri_R
+g13	49.581	32.034	10.749	1	R_PFrvl	Frontal_Inf_Tri_R
+g14	53.487	31.616	10.57	1	R_PFrvl	Frontal_Inf_Tri_R
+g15	57.468	31.342	10.498	1	R_PFrvl	Frontal_Inf_Tri_R
+i01	27.052	7.162	-31.934	1	R_ITCr	ParaHippocampal_R
+i02	30.883	6.467	-31.602	1	R_ITCr	ParaHippocampal_R
+i03	34.697	5.874	-31.375	1	R_MTCr	Temporal_Pole_Mid_R
+i04	38.489	5.376	-31.177	1	R_MTCr	Temporal_Pole_Mid_R
+i05	42.264	4.927	-30.878	1	R_MTCc	Temporal_Pole_Mid_R
+i06	46.012	4.505	-30.462	1	R_MTCc	Temporal_Pole_Mid_R
+i07	49.672	4.058	-30.035	1	R_MTCc	Temporal_Mid_R
+i08	53.263	3.579	-29.651	1	R_MTCc	Temporal_Mid_R
+i09	56.851	3.095	-29.228	1	R_MTCc	Temporal_Mid_R
+i10	60.458	2.57	-28.794	1	R_MTCc	Temporal_Mid_R
+k01	5.368	36.017	36.208	1	R_PFrm	Cingulum_Mid_R
+k02	9.081	35.371	36.555	1	R_PFrm	Frontal_Sup_Medial_R
+k03	12.637	34.668	36.912	1	not in a mars atlas parcel	Frontal_Sup_Medial_R
+k04	16.169	33.931	37.327	1	R_PFrd	Frontal_Sup_R
+k05	19.579	33.092	37.662	1	R_PFcdm	Frontal_Sup_R
+k06	22.953	32.211	38.004	1	R_PFcdl	Frontal_Mid_R
+k07	26.371	31.346	38.442	1	R_PFcdl	Frontal_Mid_R
+k08	29.822	30.508	38.922	1	R_PFcdl	Frontal_Mid_R
+k09	33.32	29.693	39.359	1	R_PFcdl	Frontal_Mid_R
+k10	36.847	28.892	39.723	1	R_PFcdl	Frontal_Mid_R
+k11	40.383	28.111	40.04	1	R_PFcdl	Frontal_Mid_R
+k12	44.044	27.499	40.496	1	R_PFcdl	Frontal_Mid_R
+k13	47.816	27.003	41.04	1	R_PFcdl	Frontal_Mid_R
+k14	51.546	26.474	41.485	1	not in a mars atlas parcel	Frontal_Mid_R
+k15	55.284	25.974	41.955	1	not in a mars atlas parcel	Frontal_Mid_R
+o01	1.719	41.756	-13.447	1	R_PFCvm	Frontal_Med_Orb_R
+o02	5.715	41.379	-13.567	1	R_PFCvm	Frontal_Med_Orb_R
+o03	9.628	41.007	-13.695	1	R_PFCvm	Frontal_Med_Orb_R
+o04	13.327	40.617	-13.693	1	not in a mars atlas parcel	Frontal_Med_Orb_R
+o05	16.902	40.214	-13.6	1	R_OFCv	Frontal_Sup_Orb_R
+o06	20.463	39.784	-13.419	1	R_OFCvl	Frontal_Sup_Orb_R
+o07	24.052	39.347	-13.15	1	R_OFCvl	Frontal_Sup_Orb_R
+o08	27.597	38.932	-12.662	1	R_OFCvl	Frontal_Mid_Orb_R
+o09	31.11	38.517	-12.123	1	R_OFCvl	Frontal_Mid_Orb_R
+o10	34.648	38.084	-11.68	1	R_OFCvl	Frontal_Mid_Orb_R
+o11	38.23	37.701	-11.223	1	R_OFCvl	Frontal_Inf_Orb_R
+o12	41.878	37.374	-10.806	1	R_OFCvl	Frontal_Inf_Orb_R
+o13	45.573	37.064	-10.421	1	R_OFCvl	Frontal_Inf_Orb_R
+o14	49.364	36.719	-10.106	1	R_PFrvl	Frontal_Inf_Orb_R
+o15	53.272	36.351	-9.915	1	R_PFrvl	Frontal_Inf_Orb_R
+q01	30.368	15.563	8.918	1	R_PMrv	Putamen_R
+q02	33.969	15.53	9.344	1	R_PMrv	Insula_R
+q03	37.578	15.526	9.909	1	R_PMrv	Insula_R
+q04	41.198	15.563	10.36	1	R_PMrv	Frontal_Inf_Oper_R
+q05	44.807	15.635	10.743	1	R_PMrv	Frontal_Inf_Oper_R
+q06	48.391	15.723	11.346	1	R_PMrv	Frontal_Inf_Oper_R
+q07	51.989	15.814	12.112	1	R_PMrv	Frontal_Inf_Oper_R
+q08	55.699	15.872	12.915	1	R_PMrv	Frontal_Inf_Oper_R
+q09	59.54	15.961	13.657	1	R_PMrv	Frontal_Inf_Oper_R
+q10	63.492	16.094	14.35	1	R_PMrv	Frontal_Inf_Oper_R
+q11	67.466	16.227	14.974	1	not in a mars atlas parcel	Frontal_Inf_Oper_R
+q12	71.296	16.307	15.506	1	not in a mars atlas parcel	Precentral_R
+s01	3.139	51.233	-14.57	1	R_PFCvm	Rectus_R
+s02	6.84	50.728	-14.007	1	R_PFCvm	Frontal_Med_Orb_R
+s03	10.605	50.264	-13.569	1	R_PFCvm	Frontal_Med_Orb_R
+s04	14.232	49.687	-13.092	1	R_OFCv	Frontal_Sup_Orb_R
+s05	17.753	48.99	-12.503	1	R_OFCv	Frontal_Sup_Orb_R
+s06	21.149	48.231	-11.618	1	R_OFCv	Frontal_Sup_Orb_R
+s07	24.607	47.503	-10.669	1	R_OFCv	Frontal_Mid_Orb_R
+s08	28.074	46.822	-9.522	1	R_OFCvl	Frontal_Mid_Orb_R
+s09	31.543	46.172	-8.386	1	R_OFCvl	Frontal_Mid_Orb_R
+s10	35.012	45.474	-7.33	1	R_OFCvl	Frontal_Mid_Orb_R
+s11	38.549	44.766	-6.319	1	R_PFrvl	Frontal_Mid_Orb_R
+s12	42.181	44.096	-5.434	1	R_PFrvl	Frontal_Inf_Orb_R
+s13	45.885	43.45	-4.545	1	R_PFrvl	Frontal_Inf_Orb_R
+s14	49.624	42.833	-3.659	1	R_PFrvl	Frontal_Inf_Orb_R
+s15	53.308	42.197	-2.785	1	R_PFrvl	Frontal_Inf_Orb_R
+t01	42.375	0.284	-21.981	1	R_STCr	not in a AAL parcel
+t02	45.436	-0.028	-19.575	1	R_STCr	Temporal_Mid_R
+t03	48.494	-0.384	-17.205	1	R_STCc	Temporal_Mid_R
+t04	51.55	-0.786	-14.907	1	R_STCc	Temporal_Mid_R
+t05	54.549	-1.213	-12.602	1	R_STCc	Temporal_Sup_R
+t06	57.43	-1.666	-10.23	1	R_STCc	Temporal_Sup_R
+t07	60.29	-2.148	-7.878	1	R_STCc	Temporal_Sup_R
+t08	63.252	-2.613	-5.58	1	R_STCc	Temporal_Sup_R
+t09	66.307	-3.034	-3.292	1	R_STCc	Temporal_Sup_R
+t10	69.268	-3.51	-0.99	1	not in a mars atlas parcel	Temporal_Sup_R
+u01	39.511	-24.684	1.858	1	R_STCc	Insula_R
+u02	43.041	-25.178	2.614	1	not in a mars atlas parcel	Temporal_Sup_R
+u03	46.467	-25.628	3.497	1	R_STCc	Temporal_Sup_R
+u04	49.869	-26.05	4.607	1	R_STCc	Temporal_Sup_R
+u05	53.307	-26.53	5.8	1	R_STCc	Temporal_Sup_R
+u06	56.783	-27.14	6.819	1	R_STCc	Temporal_Sup_R
+u07	60.245	-27.765	7.733	1	R_STCc	Temporal_Sup_R
+u08	63.659	-28.324	8.703	1	R_STCc	Temporal_Sup_R
+u09	67.067	-28.805	9.815	1	R_STCc	Temporal_Sup_R
+u10	70.42	-29.274	10.957	1	R_STCc	Temporal_Sup_R
+x01	8.618	28.248	-24.079	1	R_PFCvm	Rectus_R
+x02	9.695	30.587	-21.138	1	R_PFCvm	Rectus_R
+x03	10.767	32.984	-18.237	1	R_PFCvm	Rectus_R
+x04	11.849	35.401	-15.19	1	R_OFCvm	Rectus_R
+x05	12.871	37.802	-12.112	1	not in a mars atlas parcel	Frontal_Med_Orb_R
+x06	13.81	40.203	-8.984	1	not in a mars atlas parcel	Frontal_Med_Orb_R
+x07	14.632	42.608	-5.811	1	R_PFCvm	Frontal_Med_Orb_R
+x08	15.456	44.985	-2.613	1	R_PFCvm	Frontal_Med_Orb_R
+x09	16.311	47.344	0.604	1	R_PFCvm	Frontal_Sup_Medial_R
+x10	17.167	49.697	3.815	1	not in a mars atlas parcel	Frontal_Sup_Medial_R
+x11	18.053	52.018	6.998	1	R_Pfrdls	Frontal_Sup_R
+x12	18.991	54.289	10.166	1	R_Pfrdls	Frontal_Sup_R
+x13	19.824	56.464	13.324	1	R_Pfrdls	Frontal_Sup_R
+x14	20.594	58.589	16.46	1	R_Pfrdls	Frontal_Sup_R
+x15	21.393	60.711	19.567	1	R_Pfrdls	Frontal_Sup_R
+x16	22.216	62.85	22.631	1	R_Pfrdls	Frontal_Sup_R
+x17	23.025	64.925	25.577	1	not in a mars atlas parcel	Frontal_Mid_R
+x18	23.847	67.042	28.487	1	not in a mars atlas parcel	not in a AAL parcel
+y01	28.226	27.831	-23.162	1	R_OFCvl	Frontal_Inf_Orb_R
+y02	28.668	30.35	-20.339	1	R_OFCvl	Frontal_Inf_Orb_R
+y03	29.119	32.91	-17.533	1	R_OFCvl	Frontal_Inf_Orb_R
+y04	29.528	35.446	-14.62	1	R_OFCvl	Frontal_Inf_Orb_R
+y05	29.901	38.03	-11.644	1	R_OFCvl	Frontal_Mid_Orb_R
+y06	30.238	40.638	-8.56	1	R_OFCvl	Frontal_Mid_Orb_R
+y07	30.615	43.203	-5.447	1	R_OFCvl	not in a AAL parcel
+y08	31.073	45.816	-2.303	1	R_Pfrdli	Frontal_Mid_Orb_R
+y09	31.581	48.388	0.794	1	R_Pfrdli	Frontal_Mid_R
+y10	32.098	50.812	3.788	1	R_Pfrdli	Frontal_Mid_R
+y11	32.615	53.215	6.769	1	R_Pfrdli	Frontal_Sup_R
+y12	33.092	55.565	9.756	1	R_Pfrdli	Frontal_Sup_R
+y13	33.518	57.846	12.736	1	R_Pfrdli	Frontal_Sup_R
+y14	33.868	60.043	15.665	1	R_Pfrdli	Frontal_Sup_R
+y15	34.142	62.187	18.527	1	not in a mars atlas parcel	Frontal_Sup_R
+z01	37.936	9.886	-6.863	1	R_Insula	Insula_R
+z02	36.714	12.761	-5.146	1	R_Insula	Insula_R
+z03	35.509	15.679	-3.374	1	R_Insula	Insula_R
+z04	34.262	18.627	-1.577	1	R_Insula	Insula_R
+z05	32.962	21.592	0.242	1	R_Insula	Insula_R
+z06	31.618	24.57	2.093	1	R_PFrvl	Insula_R
+z07	30.197	27.549	3.986	1	R_PFrvl	Insula_R
+z08	28.833	30.48	5.861	1	not in a mars atlas parcel	not in a AAL parcel
+z09	27.633	33.334	7.662	1	not in a mars atlas parcel	not in a AAL parcel
+z10	26.471	36.168	9.406	1	not in a mars atlas parcel	not in a AAL parcel
+z11	25.243	38.974	11.084	1	not in a mars atlas parcel	not in a AAL parcel
+z12	23.961	41.777	12.766	1	not in a mars atlas parcel	not in a AAL parcel
+z13	22.74	44.624	14.553	1	not in a mars atlas parcel	Frontal_Sup_R
+z14	21.637	47.517	16.441	1	R_Pfrdls	Frontal_Sup_R
+z15	20.49	50.385	18.348	1	R_Pfrdls	Frontal_Sup_R
+z16	19.258	53.232	20.248	1	R_PFrd	Frontal_Sup_R
+z17	18.011	56.103	22.162	1	R_PFrd	Frontal_Sup_R
+z18	16.693	58.912	24.026	1	R_PFrd	Frontal_Sup_R
+	NaN	NaN	NaN	1		
+	NaN	NaN	NaN	1		
+b01-b02	25.617	-15.657	-18.327	1	R_ICC	Hippocampus_R
+b02-b03	29.299	-16.183	-17.872	1	R_ICC	Hippocampus_R
+b03-b04	32.978	-16.712	-17.51	1	R_ICC	Hippocampus_R
+b04-b05	36.647	-17.269	-17.251	1	R_ICC	Hippocampus_R
+b05-b06	40.336	-17.855	-17.063	1	R_VCcm	Hippocampus_R
+b06-b07	44.044	-18.454	-16.864	1	R_VCcm	Hippocampus_R
+b07-b08	47.782	-19.087	-16.688	1	R_MTCc	Temporal_Inf_R
+b08-b09	51.568	-19.787	-16.606	1	R_MTCc	Temporal_Mid_R
+b09-b10	55.359	-20.503	-16.469	1	R_MTCc	Temporal_Mid_R
+b10-b11	59.096	-21.174	-16.113	1	R_MTCc	Temporal_Mid_R
+b11-b12	62.712	-21.824	-15.554	1	R_MTCc	Temporal_Mid_R
+b12-b13	66.215	-22.511	-14.896	1	R_MTCc	Temporal_Mid_R
+b13-b14	69.647	-23.259	-14.247	1	R_MTCc	Temporal_Mid_R
+b14-b15	73.047	-24.034	-13.652	1	R_MTCc	Temporal_Mid_R
+c01-c02	26.13	-32.415	-6.551	1	R_ICC	Hippocampus_R
+c02-c03	29.383	-33.612	-7.493	1	R_ICC	Hippocampus_R
+c03-c04	32.519	-34.807	-8.523	1	R_VCrm	ParaHippocampal_R
+c04-c05	35.576	-35.999	-9.603	1	R_VCrm	Hippocampus_R
+c05-c06	38.698	-37.211	-10.607	1	R_VCcm	Fusiform_R
+c06-c07	41.873	-38.461	-11.528	1	R_VCl	Fusiform_R
+c07-c08	45.007	-39.737	-12.453	1	R_VCl	Temporal_Inf_R
+c08-c09	48.119	-41.014	-13.365	1	R_VCl	Temporal_Inf_R
+c09-c10	51.218	-42.288	-14.242	1	R_VCl	Temporal_Mid_R
+c10-c11	54.318	-43.581	-15.134	1	R_VCl	Temporal_Inf_R
+c11-c12	57.429	-44.906	-16.026	1	R_VCl	Temporal_Inf_R
+c12-c13	60.582	-46.269	-16.879	1	R_VCl	Temporal_Inf_R
+c13-c14	63.853	-47.675	-17.722	1	R_VCl	Temporal_Inf_R
+c14-c15	67.303	-49.116	-18.633	1	R_VCl	Temporal_Inf_R
+d01-d02	54.957	-45.077	1.655	1	R_MTCc	Temporal_Mid_R
+d02-d03	58.462	-45.263	0.326	1	R_MTCc	Temporal_Mid_R
+d03-d04	61.882	-45.517	-1.102	1	R_MTCc	Temporal_Mid_R
+d04-d05	65.276	-45.829	-2.594	1	R_MTCc	Temporal_Mid_R
+d05-d06	68.785	-46.202	-4.081	1	R_MTCc	Temporal_Mid_R
+d06-d07	72.452	-46.604	-5.511	1	R_MTCc	Temporal_Mid_R
+d07-d08	76.171	-46.997	-6.91	1	not in a mars atlas parcel	not in a AAL parcel
+d08-d09	79.866	-47.384	-8.329	1	not in a mars atlas parcel	not in a AAL parcel
+d09-d10	83.487	-47.75	-9.78	1	not in a mars atlas parcel	not in a AAL parcel
+e01-e02	27.325	-29.145	-17.758	1	R_VCrm	ParaHippocampal_R
+e02-e03	30.968	-29.418	-17.684	1	R_VCcm	Fusiform_R
+e03-e04	34.607	-29.714	-17.727	1	R_VCcm	Fusiform_R
+e04-e05	38.227	-30.059	-17.88	1	R_VCcm	Fusiform_R
+e05-e06	41.843	-30.431	-17.949	1	R_VCcm	Fusiform_R
+e06-e07	45.519	-30.814	-17.812	1	R_VCcm	Temporal_Inf_R
+e07-e08	49.254	-31.247	-17.68	1	R_VCl	Temporal_Inf_R
+e08-e09	52.964	-31.714	-17.62	1	R_VCl	Temporal_Inf_R
+e09-e10	56.565	-32.167	-17.49	1	R_MTCc	Temporal_Inf_R
+e10-e11	60.091	-32.648	-17.339	1	R_MTCc	Temporal_Inf_R
+e11-e12	63.64	-33.2	-17.234	1	R_MTCc	Temporal_Inf_R
+f01-f02	15.955	-52.598	0.746	1	R_VCrm	Lingual_R
+f02-f03	19.561	-53.117	0.327	1	R_VCrm	Lingual_R
+f03-f04	23.104	-53.626	-0.122	1	R_VCrm	Lingual_R
+f04-f05	26.597	-54.134	-0.613	1	R_VCrm	Lingual_R
+f05-f06	30.08	-54.635	-1.105	1	R_VCrm	Fusiform_R
+f06-f07	33.593	-55.114	-1.627	1	R_VCcm	Fusiform_R
+f07-f08	37.137	-55.551	-2.183	1	R_VCl	not in a AAL parcel
+f08-f09	40.659	-55.928	-2.695	1	R_VCl	not in a AAL parcel
+f09-f10	44.089	-56.206	-3.115	1	R_VCl	Temporal_Mid_R
+f10-f11	47.449	-56.4	-3.465	1	R_VCl	Temporal_Mid_R
+f11-f12	50.826	-56.605	-3.78	1	R_VCl	Temporal_Mid_R
+f12-f13	54.267	-56.895	-4.094	1	R_VCl	Temporal_Inf_R
+f13-f14	57.802	-57.283	-4.426	1	R_VCl	Temporal_Inf_R
+f14-f15	61.444	-57.755	-4.777	1	R_VCl	Temporal_Inf_R
+g01-g02	7.569	36.565	13.383	1	R_ACC	Cingulum_Ant_R
+g02-g03	11.247	36.184	13.014	1	R_ACC	Cingulum_Ant_R
+g03-g04	14.933	35.859	12.762	1	R_ACC	Cingulum_Ant_R
+g04-g05	18.6	35.56	12.609	1	not in a mars atlas parcel	not in a AAL parcel
+g05-g06	22.249	35.267	12.53	1	not in a mars atlas parcel	not in a AAL parcel
+g06-g07	25.883	34.995	12.503	1	R_Pfrdls	not in a AAL parcel
+g07-g08	29.46	34.681	12.403	1	R_Pfrdli	not in a AAL parcel
+g08-g09	32.959	34.228	12.113	1	R_Pfrdli	Frontal_Mid_R
+g09-g10	36.472	33.693	11.728	1	R_Pfrdli	Frontal_Mid_R
+g10-g11	40.111	33.211	11.418	1	R_PFrvl	Frontal_Inf_Tri_R
+g11-g12	43.857	32.762	11.158	1	R_PFrvl	Frontal_Inf_Tri_R
+g12-g13	47.663	32.28	10.883	1	R_PFrvl	Frontal_Inf_Tri_R
+g13-g14	51.534	31.825	10.66	1	R_PFrvl	Frontal_Inf_Tri_R
+g14-g15	55.477	31.479	10.534	1	R_PFrvl	Frontal_Inf_Tri_R
+i01-i02	28.968	6.815	-31.768	1	R_ITCr	ParaHippocampal_R
+i02-i03	32.79	6.17	-31.489	1	R_ITCr	ParaHippocampal_R
+i03-i04	36.593	5.625	-31.276	1	R_MTCr	Temporal_Pole_Mid_R
+i04-i05	40.377	5.152	-31.028	1	R_MTCc	Temporal_Pole_Mid_R
+i05-i06	44.138	4.716	-30.67	1	R_MTCc	Temporal_Pole_Mid_R
+i06-i07	47.842	4.282	-30.248	1	R_MTCc	Temporal_Mid_R
+i07-i08	51.467	3.819	-29.843	1	R_MTCc	Temporal_Mid_R
+i08-i09	55.057	3.337	-29.44	1	R_MTCc	Temporal_Mid_R
+i09-i10	58.654	2.832	-29.011	1	R_MTCc	Temporal_Mid_R
+k01-k02	7.225	35.694	36.381	1	R_PFrm	Cingulum_Mid_R
+k02-k03	10.859	35.019	36.733	1	R_PFrm	Frontal_Sup_Medial_R
+k03-k04	14.403	34.299	37.119	1	R_PFcdm	Frontal_Sup_R
+k04-k05	17.874	33.511	37.495	1	R_PFcdm	Frontal_Sup_R
+k05-k06	21.266	32.652	37.833	1	R_PFcdm	Frontal_Sup_R
+k06-k07	24.662	31.779	38.223	1	R_PFcdl	Frontal_Mid_R
+k07-k08	28.097	30.927	38.682	1	R_PFcdl	Frontal_Mid_R
+k08-k09	31.571	30.101	39.141	1	R_PFcdl	Frontal_Mid_R
+k09-k10	35.083	29.293	39.541	1	R_PFcdl	Frontal_Mid_R
+k10-k11	38.615	28.502	39.881	1	R_PFcdl	Frontal_Mid_R
+k11-k12	42.214	27.805	40.268	1	R_PFcdl	Frontal_Mid_R
+k12-k13	45.93	27.251	40.768	1	R_PFcdl	Frontal_Mid_R
+k13-k14	49.681	26.738	41.263	1	R_PFcdl	Frontal_Mid_R
+k14-k15	53.415	26.224	41.72	1	not in a mars atlas parcel	Frontal_Mid_R
+o01-o02	3.717	41.568	-13.507	1	R_PFCvm	Frontal_Med_Orb_R
+o02-o03	7.672	41.193	-13.631	1	R_PFCvm	Frontal_Med_Orb_R
+o03-o04	11.477	40.812	-13.694	1	R_PFCvm	Frontal_Med_Orb_R
+o04-o05	15.115	40.415	-13.646	1	R_OFCv	Rectus_R
+o05-o06	18.683	39.999	-13.509	1	R_OFCv	Frontal_Sup_Orb_R
+o06-o07	22.258	39.565	-13.285	1	R_OFCvl	Frontal_Sup_Orb_R
+o07-o08	25.825	39.139	-12.906	1	R_OFCvl	Frontal_Mid_Orb_R
+o08-o09	29.354	38.724	-12.392	1	R_OFCvl	Frontal_Mid_Orb_R
+o09-o10	32.879	38.3	-11.902	1	R_OFCvl	Frontal_Mid_Orb_R
+o10-o11	36.439	37.893	-11.452	1	R_OFCvl	Frontal_Inf_Orb_R
+o11-o12	40.054	37.538	-11.014	1	R_OFCvl	Frontal_Inf_Orb_R
+o12-o13	43.725	37.219	-10.614	1	R_OFCvl	Frontal_Inf_Orb_R
+o13-o14	47.468	36.891	-10.264	1	R_PFrvl	Frontal_Inf_Orb_R
+o14-o15	51.318	36.535	-10.011	1	R_PFrvl	Frontal_Inf_Orb_R
+q01-q02	32.169	15.546	9.131	1	R_PMrv	Insula_R
+q02-q03	35.774	15.528	9.626	1	R_PMrv	Insula_R
+q03-q04	39.388	15.544	10.134	1	R_PMrv	Frontal_Inf_Oper_R
+q04-q05	43.002	15.599	10.551	1	R_PMrv	Frontal_Inf_Oper_R
+q05-q06	46.599	15.679	11.044	1	R_PMrv	Frontal_Inf_Oper_R
+q06-q07	50.19	15.769	11.729	1	R_PMrv	Frontal_Inf_Oper_R
+q07-q08	53.844	15.843	12.513	1	R_PMrv	Frontal_Inf_Oper_R
+q08-q09	57.62	15.917	13.286	1	R_PMrv	Frontal_Inf_Oper_R
+q09-q10	61.516	16.028	14.004	1	R_PMrv	Frontal_Inf_Oper_R
+q10-q11	65.479	16.161	14.662	1	R_PMrv	Frontal_Inf_Oper_R
+q11-q12	69.381	16.267	15.24	1	not in a mars atlas parcel	Precentral_R
+s01-s02	4.99	50.98	-14.288	1	R_PFCvm	Frontal_Med_Orb_R
+s02-s03	8.723	50.496	-13.788	1	R_PFCvm	Frontal_Med_Orb_R
+s03-s04	12.419	49.975	-13.33	1	R_PFCvm	Frontal_Med_Orb_R
+s04-s05	15.992	49.338	-12.798	1	R_OFCv	Frontal_Sup_Orb_R
+s05-s06	19.451	48.61	-12.061	1	R_OFCv	Frontal_Sup_Orb_R
+s06-s07	22.878	47.867	-11.144	1	R_OFCv	Frontal_Mid_Orb_R
+s07-s08	26.341	47.163	-10.096	1	R_OFCvl	Frontal_Mid_Orb_R
+s08-s09	29.808	46.497	-8.954	1	R_OFCvl	Frontal_Mid_Orb_R
+s09-s10	33.278	45.823	-7.858	1	R_OFCvl	Frontal_Mid_Orb_R
+s10-s11	36.781	45.12	-6.825	1	R_OFCvl	Frontal_Mid_Orb_R
+s11-s12	40.365	44.431	-5.877	1	R_PFrvl	Frontal_Mid_Orb_R
+s12-s13	44.033	43.773	-4.99	1	R_PFrvl	Frontal_Inf_Orb_R
+s13-s14	47.754	43.142	-4.102	1	R_PFrvl	Frontal_Inf_Orb_R
+s14-s15	51.466	42.515	-3.222	1	R_PFrvl	Frontal_Inf_Orb_R
+t01-t02	43.905	0.128	-20.778	1	R_STCr	not in a AAL parcel
+t02-t03	46.965	-0.206	-18.39	1	R_STCc	Temporal_Mid_R
+t03-t04	50.022	-0.585	-16.056	1	R_STCc	Temporal_Mid_R
+t04-t05	53.05	-0.999	-13.754	1	R_STCc	Temporal_Sup_R
+t05-t06	55.99	-1.44	-11.416	1	R_STCc	Temporal_Sup_R
+t06-t07	58.86	-1.907	-9.054	1	R_STCc	Temporal_Sup_R
+t07-t08	61.771	-2.381	-6.729	1	R_STCc	Temporal_Sup_R
+t08-t09	64.78	-2.824	-4.436	1	R_STCc	Temporal_Sup_R
+t09-t10	67.788	-3.272	-2.141	1	R_STCc	Temporal_Sup_R
+u01-u02	41.276	-24.931	2.236	1	R_STCc	Temporal_Sup_R
+u02-u03	44.754	-25.403	3.055	1	R_STCc	Temporal_Sup_R
+u03-u04	48.168	-25.839	4.052	1	R_STCc	Temporal_Sup_R
+u04-u05	51.588	-26.29	5.204	1	R_STCc	Temporal_Sup_R
+u05-u06	55.045	-26.835	6.31	1	R_STCc	Temporal_Sup_R
+u06-u07	58.514	-27.453	7.276	1	R_STCc	Temporal_Sup_R
+u07-u08	61.952	-28.045	8.218	1	R_STCc	Temporal_Sup_R
+u08-u09	65.363	-28.565	9.259	1	R_STCc	Temporal_Sup_R
+u09-u10	68.743	-29.04	10.386	1	R_STCc	Temporal_Sup_R
+x01-x02	9.157	29.418	-22.609	1	R_PFCvm	Rectus_R
+x02-x03	10.231	31.785	-19.688	1	R_PFCvm	Rectus_R
+x03-x04	11.308	34.192	-16.714	1	R_OFCvm	Rectus_R
+x04-x05	12.36	36.601	-13.651	1	R_PFCvm	Frontal_Med_Orb_R
+x05-x06	13.341	39.003	-10.548	1	R_PFCvm	Frontal_Med_Orb_R
+x06-x07	14.221	41.406	-7.397	1	R_PFCvm	Frontal_Med_Orb_R
+x07-x08	15.044	43.797	-4.212	1	R_PFCvm	Frontal_Med_Orb_R
+x08-x09	15.883	46.165	-1.005	1	R_PFCvm	Frontal_Med_Orb_R
+x09-x10	16.739	48.521	2.21	1	R_PFCvm	Frontal_Sup_R
+x10-x11	17.61	50.858	5.407	1	R_Pfrdls	Frontal_Sup_Medial_R
+x11-x12	18.522	53.154	8.582	1	R_Pfrdls	Frontal_Sup_R
+x12-x13	19.407	55.376	11.745	1	R_Pfrdls	Frontal_Sup_R
+x13-x14	20.209	57.526	14.892	1	R_Pfrdls	Frontal_Sup_R
+x14-x15	20.994	59.65	18.013	1	R_Pfrdls	Frontal_Sup_R
+x15-x16	21.805	61.781	21.099	1	R_Pfrdls	Frontal_Sup_R
+x16-x17	22.621	63.887	24.104	1	R_Pfrdls	Frontal_Sup_R
+x17-x18	23.436	65.983	27.032	1	not in a mars atlas parcel	not in a AAL parcel
+y01-y02	28.447	29.09	-21.751	1	R_OFCvl	Frontal_Inf_Orb_R
+y02-y03	28.893	31.63	-18.936	1	R_OFCvl	Frontal_Inf_Orb_R
+y03-y04	29.324	34.178	-16.077	1	R_OFCvl	Frontal_Inf_Orb_R
+y04-y05	29.715	36.738	-13.132	1	R_OFCvl	Frontal_Mid_Orb_R
+y05-y06	30.07	39.334	-10.102	1	R_OFCvl	Frontal_Inf_Orb_R
+y06-y07	30.427	41.921	-7.003	1	R_OFCvl	Frontal_Mid_Orb_R
+y07-y08	30.844	44.51	-3.875	1	R_Pfrdli	Frontal_Mid_Orb_R
+y08-y09	31.327	47.102	-0.754	1	R_Pfrdli	Frontal_Mid_R
+y09-y10	31.84	49.6	2.291	1	R_Pfrdli	Frontal_Mid_R
+y10-y11	32.356	52.014	5.278	1	R_Pfrdli	Frontal_Mid_R
+y11-y12	32.853	54.39	8.262	1	R_Pfrdli	Frontal_Sup_R
+y12-y13	33.305	56.705	11.246	1	R_Pfrdli	Frontal_Sup_R
+y13-y14	33.693	58.945	14.201	1	R_Pfrdli	Frontal_Sup_R
+y14-y15	34.005	61.115	17.096	1	R_Pfrdls	Frontal_Sup_R
+z01-z02	37.325	11.323	-6.004	1	R_Insula	Insula_R
+z02-z03	36.111	14.22	-4.26	1	R_Insula	Insula_R
+z03-z04	34.885	17.153	-2.476	1	R_Insula	Insula_R
+z04-z05	33.612	20.109	-0.668	1	R_Insula	Insula_R
+z05-z06	32.29	23.081	1.168	1	R_PFrvl	Insula_R
+z06-z07	30.908	26.059	3.04	1	R_PFrvl	Insula_R
+z07-z08	29.515	29.014	4.924	1	R_PFrvl	Insula_R
+z08-z09	28.233	31.907	6.762	1	R_PFrvl	not in a AAL parcel
+z09-z10	27.052	34.751	8.534	1	R_Pfrdli	not in a AAL parcel
+z10-z11	25.857	37.571	10.245	1	R_Pfrdli	not in a AAL parcel
+z11-z12	24.602	40.376	11.925	1	R_Pfrdli	not in a AAL parcel
+z12-z13	23.351	43.201	13.659	1	R_Pfrdls	not in a AAL parcel
+z13-z14	22.189	46.071	15.497	1	R_Pfrdls	Frontal_Sup_R
+z14-z15	21.063	48.951	17.395	1	R_Pfrdls	Frontal_Sup_R
+z15-z16	19.874	51.809	19.298	1	R_PFrd	Frontal_Sup_R
+z16-z17	18.634	54.668	21.205	1	R_PFrd	Frontal_Sup_R
+z17-z18	17.352	57.507	23.094	1	R_PFrd	Frontal_Sup_R

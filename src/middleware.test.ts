@@ -7,6 +7,7 @@ import { type BodyStore, FRESH_MS, cachedJson, resetApiCacheStateForTests } from
 import { apiFetch, resetApiFetchWarningsForTests } from "./lib/api-fetch";
 import { BUILD_ID } from "./lib/build-info";
 import { APP_HOST, MARKETING_BASE_URL, MARKETING_HOST } from "./lib/host";
+import { UNSUBSCRIBE_PRIVACY_HEADERS } from "./lib/mail-unsubscribe";
 import { OIDC_FORM_ACTION_ORIGIN_HEADER } from "./lib/oidc-authorize";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
 import {
@@ -968,6 +969,25 @@ describe("security headers", () => {
     const noindexed = new Headers();
     applySecurityHeaders(noindexed, "/discover", true);
     expect(noindexed.get("X-Robots-Tag")).toBe("noindex, nofollow");
+  });
+
+  it("leaves the unsubscribe page's privacy headers as the page set them, on a production host", async () => {
+    // nemar-cli ADR 0132: the URL carries the link's token. The middleware must keep the page's
+    // same-origin referrer policy, its noindex and its no-store, and must not edge-cache it.
+    const page = async () =>
+      new Response("<!doctype html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html", ...UNSUBSCRIBE_PRIVACY_HEADERS },
+      });
+    const served = await onRequest(
+      ctx(`https://${APP_HOST}/unsubscribe/v1.42.news.7.${"A".repeat(43)}`),
+      page,
+    );
+    expect(served?.status).toBe(200);
+    expect(served?.headers.get("Referrer-Policy")).toBe("same-origin");
+    expect(served?.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+    expect(served?.headers.get("Cache-Control")).toBe("no-store");
+    expect(served?.headers.get("x-nemar-cache")).toBeNull();
   });
 
   it("keeps a page's own no-referrer, and only that, over the site-wide policy", () => {

@@ -1,0 +1,133 @@
+---
+import { AI_MODE_SEARCH_DISCLOSURE } from "../lib/osa-ai-mode";
+/**
+ * The AI Mode toggle inside a search field (boards D1 and D2, website#518 and #519): a pill
+ * button with `aria-pressed`, hidden until the browser has seen that the widget can open and the
+ * overview endpoint is set (src/lib/osa-ai-mode.ts). Its icon, a magnifier with a sparkle, is the
+ * only AI mark in the field; the field's own magnifier and the Search button stay as they were.
+ *
+ * Render it inside a `data-ai-field` wrapper that is `position: relative`; the wrapper's parent
+ * styles place it, this file draws it. The script that wires every toggle on the page is
+ * src/lib/ai-mode-search-client.ts, which Astro bundles once however many are rendered.
+ */
+interface Props {
+  /** The overview endpoint. The page renders the toggle only when it is set and valid. */
+  endpoint: string;
+  /** `lg`: the hero's 44 px pill. `md`: the 36 px pill that fits Discover's 44 px field. */
+  size?: "md" | "lg";
+  /** `id` of the form the field submits with, when it is not an ancestor of the toggle. */
+  form?: string;
+  /** Carry the choice onto the page's own /discover links (paging, filters, the corrected-query
+   *  line), whose server-rendered hrefs cannot know the preference. */
+  carryLinks?: boolean;
+  /** AI Mode is on, as the server renders it: the default, so the page that is cached for
+   *  everyone is right for most readers and the browser only switches off a reader who chose off. */
+  on?: boolean;
+}
+
+const { endpoint, size = "md", form, carryLinks = false, on = true } = Astro.props;
+
+// The notice is shown as visible text under the field while AI Mode is on (SearchBar, Home); the
+// `title` repeats it for pointer users.
+const disclosure = AI_MODE_SEARCH_DISCLOSURE;
+---
+
+<button
+  type="button"
+  class:list={["ai-toggle", `ai-toggle--${size}`]}
+  aria-pressed={on ? "true" : "false"}
+  title={disclosure}
+  hidden
+  data-ai-toggle
+  data-ai-endpoint={endpoint}
+  data-ai-form={form}
+  data-ai-links={carryLinks ? "" : undefined}
+>
+  <svg class="ai-toggle__icon" viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="9.5" cy="14" r="5.5" fill="none" stroke="currentColor" stroke-width="2"></circle>
+    <path d="M13.5 18l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+    <path
+      class="ai-toggle__star ai-toggle__star--on"
+      d="M18 .5l1.6 3.9 3.9 1.6-3.9 1.6L18 11.5l-1.6-3.9L12.5 6l3.9-1.6z"
+      fill="currentColor"></path>
+    <path
+      class="ai-toggle__star ai-toggle__star--off"
+      d="M18 1.5l1.4 3.1 3.1 1.4-3.1 1.4L18 10.5l-1.4-3.1L13.5 6l3.1-1.4z"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linejoin="round"></path>
+  </svg>
+  AI Mode
+</button>
+
+<style>
+  .ai-toggle {
+    position: absolute;
+    inset-block-start: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-pill);
+    background: var(--ai-toggle-off-bg);
+    color: var(--ai-toggle-off-fg);
+    font-family: inherit;
+    font-weight: var(--fw-medium);
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .ai-toggle[hidden] {
+    display: none;
+  }
+  .ai-toggle[aria-pressed="true"] {
+    border-color: var(--ai-toggle-on-border);
+    background: var(--ai-toggle-on-bg);
+    color: var(--ai-toggle-on-fg);
+    font-weight: var(--fw-semibold);
+  }
+  .ai-toggle:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  .ai-toggle__icon {
+    flex: none;
+  }
+  /* Off draws the sparkle as an outline, on as a fill (board D1). */
+  .ai-toggle[aria-pressed="true"] .ai-toggle__star--off,
+  .ai-toggle[aria-pressed="false"] .ai-toggle__star--on {
+    display: none;
+  }
+  /* Hero: the 44 px pill, 15 px label, 22 px icon. */
+  .ai-toggle--lg {
+    inset-inline-end: 10px;
+    block-size: 44px;
+    padding-inline: 12px 16px;
+    font-size: 15px;
+  }
+  .ai-toggle--lg .ai-toggle__icon {
+    inline-size: 22px;
+    block-size: 22px;
+  }
+  /* Discover: the largest pill the 44 px field holds with the ring around it; icon and label keep
+     the hero's proportion (22:15 is 20:13.5). */
+  .ai-toggle--md {
+    inset-inline-end: 5px;
+    block-size: 36px;
+    padding-inline: 10px 14px;
+    font-size: 13.5px;
+  }
+  .ai-toggle--md .ai-toggle__icon {
+    inline-size: 20px;
+    block-size: 20px;
+  }
+</style>
+
+<script>
+  import { initAiModeSearch } from "../lib/ai-mode-search-client";
+
+  initAiModeSearch(window, document);
+</script>

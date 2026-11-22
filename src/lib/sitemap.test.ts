@@ -123,7 +123,15 @@ describe("staticSitemapEntries", () => {
 
   it("never lists an app-host route", () => {
     const locs = staticSitemapEntries().map((e) => e.loc);
-    for (const forbidden of ["/login", "/dashboard", "/upload", "/settings", "/admin", "/auth"]) {
+    for (const forbidden of [
+      "/login",
+      "/dashboard",
+      "/upload",
+      "/settings",
+      "/admin",
+      "/auth",
+      "/unsubscribe",
+    ]) {
       expect(locs.some((loc) => loc.includes(forbidden))).toBe(false);
     }
   });

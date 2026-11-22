@@ -1,0 +1,270 @@
+{
+ "source": "https://zarr.nemar.org/on006233/zarr/sub-007/ses-1/ieeg/sub-007_ses-1_task-picture_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "POL A1-A2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A11-A12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A17-A18",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A23-A24",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A28-A29",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A33-A34",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A43-A44",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A49-A50",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A57-A58",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A2-A3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A12-A13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A18-A19",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A24-A25",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A29-A30",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A34-A35",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A44-A45",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A50-A51",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A58-A59",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A3-A4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A13-A14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A19-A20",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A25-A26",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A30-A31",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A35-A36",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A45-A46",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A51-A52",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A59-A60",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A4-A5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A14-A15",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A20-A21",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A26-A27",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A31-A32",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A36-A37",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A46-A47",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A52-A53",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A60-A61",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A5-A6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A15-A16",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A21-A22",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A37-A38",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A47-A48",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A53-A54",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A61-A62",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A6-A7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A38-A39",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A54-A55",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A62-A63",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A7-A8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A39-A40",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A55-A56",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A63-A64",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A8-A9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A40-A41",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A9-A10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A41-A42",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A11-A17",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A12-A18",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A13-A19",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A14-A20",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A15-A21",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A16-A22",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A23-A28",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A24-A29",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A25-A30",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC01",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC02",
+   "channel_type": "OTHER"
+  }
+ ]
+}

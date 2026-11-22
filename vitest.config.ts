@@ -6,15 +6,16 @@ import { configDefaults, defineConfig } from "vitest/config";
  * bare `defineConfig` rather than `getViteConfig` from `astro/config`. Adding
  * the Astro pipeline here would change how these tests resolve for no benefit.
  *
- * It exists for the exclude below and for letting the viewer's stylesheet through
- * (see `css`), so a test can read it.
+ * It exists for the exclude below and for letting two stylesheets through (see `css`), so a
+ * test can read them.
  */
 export default defineConfig({
   test: {
     // Vitest blanks every stylesheet it imports, `?raw` included. The viewer's
     // retry button class is tied to its CSS by a test that reads the file, so
-    // that one stylesheet is let through.
-    css: { include: [/eeg-viewer\.css/] },
+    // that one stylesheet is let through, and so is the token sheet, whose AI Mode hint roles
+    // test/ai-mode-pill.test.ts checks for a dark counterpart.
+    css: { include: [/eeg-viewer\.css/, /styles\/tokens\.css/] },
     exclude: [
       ...configDefaults.exclude,
       // Agent subtasks get their own git worktree, created *inside* the repo
@@ -29,6 +30,9 @@ export default defineConfig({
       // it came from. CI clones fresh and never has them, so the discrepancy
       // only ever shows up locally.
       "**/.claude/worktrees/**",
+      // Playwright's browser checks (bun run test:e2e) are not unit tests; vitest would pick up
+      // their `.spec.ts` names and fail on the Playwright import.
+      "e2e/**",
     ],
   },
 });

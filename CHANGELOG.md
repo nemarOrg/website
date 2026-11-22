@@ -61,15 +61,6 @@ The release pull request from `staging` to `main` moves those entries under the 
   Needs the nemar-cli backend with the compute epic.
   `scripts/local-backend.mjs` runs that backend locally with seeded accounts (see `.context/local-backend.md`); the `astro dev` login has seven compute personas (`@nemar.cnone`, `.creq`, `.cactive`, `.csusp`, `.cdenied`, `.crevoked`, `.cpending`).
 
-- **`/oauth/authorize`, the sign-in page of NEMAR's OpenID Connect provider** (nemarOrg/nemar-cli#2017, nemar-cli ADR 0119).
-  A site registered with NEMAR sends a person here to sign in with their NEMAR account.
-  The page forwards the request and the person's cookie to the API, which decides everything, and then redirects back to the site, asks for consent, or explains a refusal.
-  It cannot be framed (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), never enters the edge cache, sends no referrer (the consent screen sends one only to this site, so its form keeps its Origin), and carries no assistant widget.
-  On the consent screen only, `form-action` also admits the one client origin the API returned, so the redirect after the form can reach it, and the screen names the host either answer goes to.
-  The general `/api/v1` proxy refuses the authorization routes, whose answers only the page's server code may read; it decides on the path it would actually fetch, and refuses any path that holds a control character or a backslash.
-  Needs the nemar-cli API with `POST /auth/oidc/authorize` and `POST /auth/oidc/consent`; until then, or while the provider is off (the API answers 404 until both `OIDC_SECRET` is set and `HOST_PREFIXED_SESSION_COOKIE` is `"1"`), the page shows its unavailable panel.
-  Under `bun run dev` the page loops on sign-in, because the development login keeps the legacy cookie name (see the README).
-
 ### Changed
 
 - **The dataset page's Compute dialog describes `nemar compute`** (website#498, epic website#493 phase E5; website ADR 0030 addendum).
@@ -82,6 +73,235 @@ The release pull request from `staging` to `main` moves those entries under the 
   Any other dataset gets one sentence saying NEMAR compute cannot read it.
   The old "coming soon" note and its link are removed.
 
+## [0.2.44] - 2026-11-21
+
+### Added
+
+- **The Brain panel can draw this subject's own anatomy** (ADR 0034).
+  When the dataset's geometry index has a verified surface for the electrodes file on screen, the Frame selector offers "Subject anatomy", the default for that file, and draws the subject's cortical surface under the contacts in their own frame, with the label "This subject's anatomy, from the dataset's own surfaces" (plus "approximate alignment (depth contacts)" for depth contacts), the source surfaces in the notes, and the same words in PNG and SVG exports.
+  The index and meshes are checked (schema, version, hemisphere keys, SHA-256 before decoding); any mismatch hides the option with one console warning.
+  Nothing is requested while the panel is closed.
+
+### Changed
+
+- **The Brain panel is ready for renamed iEEG channels** (#574).
+  Corrections pending on some iEEG mirror datasets rename channels as the recording headers do (`EEG G_03-REF`, `EEGGA_01REF`, bipolar `POL B1-B2`), while `electrodes.tsv` keeps the contact names (`G03`, `GA01`, `B01`, `B02`).
+  The panel and the live Activity view now also read `EEG` run straight into a shaft letter, more than one space after `EEG` or `POL`, an underscore between a shaft letter and its index, `REF` right after the index with no hyphen, and each half of a bipolar pair with or without leading zeros or that underscore, so those channels stay at their contacts once the corrections merge.
+  An ambiguous name is still left unplaced rather than guessed, and the join note under the panel (and in saved PNG and SVG files) now words the zero and reference rules to cover them.
+
+## [0.2.43] - 2026-11-20
+
+### Added
+
+- **The landing page shows that NEMAR is an NIH BRAIN Initiative data archive.**
+  A badge beside the stat tiles, above the fold, carries the BRAIN Initiative logo, says that depositing here meets NIH BRAIN data sharing requirements and that the archive is open to all researchers, and links to NIH's BRAIN data repository requirements, which list NEMAR among the currently funded BRAIN data archives.
+
+## [0.2.42] - 2026-11-20
+
+### Changed
+
+- **The landing page's introduction is reworded and easier to read.**
+  It now describes NEMAR as a "data, tools, and compute resource" (set in bold) for finding, accessing, viewing, assessing, and analyzing data, including data mirrored from OpenNeuro, and its text is darker so it reads clearly over the brain image (#569).
+
+## [0.2.41] - 2026-11-19
+
+The signal viewer gets a spatial view for intracranial EEG (iEEG): a "Brain" panel that draws each recording's electrode contacts where the dataset's own files place them.
+Before it, the 167 public iEEG datasets showed nothing about contact locations.
+The panel's Activity overlay follows the pointer over the scope, and the EEG viewer's topomap says where its electrode positions came from.
+
+### Added
+
+- **A "Brain" panel for iEEG recordings in the signal viewer** (nemarOrg/website#561, the epic for #546 to #558 and #560).
+  It draws contacts from the dataset's `_electrodes.tsv` and `_coordsystem.json`, in the dataset's own coordinate frame, with a small WebGL2 renderer (no new runtime dependency; the panel is its own lazy chunk and loads only for iEEG recordings).
+  Where WebGL is off, or when "2D views" is chosen, it shows flat views of the same contacts, and both PNG and SVG exports are available.
+  Channels join contacts by exact name first, then by named rules (each non-exact join says its kind and shows the recorded contact name beside the channel name); an ambiguous join is refused, and the recorded location is shown as the file wrote it.
+  A recording that cannot be drawn says why: missing coordinates, names that join nothing (two sample names from each side are listed), or a units banner when the declared unit disagrees with the magnitudes (nothing is rescaled).
+  A census on 2026-11-17 of the 167 datasets (35,818 recordings) found 36 datasets that reach a template frame, 57 that show contacts in their own frame, 64 that refuse (mostly for having no coordinates), and 10 with no recordings; the join rules open the panel in 14 more datasets.
+  Not run: Firefox, Safari and a GPU-backed Chromium (the measurements are from software GL), and a run of the validation suite on the deployed test site.
+- **An optional Activity overlay on the contacts** (nemarOrg/website#561).
+  It is off by default and is computed in the browser from the samples the viewer already streams: RMS (root mean square), line length, band power and relative band power in dB.
+  A measure it cannot give is refused with a reason (window too short, band above the Nyquist frequency, mixed units).
+  One window's read takes 3 requests and 1.3 MB, down from 27 requests and 11.8 MB.
+- **A template brain surface, for registered template frames only** (nemarOrg/website#561).
+  The surface is a vendored MNI152NLin2009cAsym mesh, labeled "template, not this subject's anatomy", with "approximate" wherever a transform or a different MNI variant is involved.
+  Fourteen coordinate-frame identifier families are placed with cited transforms and 8 are pending; native and unknown frames are never placed.
+  The mesh is 532 KB as served, and its notice travels with it.
+- **A credit to RAVE on every panel and inside every exported file** (nemarOrg/website#561, nemarOrg/website#563).
+  It reads "Inspired by RAVE" and links https://rave.wiki.
+  No RAVE code or assets ship.
+- **An "At cursor" Activity measure** (nemarOrg/website#563).
+  It is the default when Activity is switched on.
+  The contact colors follow the pointer over the scope and change at mouse speed with no new network request, using RMS (or line length) over a window centered on the pointer: 50, 100, 200 (default) or 500 ms.
+  The color scale is fixed once per read (2nd to 98th percentile of values at up to 64 positions across the window), so colors compare across pointer positions, and the legend says so.
+  With the pointer off the scope, the panel shows the whole-window value of the same measure, labeled as such.
+  Band power and relative band power stay whole-window measures.
+  The 2D views follow the pointer too, and saved PNG and SVG files state the measure, window and cursor time they show.
+  The contact list and the saved files catch up after the pointer rests for 150 ms.
+  On a touch device, or with only the keyboard, there is no pointer, so the whole-window value shows; the arrow keys keep scrolling the window.
+  Measured in headless Chromium with software GL: 60 pointer moves gave 59 recolor frames, a median of 0.10 ms and at worst 0.4 ms per frame, and no requests.
+  After a window change, the panel shows the previous window's whole-window values ("Updating for the new window...") until the new read lands.
+  The Activity controls sit directly under the stage and its buttons.
+  While values show, contacts are drawn unlit at full color, a little larger, inside a thin outline, and the surface is more transparent, so the colors read on both themes; a click on a contact's visible rim still selects it.
+- **Selection and view controls for the stage** (nemarOrg/website#563).
+  A "Clear selection" button, a click on empty space, and the Escape key clear the highlighted channel.
+  Escape acts in order: it dismisses a visible tooltip, then clears the selection, then closes the panel and returns focus to the toggle.
+  Zoom, pan mode and reset buttons sit at the right of the Frame row above the 3D stage, each with a tooltip naming its key or gesture.
+  With the stage focused, plus and minus zoom, arrow keys turn the view, Shift with an arrow key slides it, P toggles pan mode, and 0 resets; holding Shift before a drag also pans.
+  The stage announces these keys to screen readers.
+- **A note saying why no brain surface is drawn** (nemarOrg/website#563).
+  When contacts are shown without the template, a sentence beginning "No brain surface" gives the reason: no declared frame, a template family whose transform is pending, no cited transform to the template, units that cannot be scaled to millimeters, or a declared unit that disagrees with the magnitudes.
+- **A research note classifying the 167 public iEEG datasets by coordinate metadata** (nemarOrg/website#562).
+  It sorts datasets into: no coordinates, coordinates elsewhere, `Other` with a free-text template, a native frame, a valid template frame, unit or identifier problems, and missing files.
+  It samples up to 5 subjects per dataset, so it is not a census, and says so.
+  It adds the note and its raw JSON under `.context/` and no code.
+- **The topomap tooltip names where electrode positions came from** (nemarOrg/website#544).
+  The EEG viewer's scalp topomap toggle says whether a store's positions came from the subject's own electrodes file or from one file shared by every subject, with the file in parentheses when the store names it.
+  The tooltip never calls positions measured, digitized or template.
+  A store converted before the converter wrote that attribute keeps the plain title, and the standard-montage fallback keeps its sentence.
+  A file path is shown only if it is a single line of at most 200 characters, with no control or direction-changing character, and relative to the repository (no leading slash, backslash or `scheme:` prefix); otherwise the tooltip omits the file.
+
+### Changed
+
+- **The template brain surface is cached as immutable** (nemarOrg/website#566).
+  `public/_headers` serves `/vendor/brain-templates/mni152nlin2009casym@1/*` with `Cache-Control: public, max-age=31536000, immutable`, so a reader who reopens the Brain panel does not download the 532 KB surface again.
+  The folder is versioned, so a rebuilt surface goes in a new `@N` folder; a test pins the rule to the folder the panel fetches from.
+- **CI no longer runs its own build job** (nemarOrg/website#567).
+  Cloudflare's GitHub integration already builds every push, so `main` now requires `lint`, `typecheck`, `test` and the `Cloudflare Pages` check.
+  A failed Cloudflare build cannot be rerun from GitHub: push again, or retry it in the Cloudflare dashboard.
+
+### Fixed
+
+- **BIDS's three ALS coordinate-system names are drawn the right way up** (nemarOrg/website#544).
+  `EEGLAB-HJ`, `4DBti` and `KitYokogawa` were read as RAS and drawn rotated by 90 degrees on the topomap; they are now turned like `EEGLAB`, in any letter case.
+  The five names already handled do not move.
+
+## [0.2.40] - 2026-11-13
+
+### Changed
+
+- **Production's assistant widget pins OSA 0.8.22 (commit `4957bfd`)**: the widget on nemar.org is the 0.8.22 build, so the header's **Expand** button opens the AI Mode dialog in place of the pop-out window (OSA's NEMAR config sets `widget.expand: center`), and the dialog's header has a **New chat** button (OpenScience-Collective/osa#756, #759; release OpenScience-Collective/osa#764).
+  `wrangler.toml` carries that commit and its integrity hash, computed from git's file and checked against jsDelivr's copy. Staging is not changed: it follows OSA's `develop`.
+
+## [0.2.39] - 2026-11-13
+
+### Changed
+
+- **The AI overview reads the top 20 matches and lists up to ten picks** (nemarOrg/website#531, OpenScience-Collective/osa#748).
+  On page 1 of a search, Discover asks the search endpoint for 20 hits though it still shows 10 cards; the overview reads the hydrated cards, then the hits after them (their snippet, or else their task names), with no extra dataset fetches.
+  The panel now reads as a conversation: a short lead-in on what the search seems to be after, then up to ten picks, each with its dataset title and how it relates to the search, then a suggestion of where to start.
+  The overview's rows follow the ranking, a match with a card read as the card, and a search row that is null or holds a field that is not text is skipped or read as empty instead of dropping the panel.
+  The picks list keeps its list semantics in Safari (`role="list"`), is named "Top picks", names each dataset chip by id and title, and separates a title from its reason for screen readers.
+  "Ask a follow-up" carries the same three parts; when they do not fit in the 2000 characters the assistant takes, picks go from the end before any loses its reason, and then the lead-in is cut at a sentence (keeping at least 120 characters) so the suggestion stays whole.
+  In that message a web address glued to a word (`see2https://...`) is broken like any other, and a `|` becomes a space, so no line turns into a link or a table row.
+  A pick named twice is listed once, and a `null` suggestion reads as none.
+  An older OSA that sends no suggestion still works; OSA must accept 20 rows before this deploys, or the overview is refused with a 422.
+- **The Home search field says "natural language"**: its AI Mode placeholder reads "Describe the data you need, in natural language".
+
+## [0.2.38] - 2026-11-12
+
+AI Mode ships in production.
+That is the pill on the dataset page, the search toggle in Discover and Home (on by default, for a search of three words or more), the AI overview above Discover's results and "Ask a follow-up" into the assistant's dialog.
+Production's `wrangler.toml` now sets `PUBLIC_OSA_OVERVIEW_URL` and pins the widget to the OSA 0.8.20 release (ADR 0032).
+Visitors also get the corrected-query line on Discover and the narrow-screen fix.
+
+### Added
+
+- **Discover says when the search API fixed a typo** (nemarOrg/website#516, nemar-cli ADR 0116 item 5).
+  When `GET /datasets/search` answers with `corrected_query`, a line under the search box reads "Showing results for `corrected words`", with a link "Search for `your words` instead" that keeps the other filters and adds `exact=1`.
+  A correction that is the query again after trimming, collapsing spaces and folding case and accents shows nothing.
+  `exact=1` is a new filter state: paging and filter changes carry it, a new query drops it (with JavaScript off the form keeps it, so new words typed there are searched as typed), and the search call sends `correct=0` in that mode.
+  The API ignores `correct=0` until nemar-cli#2132 lands; until then an `exact` search whose answer still carries a correction shows the line without the link, so the page never claims words it did not search.
+  The correction only runs in a catalog of at least 100 datasets, so test.nemar.org (the exemplar fleet) never shows the line.
+- **An "AI Mode" pill on the dataset page** (nemarOrg/website#517).
+  It sits after Download in the actions row, with the same shape and 44 px height as the other pills, in the brand teal with a sparkle, and opens the assistant as its centre-stage dialog (`OSAChatWidget.open({ mode: "center" })`).
+  The pill shows only when the widget loaded and has an `open` method, so a build with no widget, a blocked script, and a widget without `open` keep it hidden.
+  A one-time hint under the pill says what it is, with a "How it works" link to docs.nemar.org and a "Got it" button; it is dismissed by either, by using the pill, and is remembered in the browser (`nemar:ai-mode-hint:v1`).
+  The logic is in `src/lib/osa-ai-mode.ts`, with the hint's colours as tokens for both themes.
+- **An AI Mode toggle in Discover's search field and an AI overview above the results** (nemarOrg/website#518).
+  The toggle is a 36 px pill with `aria-pressed` inside the 44 px field; on, the field gets a teal-to-purple ring and a panel above the results reads the top ten matches and answers in about a hundred words, with each dataset id a link, up to three picks, "Ask a follow-up" into the assistant's centre-stage dialog, and "Written by AI from these search results".
+  The panel has loading, answer and error states (a rate limit is worded apart from other failures, and every error offers Try again); its text is set as plain text, and an answer that names a dataset the search did not return is shown as an error.
+  AI Mode is on by default; an explicit off is remembered in the browser (`nemar:ai-mode-search:v1`) and carried as `ai=0`, which survives searching, filtering, sorting and paging; `ai=1` or `ai=0` in the address wins over the remembered choice (nemarOrg/website#525).
+  Discover is cached at the edge for everyone, so the page embeds the request as a JSON data island, only for a successful search on page 1 with results, and the browser posts it to OSA's `/nemar/overview` when AI Mode is on.
+  The toggle shows only when the assistant widget loaded and can be opened, and the build sets `PUBLIC_OSA_OVERVIEW_URL`.
+  Staging (`deploy-test.yml`) sets it to the develop worker and production (`wrangler.toml`) to the production worker (ADR 0032).
+- **The same toggle in the Home hero's search field** (nemarOrg/website#519).
+  A 44 px pill with a 15 px label and a 22 px icon; on, the field gets the ring of the "Download" headline, the placeholder reads "Describe the data you need, in plain words", and a "Try" row offers three example searches that fill the field and submit it.
+  AI Mode is on by default there too; submitting while on goes to `/discover?q=...`, and an off goes as `ai=0`; with no setting (a build without it), the form submits exactly what it did.
+  The toggle's icon, a magnifier with a sparkle, is the only AI mark in the field.
+  New colours are tokens with dark values (`--ai-toggle-*`, `--ai-try-*`, `--ai-panel-*`, `--ai-ring-*`).
+
+### Changed
+
+- **AI Mode search is on in production** (ADR 0032).
+  `wrangler.toml` sets `PUBLIC_OSA_OVERVIEW_URL` to `https://widget.osc.earth/osa/nemar/overview`, so production shows the toggle in Discover and Home, the overview above Discover's results and "Ask a follow-up".
+  The Privacy Policy already names the search overview (nemarOrg/docs#117, nemarOrg/website#523).
+- **Production's assistant widget pin moves to the OSA 0.8.20 release, commit `ffdf7e33`** (`v0.8.20`; `PUBLIC_OSA_WIDGET_SRC` and `PUBLIC_OSA_WIDGET_INTEGRITY` in `wrangler.toml`, integrity `sha384-axZ+AmhWnYfIH2NaXqfef9J0TYbpt86O6Gq+3r04i4Ly+Q8RErT4VsLFejPSFcGG`, which matches the release notes and jsDelivr's bytes), from commit `0e966d6` (OSA 0.8.16) of 2026-10-01.
+  The new widget has `open` and `seed`, so the AI Mode pill and "Ask a follow-up" show in production.
+- **"OSA" in the AI Mode search disclosure links to the assistant's page, `osc.earth/osa/`** (nemarOrg/website#528), not to the Privacy Policy's section on it, so the linked name goes to what it names; the policy stays one click away in the footer.
+- **The AI Mode pill's sparkle is 20 px, up from 16 px** (nemarOrg/website#528), so it reads at the weight of its semibold label.
+- **AI Mode gives an overview only for a search of three words or more** (nemarOrg/website#518, OpenScience-Collective/osa#728).
+  A one-word search such as "EEG" made OSA's overview endpoint fail.
+  Under three words Discover sends no overview request and the panel stays hidden; the line under the search field says why (see below), the results show as usual, and the toggle, the remembered choice and `ai=0` are unchanged.
+  Words are counted as OSA counts them: the trimmed query split on whitespace, counting tokens that hold a letter or digit, so "P300", "naïve" and "α-band" count and a lone "-" or "&" does not (`countQueryWords`, `OVERVIEW_MIN_WORDS`).
+  If the endpoint still answers 422, the same line shows.
+  The three example searches in Home's "Try" row already have three words or more, and a test now keeps it so (ADR 0032).
+- **AI Mode is on by default** (nemarOrg/website#525).
+  A reader who never chose, with no `ai` in the address, is on; an explicit off is remembered and survives a reload; `ai=1` forces on, and `ai=0` forces off and is written back, so a copied link says what the page shows.
+  A page without `ai` therefore means on, and links the page writes carry only the off, as `ai=0`.
+  The page is cached at the edge for everyone, so the server renders the on state and the browser switches it off for a reader who chose off; a search submitted without scripts keeps an off the address had, through a hidden `ai=0`.
+  The stored value stays under `nemar:ai-mode-search:v1`; an absent or unreadable value (including blocked storage) is on.
+- **One very small line under the search field for a search of one or two words** (nemarOrg/website#525).
+  While AI Mode is on and the field holds one or two words, a line directly under it reads "AI Mode is on. Use three or more words to see an AI response.", in the smallest helper size the site has (`--fs-xs`) and a muted site colour (dark values included), never the error colour.
+  It follows the field as the reader types, on Home and on Discover, and shows for a 422 too; it replaces the note that was in the panel, and the panel shows nothing in that state.
+  A polite live region says it once each time it appears, set on the change and not on every keystroke (`aiHintShown`, `aiHintAnnouncement`).
+- **AI Mode no longer moves the search field** (nemarOrg/website#525).
+  The Try row, the disclosure and the new line were hidden and shown, which pushed the page around; each is now a slot the server renders whenever the overview endpoint is set, always laid out and drawn with `visibility`, so a switch moves nothing.
+  Discover's field is 44 px in both states (it was 46 px off and 47 px on).
+  `bun run test:e2e` loads Home and Discover at 1280 and 390 px, light and dark, and checks the field's top, its height and the content under it before and after each click, with the line shown and hidden, within 0.5 px, and that the page does not scroll sideways (`e2e/ai-mode-field.spec.ts`; run locally, not in CI).
+- **"Ask a follow-up" opens the assistant with the overview as its own first reply and sends nothing** (nemarOrg/website#525, OpenScience-Collective/osa#730).
+  It calls `OSAChatWidget.seed(text, {mode: "center"})`; the reader writes the next message.
+  The text is Markdown that stands alone: **AI overview** for the quoted search, the summary with each dataset id a link to its page on this site, and the top picks; it is at most 2,000 characters (the most `seed` takes), shortened by dropping the picks' reasons, then the picks, then cutting the summary at a sentence, and the search, the overview's prose and a pick's reason cannot make a link, image, emphasis or code of their own (a heading, quote or list marker that opens the summary is dropped), and a web address in them is broken (`https://x` reads `https x`) so the dataset links are the only links (`seedText`).
+  Where the widget has no `seed` (an older widget, or one that did not load) the button is not drawn.
+  The old text, which phrased the overview as a question the reader had asked, is gone.
+
+### Fixed
+
+- **Discover no longer scrolls sideways at phone width.**
+  The single column of the layout below 880 px was `1fr`, whose minimum is the content's, so the filter chips pushed it past a 390 px viewport; it is now `minmax(0, 1fr)`.
+
+## [0.2.37] - 2026-11-11
+
+This release must reach production before the nemar-cli API 0.10.33.
+The API starts to write the `__Host-` ORCID flow cookies at that release, and this site reads the session cookie under its new name and accepts either name for the ORCID pending cookie.
+It also sends the form POST that the API's account linking now needs.
+The released API (0.10.32) accepts everything this site sends, so releasing the site first leaves no gap.
+If the API reaches production first, new ORCID sign-ups fail at the email step and "Connect your ORCID" starts a sign-up instead of a link.
+
+### Added
+
+- **`/oauth/authorize`, the sign-in page of NEMAR's OpenID Connect provider** (nemarOrg/nemar-cli#2017, nemar-cli ADR 0119).
+  A site registered with NEMAR sends a person here to sign in with their NEMAR account.
+  The page forwards the request and the person's cookie to the API, which decides everything, and then redirects back to the site, asks for consent, or explains a refusal.
+  It cannot be framed (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), never enters the edge cache, sends no referrer (the consent screen sends one only to this site, so its form keeps its Origin), and carries no assistant widget.
+  On the consent screen only, `form-action` also admits the one client origin the API returned, so the redirect after the form can reach it, and the screen names the host either answer goes to.
+  While the provider is off, the page answers 503 with its unavailable panel.
+  On `nemar.org` every `/oauth` path redirects to the app host (a `POST` with a 307, so its body survives), because the page needs the sign-in cookie that only the app host receives.
+  The general `/api/v1` proxy answers 404 for the authorization routes (`auth/oidc`), whose answers only the page's server code may read; it decides on the path it would actually fetch.
+  It also answers 400 for any path that holds a control character or a backslash.
+  Needs the nemar-cli API with `POST /auth/oidc/authorize` and `POST /auth/oidc/consent`; until then, or while the provider is off (the API answers 404 until both `OIDC_SECRET` is set and `HOST_PREFIXED_SESSION_COOKIE` is `"1"`), the page shows its unavailable panel.
+  Under `bun run dev` the page loops on sign-in, because the development login keeps the legacy cookie name (see the README).
+
+### Changed
+
+- **The site reads the session cookie under its host-prefixed name** (nemarOrg/website#499, nemar-cli ADR 0119 decision 10).
+  The API is moving the session cookie from `nemar_session` to `__Host-nemar_session`, which no other `nemar.org` host can set.
+  Every reader of the cookie on this site now asks for the new name first and falls back to the old one only when the new one is absent; a request with more than one `__Host-nemar_session` counts as signed out, as it does for the API.
+  Sign-out clears both names.
+  When the API cannot be reached or sends no cookie, the site clears them itself, and it also clears the legacy cookie set with a domain (the request's own host and `nemar.org`, on a `nemar.org` host only), which a clear without a domain never removes, so a browser that holds either cookie is signed out.
+  The ORCID sign-up page accepts the pending cookie under either name (`__Host-nemar_orcid_pending` or `nemar_orcid_pending`), so a sign-up already under way does not bounce on the page; a sign-up in flight when the API deploys fails once at the email step and the person signs in with ORCID again.
+  Any ORCID sign-in, link or sign-up that is on ORCID's own screen when the API deploys also fails once, at the callback, because API 0.10.33 reads the flow's state cookie only under `__Host-nemar_oauth_state` while 0.10.32 sets `nemar_oauth_state`; the person starts again.
+  Nothing changes for anyone until the API issues the new cookie (behind a flag, the owner's step after the API release).
+
 - **`/oauth/authorize` accepts an authorization request sent by POST from any site; every other form keeps its cross-site check** (nemarOrg/nemar-cli#2020, nemar-cli ADR 0119, website ADR 0031).
   OpenID Connect Core 3.1.2.1 requires the authorization endpoint to take a form POST, and Astro's built-in origin check refuses one from another site.
   That check is switched off (`security.checkOrigin: false`) and the middleware runs the site's own, which is the same rule with one exemption: a `POST` to exactly `/oauth/authorize` with `application/x-www-form-urlencoded`.
@@ -91,7 +311,8 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 - **Settings' "Connect your ORCID" submits a form POST instead of following a link** (nemarOrg/nemar-cli#2017, nemar-cli ADR 0119 rule 10).
   The API now arms an ORCID link only from a POST that carries this site's Origin and a live session, as it already did for re-linking, and a GET start is always a plain sign-in.
-  The button, its copy and where it leads are unchanged.
+  The button's copy and where it leads are unchanged, but it is now a button in a form, so it can no longer be opened in a new tab.
+  Clicking it with an expired session lands on `/login?error=session_required` ("Sign in to continue.") instead of starting an ORCID sign-in.
 
 ## [0.2.36] - 2026-11-02
 

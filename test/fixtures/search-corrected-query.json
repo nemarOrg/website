@@ -1,0 +1,48 @@
+{
+  "results": [
+    {
+      "id": "nm000241",
+      "name": "Zhang-2025-cerebrovoice: CerebroVoice: A Stereotactic EEG Dataset and Benchmark for Bilingual Brain-to-Speech Synthesis and Activity Detection",
+      "modalities": "ieeg",
+      "participants": 2,
+      "doi": "10.82901/nemar.nm000241",
+      "tasks": "chinesebbs,chinesehga,chineselfs,digitbbs,digithga,digitlfs,englishbbs,englishhga,englishlfs",
+      "authors": "Xueyi Zhang",
+      "has_hed": 0,
+      "score": 0.0328,
+      "snippet": "\u2026<mark>Bilingual</mark> sEEG Speech Dataset\n=============================================\n\nOverview\n--------\nIntracranial EEG (sEEG) recordings from 2 epilepsy\u2026"
+    },
+    {
+      "id": "on007753",
+      "name": "BCCWJ-EEG",
+      "modalities": "eeg",
+      "participants": 41,
+      "doi": "10.82901/nemar.on007753",
+      "tasks": "BCCWJreading",
+      "authors": "Yushi Sugimoto, Masayuki Asahara, Hyeonjeong Jeong, Akitake Kanno, Masatoshi Koizumi, Yohei Oseki",
+      "has_hed": 0,
+      "score": 0.0161
+    },
+    {
+      "id": "on005946",
+      "name": "ERC_CoG PROMENADE - WP2 - MetaImagery (Metaphor and Mental Imagery)",
+      "modalities": "eeg",
+      "participants": 39,
+      "doi": "10.82901/nemar.on005946",
+      "tasks": "picturematching",
+      "authors": "Federico Frau, Paolo Canal, Maddalena Bressler, Chiara Pompei, Valentina Bambini",
+      "has_hed": 0,
+      "score": 0.0161,
+      "snippet": "\u20261) non-native speaker of Italian, 2) <mark>bilingual</mark> from birth, 3) diagnosed\u2026"
+    }
+  ],
+  "count": 7,
+  "returned": 3,
+  "offset": 0,
+  "limit": 3,
+  "candidate_ceiling": 7,
+  "truncated": false,
+  "method": "semantic",
+  "min_score": 0.6,
+  "corrected_query": "bilingual"
+}

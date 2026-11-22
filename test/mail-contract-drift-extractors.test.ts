@@ -12,7 +12,23 @@ import {
   TICKET_STATUSES,
 } from "../src/lib/mail-admin-contract";
 import CONTRACT_COPY from "../src/lib/mail-admin-contract.ts?raw";
-import { compareLists, extractStringArray, extractStringUnion } from "./mail-contract-drift";
+import {
+  COMMUNITY_MAIL_CATEGORIES,
+  MAIL_CATEGORIES,
+  MAIL_CATEGORY_TABLE,
+  RECALL_CATEGORY,
+  SELF_MAIL_PREFERENCE_ERROR_CODES,
+} from "../src/lib/mail-categories";
+import CATEGORIES_COPY from "../src/lib/mail-categories.ts?raw";
+import {
+  compareLists,
+  extractAnnotatedStringArray,
+  extractCategoryTable,
+  extractRegexLiteral,
+  extractStringArray,
+  extractStringConstant,
+  extractStringUnion,
+} from "./mail-contract-drift";
 
 describe("extractStringArray", () => {
   it("reads every list out of this repo's copy and agrees with the values it exports", () => {
@@ -57,5 +73,77 @@ describe("compareLists", () => {
   it("treats a reorder as drift and a missing list as drift", () => {
     expect(compareLists("L", ["a", "b"], ["b", "a"])).not.toBeNull();
     expect(compareLists("L", ["a"], undefined)).toContain("not found");
+  });
+});
+
+describe("the mail category extractors", () => {
+  it("read this repo's copy of the category table and agree with what it exports", () => {
+    expect(extractStringArray(CATEGORIES_COPY, "COMMUNITY_MAIL_CATEGORIES")).toEqual([
+      ...COMMUNITY_MAIL_CATEGORIES,
+    ]);
+    expect(extractStringConstant(CATEGORIES_COPY, "RECALL_CATEGORY")).toBe(RECALL_CATEGORY);
+    expect(
+      extractAnnotatedStringArray(CATEGORIES_COPY, "SELF_MAIL_PREFERENCE_ERROR_CODES"),
+    ).toEqual([...SELF_MAIL_PREFERENCE_ERROR_CODES]);
+    expect(extractCategoryTable(CATEGORIES_COPY, "MAIL_CATEGORY_TABLE")).toEqual(
+      MAIL_CATEGORIES.map((id) => ({
+        id,
+        canBeTurnedOff: MAIL_CATEGORY_TABLE[id].canBeTurnedOff,
+        defaultOn: MAIL_CATEGORY_TABLE[id].defaultOn,
+      })),
+    );
+  });
+
+  it("read a multi-line table entry with fields the copy does not have", () => {
+    const src = `export const T: Readonly<Record<X, Y>> = {
+  news: {
+    id: "news",
+    canBeTurnedOff: true,
+    defaultOn: false,
+    statuses: ["verified", "approved"],
+  },
+  recall: { id: "recall", canBeTurnedOff: false, defaultOn: true },
+};`;
+    expect(extractCategoryTable(src, "T")).toEqual([
+      { id: "news", canBeTurnedOff: true, defaultOn: false },
+      { id: "recall", canBeTurnedOff: false, defaultOn: true },
+    ]);
+  });
+
+  it("report a table entry they cannot read as an absent table, not a partial one", () => {
+    const computed = `export const T = {
+  news: { id: "news", canBeTurnedOff: DEFAULT, defaultOn: true },
+};`;
+    expect(extractCategoryTable(computed, "T")).toBeUndefined();
+    const mismatched = `export const T = {
+  news: { id: "rfcs", canBeTurnedOff: true, defaultOn: true },
+};`;
+    expect(extractCategoryTable(mismatched, "T")).toBeUndefined();
+  });
+
+  it("report a spread list as absent rather than as its literal tail", () => {
+    expect(
+      extractAnnotatedStringArray('export const A = [...B, "recall"] as const;', "A"),
+    ).toBeUndefined();
+    expect(
+      extractAnnotatedStringArray('export const A: readonly string[] = ["x", "y"];', "A"),
+    ).toEqual(["x", "y"]);
+  });
+});
+
+describe("extractRegexLiteral", () => {
+  it("reads a regex literal, exported or not, as RegExp reports it", () => {
+    const src =
+      "const SIG = /^x$/;\nconst TOKEN_RE = /^v1\\.(\\d{1,12})\\.([A-Za-z0-9_-]{43})$/;\nexport const OTHER = /a\\/b/gi;";
+    expect(extractRegexLiteral(src, "TOKEN_RE")).toEqual({
+      source: "^v1\\.(\\d{1,12})\\.([A-Za-z0-9_-]{43})$",
+      flags: "",
+    });
+    expect(extractRegexLiteral(src, "OTHER")).toEqual({ source: "a\\/b", flags: "gi" });
+  });
+
+  it("reports a name that is absent, commented out or built at runtime as absent", () => {
+    expect(extractRegexLiteral("// const TOKEN_RE = /x/;", "TOKEN_RE")).toBeUndefined();
+    expect(extractRegexLiteral('const TOKEN_RE = new RegExp("x");', "TOKEN_RE")).toBeUndefined();
   });
 });

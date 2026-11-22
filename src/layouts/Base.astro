@@ -6,6 +6,7 @@ import SiteNotices from "../components/SiteNotices.astro";
 import { resolveDataBase } from "../lib/data-base";
 import { canonicalOriginFor } from "../lib/host";
 import { osaWidgetMarkup } from "../lib/osa-widget";
+import { isAnalyticsExcludedPath } from "../lib/umami-analytics";
 import "../styles/global.css";
 
 interface Props {
@@ -53,6 +54,12 @@ interface Props {
    * full nav before every dense page, turns it on.
    */
   skipLink?: boolean;
+  /**
+   * Adds `<meta name="robots" content="noindex, nofollow">`, for a page that must never be
+   * indexed on any host (the unsubscribe page, whose URL carries a token). The response header
+   * `X-Robots-Tag` is the page's own business; this is the in-document half.
+   */
+  noindex?: boolean;
 }
 
 const {
@@ -70,6 +77,7 @@ const {
   jsonLdScript,
   headLinks = [],
   skipLink = false,
+  noindex = false,
 } = Astro.props;
 
 const titleSuffix = title === "NEMAR" ? "" : " - NEMAR";
@@ -102,6 +110,10 @@ const absoluteFallbackImage = fallbackImage
 // "" (nothing) unless all three PUBLIC_OSA_* build variables are set and well formed; see
 // `src/lib/osa-widget.ts` for the contract and why a bad value degrades rather than throwing.
 const osaWidget = osaWidgetMarkup(Astro.url.pathname);
+
+// The analytics installer is left out of the page entirely on an excluded path (the unsubscribe
+// page, whose URL carries a token; nemar-cli ADR 0132), not merely told to stay idle.
+const analyticsAllowed = !isAnalyticsExcludedPath(Astro.url.pathname);
 ---
 
 <!doctype html>
@@ -111,7 +123,9 @@ const osaWidget = osaWidgetMarkup(Astro.url.pathname);
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
     <meta name="generator" content={Astro.generator} />
-    <link rel="canonical" href={canonicalUrl} />
+    {/* A noindex page has no canonical home, and its URL may carry a secret (the unsubscribe
+        page's token), so neither the canonical link nor og:url repeats it in the head. */}
+    {!noindex && <link rel="canonical" href={canonicalUrl} />}
     {headLinks.map((link) => (
       <link rel={link.rel} href={link.href} type={link.type} title={link.title} />
     ))}
@@ -125,21 +139,24 @@ const osaWidget = osaWidgetMarkup(Astro.url.pathname);
     <link rel="preconnect" href="https://api.nemar.org" crossorigin />
     <link rel="preconnect" href={dataBase} crossorigin />
     <title>{fullTitle}</title>
-    <script>
-      import { installUmamiAnalytics } from "../lib/umami-analytics";
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
+    {analyticsAllowed && (
+      <script>
+        import { installUmamiAnalytics } from "../lib/umami-analytics";
 
-      installUmamiAnalytics(
-        import.meta.env.PUBLIC_UMAMI_WEBSITE_ID,
-        import.meta.env.PUBLIC_UMAMI_TRACKER_URL,
-      );
-    </script>
+        installUmamiAnalytics(
+          import.meta.env.PUBLIC_UMAMI_WEBSITE_ID,
+          import.meta.env.PUBLIC_UMAMI_TRACKER_URL,
+        );
+      </script>
+    )}
 
     <!-- OpenGraph -->
     <meta property="og:type" content={ogType} />
     <meta property="og:site_name" content="NEMAR" />
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
-    <meta property="og:url" content={canonicalUrl} />
+    {!noindex && <meta property="og:url" content={canonicalUrl} />}
     <meta property="og:image" content={absoluteImage} />
     <meta property="og:image:type" content={imageType} />
     <meta property="og:image:width" content={String(imageWidth)} />

@@ -158,6 +158,11 @@ export interface DatasetSearchResponse {
   candidate_ceiling?: number;
   /** True when `count` exceeds `candidate_ceiling`. */
   truncated?: boolean;
+  /** The query as searched, present only when a word that matches no dataset
+   *  was replaced by a catalog word one typo away ("bilinugual" -> "bilingual";
+   *  nemar-cli ADR 0116). Absent otherwise. Read it through `correctionNotice`,
+   *  which also drops a value that is empty or says nothing new. */
+  corrected_query?: string;
 }
 
 /** The catalog filters `GET /datasets/search` enforces server-side (nemar-cli#683). */

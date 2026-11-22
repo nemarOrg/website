@@ -523,6 +523,22 @@ export const ACCOUNT_COPY = {
   "oidc.error.unavailable":
     "NEMAR could not complete this sign-in right now. Try again in a moment.",
   "oidc.error.rate_limited": "Too many sign-in attempts. Try again in a minute.",
+
+  // -------------------------------------------------------------------------
+  // Community mail (nemar-cli ADR 0132). Words only: the categories themselves
+  // (who may turn one off, who receives it) are declared in nemar-cli.
+  // -------------------------------------------------------------------------
+  "mail.category.news.label": "News",
+  "mail.category.news.description": "New features, data and events.",
+  "mail.category.rfcs.label": "Requests for comments",
+  "mail.category.rfcs.description": "A new NEMAR request for comments is open for discussion.",
+  "mail.category.maintenance.label": "Maintenance",
+  "mail.category.maintenance.description": "Planned downtime and changes to the service.",
+  "mail.category.recall.label": "Recalls",
+  "mail.category.recall.description":
+    "A dataset, release or credential NEMAR distributed has a problem you need to act on.",
+  "mail.recall.why":
+    "Recalls cannot be turned off: they tell you to stop using, delete or replace something NEMAR distributed or issued, because continuing to use it can cause harm.",
 } as const;
 
 export type AccountCopyKey = keyof typeof ACCOUNT_COPY;

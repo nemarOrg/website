@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FORM_DEFAULTS, pruneFormEntries } from "./filter-form";
+import { FORM_DEFAULTS, isStaleExact, pruneFormEntries } from "./filter-form";
 import { defaultFilterState, filterStateFromURL, filterStateToURL } from "./filters";
 
 type Entries = [string, string][];
@@ -51,5 +51,18 @@ describe("the filter form's pruned address means what the unpruned one did", () 
     ["has_hed and has_viewer", [...untouched, ["has_hed", "1"], ["has_viewer", "1"]]],
   ])("keeps the meaning of %s", (_name, entries) => {
     expect(parse(pruneFormEntries(entries) as Entries)).toEqual(parse(entries));
+  });
+});
+
+describe("isStaleExact", () => {
+  it("keeps exact for the same words, which is a filter change or a re-submit", () => {
+    expect(isStaleExact("bilinugual", "bilinugual")).toBe(false);
+    expect(isStaleExact("  bilinugual ", "bilinugual")).toBe(false);
+  });
+
+  it("drops exact when the reader typed other words", () => {
+    expect(isStaleExact("sleep spindles", "bilinugual")).toBe(true);
+    expect(isStaleExact("", "bilinugual")).toBe(true);
+    expect(isStaleExact(null, "bilinugual")).toBe(true);
   });
 });

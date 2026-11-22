@@ -1,0 +1,5 @@
+{
+  "iEEGCoordinateSystem": "Other",
+  "iEEGCoordinateUnits": "n/a",
+  "iEEGCoordinateSystemDescription": "No electrode coordinates are included in the source release (Zenodo 7352058); x, y, z are n/a. Each recording is a microelectrode depth position along a stereotactic trajectory towards the subthalamic nucleus; the release labels each depth only by its file name and by the STN-IN / STN-OUT classification of the neurophysiologists and surgeons."
+}

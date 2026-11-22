@@ -1,0 +1,5 @@
+{
+  "iEEGCoordinateSystem": "Other",
+  "iEEGCoordinateUnits": "n/a",
+  "iEEGCoordinateSystemDescription": "Coordinates.mat files in the release do not state their space and are kept in sourcedata; x, y, z = n/a here."
+}

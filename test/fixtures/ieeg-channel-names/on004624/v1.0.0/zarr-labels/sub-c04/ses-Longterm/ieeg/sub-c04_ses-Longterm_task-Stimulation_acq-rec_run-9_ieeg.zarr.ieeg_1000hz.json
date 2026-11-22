@@ -1,0 +1,150 @@
+{
+ "source": "https://zarr.nemar.org/on004624/zarr/sub-c04/ses-Longterm/ieeg/sub-c04_ses-Longterm_task-Stimulation_acq-rec_run-9_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "CH0",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH1",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH10",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH11",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH12",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH13",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH14",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH15",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH16",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH17",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH18",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH19",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH20",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH21",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH22",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH23",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH24",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH25",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH26",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH27",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH28",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH29",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH30",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH31",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH5",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH6",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH7",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH8",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "CH9",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "state_ImplantLostSample",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "state_ImplantStimulation",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "state_PhaseInSequence",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "state_StimulusCode",
+   "channel_type": "SEEG"
+  }
+ ]
+}

@@ -1,0 +1,1 @@
+{"dataset_id":"nm000436","version":"v1.0.2","path":"sub-02","kind":"directory","children":[{"kind":"dir","name":"ieeg"},{"kind":"file","name":"sub-02_scans.json","size":1216},{"kind":"file","name":"sub-02_scans.tsv","size":1571}]}

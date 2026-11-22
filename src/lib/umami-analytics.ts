@@ -71,6 +71,21 @@ export function pageViewForPathname(pathname: string): SafePageView | null {
   return fixedPages[pathname.replace(/\/$/, "")] ?? null;
 }
 
+/**
+ * Paths that never load the analytics installer at all, whatever the consent or the host. An
+ * unsubscribe link's token is its whole authority (nemar-cli ADR 0132), so no third-party or
+ * analytics script may run on a page whose URL carries one. `Base.astro` leaves the installer out of
+ * these pages, and the installer itself refuses them too. Each entry matches itself and every path
+ * below it, never a sibling that merely starts with the same letters.
+ */
+export const ANALYTICS_EXCLUDED_PATHS = ["/unsubscribe"] as const;
+
+export function isAnalyticsExcludedPath(pathname: string): boolean {
+  return ANALYTICS_EXCLUDED_PATHS.some(
+    (excluded) => pathname === excluded || pathname.startsWith(`${excluded}/`),
+  );
+}
+
 export function isProductionAnalyticsHost(hostname: string): boolean {
   return PRODUCTION_HOSTS.has(hostname.toLowerCase());
 }
@@ -138,6 +153,7 @@ export function installUmamiAnalytics(websiteId: string | undefined, scriptUrl?:
   const pendingEvents: UmamiEventName[] = [];
 
   const eligible = (): boolean =>
+    !isAnalyticsExcludedPath(window.location.pathname) &&
     validWebsiteId !== null &&
     safeScriptUrl !== null &&
     isProductionAnalyticsHost(window.location.hostname) &&

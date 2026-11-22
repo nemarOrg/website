@@ -1,0 +1,247 @@
+---
+/**
+ * The page a community mail's unsubscribe link opens (epic nemarOrg/nemar-cli#2260 phase 5,
+ * nemar-cli ADR 0132). Public: the link in the URL is the whole authority, no session is needed.
+ *
+ * IT NEVER ACTS ON LOAD. Mail scanners and link previews fetch every link they find, so loading
+ * this page only reads `GET /mail/unsubscribe/:token/info`, which changes nothing. Turning mail off
+ * takes a button press: a real form POST to `/api/mail/unsubscribe` (no JavaScript needed), which
+ * forwards it and redirects back here with `?result=`. The view (`unsubscribeView`) shows "done"
+ * only when the backend's own answer confirms the category is off.
+ *
+ * PRIVACY. The token must not leave: `UNSUBSCRIBE_PRIVACY_HEADERS` (no-store, a same-origin
+ * referrer policy, noindex), a robots meta, no analytics installer (`isAnalyticsExcludedPath` in
+ * `Base.astro`) and no assistant widget (`OSA_WIDGET_EXCLUDED_PATHS`). The upstream calls send no
+ * cookie (`mail-unsubscribe-api.ts`). The links on the page add `rel="noreferrer"` as well.
+ */
+import Base from "../../layouts/Base.astro";
+import { mailRecallWhy } from "../../lib/mail-categories";
+import {
+  COMMUNITY_MAIL_POLICY_URL,
+  type InfoOutcome,
+  UNSUBSCRIBE_PRIVACY_HEADERS,
+  categoryLabelFor,
+  isMailUnsubscribeToken,
+  parseUnsubscribeResult,
+  statusForView,
+  unsubscribeView,
+} from "../../lib/mail-unsubscribe";
+import { fetchUnsubscribeInfo } from "../../lib/mail-unsubscribe-api";
+
+for (const [name, value] of Object.entries(UNSUBSCRIBE_PRIVACY_HEADERS)) {
+  Astro.response.headers.set(name, value);
+}
+
+const token = Astro.params.token;
+const result = parseUnsubscribeResult(Astro.url.searchParams.get("result"));
+// A path that cannot be a link is answered here, without asking the API.
+const outcome: InfoOutcome = isMailUnsubscribeToken(token)
+  ? await fetchUnsubscribeInfo(token)
+  : { kind: "invalid" };
+const view = unsubscribeView(outcome, result);
+Astro.response.status = statusForView(view);
+
+const label = view.state === "ask" || view.state === "done" ? categoryLabelFor(view.info) : "";
+const recallWhy = mailRecallWhy();
+---
+
+<Base title="Unsubscribe" description="Stop a kind of NEMAR community mail." noindex>
+  <section class="finish">
+    <article class="finish__panel" data-unsubscribe-state={view.state}>
+      <div class="finish__rail" aria-hidden="true"></div>
+
+      {view.state === "invalid" && (
+        <header class="finish__head">
+          <h1 class="finish__title">Unsubscribe</h1>
+          <p class="finish__lede">
+            This unsubscribe link is not valid; you can choose which mail NEMAR sends you in
+            {" "}<a href="/settings" rel="noreferrer">settings</a>.
+          </p>
+        </header>
+      )}
+
+      {view.state === "unavailable" && (
+        <header class="finish__head">
+          <h1 class="finish__title">Unsubscribe</h1>
+          <p class="finish__lede">
+            NEMAR could not open this link right now. Try again in a moment, or choose which mail
+            NEMAR sends you in <a href="/settings" rel="noreferrer">settings</a>.
+          </p>
+        </header>
+      )}
+
+      {view.state === "ask" && (
+        <>
+          <header class="finish__head">
+            <span class="finish__badge">Community mail</span>
+            <h1 class="finish__title">Unsubscribe</h1>
+            <p class="finish__lede">
+              {view.alreadyOff
+                ? `${view.info.maskedEmail} already does not receive NEMAR ${label} mail.`
+                : `Stop NEMAR ${label} mail to ${view.info.maskedEmail}?`}
+            </p>
+          </header>
+
+          {view.retry && (
+            <p class="unsubscribe__notice" role="alert" data-unsubscribe-retry>
+              That did not go through, and nothing was changed. Try again in a moment.
+            </p>
+          )}
+
+          <div class="unsubscribe__actions">
+            <form method="post" action="/api/mail/unsubscribe">
+              <input type="hidden" name="token" value={token} />
+              <input type="hidden" name="scope" value="category" />
+              <button class="finish__submit" type="submit">Unsubscribe from {label}</button>
+            </form>
+            <form method="post" action="/api/mail/unsubscribe">
+              <input type="hidden" name="token" value={token} />
+              <input type="hidden" name="scope" value="all" />
+              <button class="unsubscribe__secondary" type="submit">
+                Unsubscribe from all NEMAR community mail
+              </button>
+            </form>
+          </div>
+          <p class="finish__note">Nothing changes until you press a button.</p>
+        </>
+      )}
+
+      {view.state === "done" && (
+        <header class="finish__head">
+          <h1 class="finish__title">Unsubscribed</h1>
+          <p class="finish__lede">
+            {view.scope === "all"
+              ? `Your request to stop all NEMAR community mail to ${view.info.maskedEmail} was accepted.`
+              : `${view.info.maskedEmail} will no longer receive NEMAR ${label} mail.`}
+          </p>
+        </header>
+      )}
+
+      {(view.state === "ask" || view.state === "done") && (
+        <div class="unsubscribe__more">
+          <p class="finish__note">{recallWhy}</p>
+          <p class="finish__note">
+            Everything else, including turning mail back on, is in
+            {" "}<a href="/settings" rel="noreferrer">settings</a>. Read the
+            {" "}<a href={COMMUNITY_MAIL_POLICY_URL} rel="noreferrer">community mail policy</a>.
+          </p>
+        </div>
+      )}
+    </article>
+  </section>
+</Base>
+
+<style>
+  /* Panel/rail chrome mirrors src/pages/cli/authorize.astro's .finish__* rules (Astro scoped
+     styles do not cross component boundaries, ADR 0004; duplicated on purpose, kept in sync by
+     hand). */
+  .finish {
+    min-block-size: calc(100dvh - var(--header-height));
+    display: grid;
+    place-items: center;
+    padding: var(--space-12) var(--space-4);
+  }
+  .finish__panel {
+    position: relative;
+    inline-size: 100%;
+    max-inline-size: 32rem;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-10) var(--space-8) var(--space-8);
+    overflow: hidden;
+    box-shadow: 0 24px 64px -32px rgb(15 23 42 / 25%);
+  }
+  .finish__rail {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    block-size: 3px;
+    background: linear-gradient(90deg, var(--brand-teal), var(--brand-purple));
+  }
+  .finish__head {
+    margin-block-end: var(--space-6);
+  }
+  .finish__badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-muted);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    padding: 3px 10px;
+    margin-block-end: var(--space-4);
+  }
+  .finish__title {
+    margin: 0 0 var(--space-3);
+    font-family: var(--font-display);
+    font-size: var(--fs-2xl);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-tight);
+  }
+  .finish__lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-normal);
+    overflow-wrap: anywhere;
+  }
+  .finish__lede a,
+  .finish__note a {
+    color: var(--color-link);
+  }
+  .finish__submit {
+    min-block-size: 48px;
+    inline-size: 100%;
+    padding: 0 var(--space-6);
+    border-radius: var(--radius-pill);
+    border: none;
+    background: var(--brand-navy);
+    color: #f8fafc;
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-base);
+    cursor: pointer;
+  }
+  .finish__note {
+    margin: 0;
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+  }
+  .unsubscribe__actions {
+    display: grid;
+    gap: var(--space-3);
+    margin-block-end: var(--space-3);
+  }
+  .unsubscribe__secondary {
+    min-block-size: 48px;
+    inline-size: 100%;
+    padding: 0 var(--space-6);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    background: transparent;
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-base);
+    cursor: pointer;
+  }
+  .unsubscribe__secondary:hover {
+    background: var(--color-bg-subtle);
+  }
+  .unsubscribe__notice {
+    margin: 0 0 var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-subtle);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+  .unsubscribe__more {
+    display: grid;
+    gap: var(--space-3);
+    margin-block-start: var(--space-6);
+    padding-block-start: var(--space-4);
+    border-block-start: 1px solid var(--color-border);
+  }
+</style>

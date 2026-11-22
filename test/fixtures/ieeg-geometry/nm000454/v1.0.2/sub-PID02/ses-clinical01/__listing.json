@@ -1,0 +1,1 @@
+{"dataset_id":"nm000454","version":"v1.0.2","path":"sub-PID02/ses-clinical01","kind":"directory","children":[{"kind":"dir","name":"ieeg"},{"kind":"file","name":"sub-PID02_ses-clinical01_scans.json","size":170},{"kind":"file","name":"sub-PID02_ses-clinical01_scans.tsv","size":11092}]}

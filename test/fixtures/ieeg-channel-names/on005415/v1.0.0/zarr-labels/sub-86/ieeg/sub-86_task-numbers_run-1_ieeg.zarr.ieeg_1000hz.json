@@ -1,0 +1,902 @@
+{
+ "source": "https://zarr.nemar.org/on005415/zarr/sub-86/ieeg/sub-86_task-numbers_run-1_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "RSMAINS1-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSMAINS2-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSMAINS3-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSMAINS4-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSMAINS5-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSMAINS6-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSMAINS7-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSMAINS8-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSMAINS9-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSMAINS10-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSMAINS11-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSMAINS12-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSMAINS13-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSMAINS14-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSMAINS15-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSMAINS16-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTP1-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTP2-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTP3-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTP4-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTP5-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTP6-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTP7-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTP8-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RENT1-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RENT2-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RENT3-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RENT4-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RENT5-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RENT6-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RENT7-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RENT8-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RENT9-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RENT10-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RENT11-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RENT12-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAHIP1-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAHIP2-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAHIP3-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAHIP4-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAHIP5-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAHIP6-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAHIP7-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAHIP8-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAHIP9-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAHIP10-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAHIP11-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAHIP12-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAHIP13-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAHIP14-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH1-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH2-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH3-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH4-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH5-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH6-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH7-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH8-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH9-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH10-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH11-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH12-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH13-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH14-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH15-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPLANPH16-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAMY1-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAMY2-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAMY3-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAMY4-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAMY5-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAMY6-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAMY7-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAMY8-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAMY9-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAMY10-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAMY11-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAMY12-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAMY13-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RAMY14-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSTG1-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSTG2-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSTG3-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSTG4-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSTG5-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSTG6-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSTG7-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RSTG8-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RITG1-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RITG2-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RITG3-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RITG4-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RITG5-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RITG6-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RITG7-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RITG8-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "ROFC1-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "ROFC2-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "ROFC3-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "ROFC4-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "ROFC5-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "ROFC6-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "ROFC7-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "ROFC8-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "ROFC9-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "ROFC10-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "ROFC11-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "ROFC12-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "ROFC13-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "ROFC14-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RIFGACC1-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RIFGACC2-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RIFGACC3-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RIFGACC4-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RIFGACC5-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RIFGACC6-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RIFGACC7-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RIFGACC8-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RIFGACC9-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RIFGACC10-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RIFGACC11-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RIFGACC12-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RIFGACC13-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RIFGACC14-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RIFGACC15-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RIFGACC16-20000",
+   "channel_type": "ACC"
+  },
+  {
+   "label": "RTPOPCING1-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTPOPCING2-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTPOPCING3-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTPOPCING4-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTPOPCING5-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTPOPCING6-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTPOPCING7-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTPOPCING8-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTPOPCING9-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTPOPCING10-2000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTPOPCING11-2000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTPOPCING12-2000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTPOPCING13-2000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTPOPCING14-2000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTPOPCING15-2000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RTPOPCING16-2000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS1-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS2-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS3-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS4-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS5-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS6-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS7-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS8-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS9-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS10-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS11-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS12-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS13-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS14-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS15-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNHS16-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNH-L1-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNH-L2-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNH-L3-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNH-L4-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNH-L5-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNH-L6-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNH-L7-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNH-L8-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNH-L9-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNH-L10-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNH-L11-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNH-L12-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNH-L13-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "RPVNH-L14-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAHIP1-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAHIP2-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAHIP3-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAHIP4-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAHIP5-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAHIP6-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAHIP7-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAHIP8-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAHIP9-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAHIP10-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAHIP11-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAHIP12-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAHIP13-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAHIP14-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAMY1-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAMY2-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAMY3-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAMY4-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAMY5-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAMY6-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAMY7-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAMY8-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAMY9-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAMY10-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAMY11-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAMY12-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAMY13-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LAMY14-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH1-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH2-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH3-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH4-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH5-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH6-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH7-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH8-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH9-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH10-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH11-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH12-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH13-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH14-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH15-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "LSTGPH16-20000",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "EKG1-20000",
+   "channel_type": "ECG"
+  },
+  {
+   "label": "EKG2-20000",
+   "channel_type": "ECG"
+  },
+  {
+   "label": "EKG3-20000",
+   "channel_type": "ECG"
+  },
+  {
+   "label": "EKG4-20000",
+   "channel_type": "ECG"
+  },
+  {
+   "label": "EKG5-20000",
+   "channel_type": "ECG"
+  },
+  {
+   "label": "EKG6-20000",
+   "channel_type": "ECG"
+  },
+  {
+   "label": "EKG7-20000",
+   "channel_type": "ECG"
+  },
+  {
+   "label": "EKG8-20000",
+   "channel_type": "ECG"
+  }
+ ]
+}

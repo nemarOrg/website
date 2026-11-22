@@ -1,0 +1,13 @@
+{
+  "summary": [
+    {"text": "For event-related potentials to faces, "},
+    {"dataset_id": "on002718"},
+    {"text": " is the closest match: 18 participants viewed famous and scrambled faces."}
+  ],
+  "picks": [{"id": "on002718", "reason": "Face conditions, HED events."}],
+  "cited_ids": ["on002718"],
+  "shown": 10,
+  "cached": false,
+  "model": "claude-haiku-5-5",
+  "generated_at": "2026-11-11T08:30:00.123456Z"
+}

@@ -2,9 +2,16 @@ name: CI
 
 # Runs on `staging` as well as `main`, and that is load-bearing rather than
 # nice-to-have. The `keep-main` repository ruleset requires lint/typecheck/
-# test/build to be green *on the commit being pushed* to `main`. Promotion is
-# a fast-forward of `staging`, so whatever sits at the tip of `staging` must
-# already carry those four checks or the promotion is rejected outright.
+# test from this file, plus the `Cloudflare Pages` check, to be green *on the
+# commit being pushed* to `main`. Promotion is a fast-forward of `staging`, so
+# whatever sits at the tip of `staging` must already carry those checks or the
+# promotion is rejected outright.
+#
+# There is no build job here. Cloudflare's GitHub integration builds every push
+# (production on `main`, a preview on any other branch) and reports the
+# `Cloudflare Pages` check, which `keep-main` requires in place of a build job
+# of our own (2026-11-19). It reports on bot-pushed commits too, since it is
+# started by Cloudflare's webhook and not by a GitHub Actions trigger.
 #
 # Before website#214 this file only ran on `pull_request` and `push: main`,
 # which meant no commit on `staging` ever had them. Promotions still worked by
@@ -119,19 +126,24 @@ jobs:
       # test/oidc-authorize-contract-drift.test.ts is a SEVENTH, against
       # shared/contract/oidc-authorize.ts (the authorization endpoint's routes, answer kinds, codes
       # and reasons) and shared/oidc.ts beside it (the page's path). Same `dev` pairing, and strict.
-      # test/compute-terms-contract-drift.test.ts is an EIGHTH, against shared/contract/compute-terms.ts:
+      # test/mail-categories-drift.test.ts is an EIGHTH, against shared/contract/mail-categories.ts
+      # (the community mail categories the Settings card and the unsubscribe page read). Same `dev`
+      # pairing, and strict: red until nemar-cli epic #2260 reaches `dev`. The same test also reads
+      # backend/src/services/mail-links.ts (NEMAR_CLI_MAIL_LINKS) to compare the unsubscribe
+      # token pattern with the backend's TOKEN_RE.
+      # test/compute-terms-contract-drift.test.ts is a NINTH, against shared/contract/compute-terms.ts:
       # the compute terms version a request must name (website ADR 0030, interim until phase D2's
       # GET /compute/me serves it). Same `dev` pairing, strict, and red until the compute epic
       # reaches nemar-cli `dev`; the ref stays `dev`.
-      # test/compute-user-contract-drift.test.ts is a NINTH, against shared/compute-state.ts and
+      # test/compute-user-contract-drift.test.ts is a TENTH, against shared/compute-state.ts and
       # shared/contract/compute-user.ts and compute.ts: the job states, front doors, usage groups,
       # page bounds and read-refusal words the /compute page branches on (phase E2). Same `dev`
       # pairing, strict, and red until the compute epic reaches nemar-cli `dev`.
-      # test/compute-admin-contract-drift.test.ts is a TENTH: the compute state machine, the decision
+      # test/compute-admin-contract-drift.test.ts is an ELEVENTH: the compute state machine, the decision
       # words and the bounds the admin Compute tab branches on (compute-access-state.ts,
       # compute-state.ts, contract/compute-access.ts, contract/compute-admin.ts). Same `dev` pairing,
       # and strict: red on a phase PR until the compute epic reaches nemar-cli `dev`.
-      # test/compute-job-contract-drift.test.ts is an ELEVENTH, against shared/compute-state.ts,
+      # test/compute-job-contract-drift.test.ts is a TWELFTH, against shared/compute-state.ts,
       # shared/contract/compute-submit.ts and compute-responses.ts: the failure codes, the refusal
       # statuses, the truncated-log header, the bounds and the cancel outcomes the job page
       # (phase E3) branches on. Same `dev` pairing, strict, and red until the compute epic reaches
@@ -141,6 +153,7 @@ jobs:
           repository: nemarOrg/nemar-cli
           path: nemar-cli-contract
           sparse-checkout: |
+            /backend/src/services/mail-links.ts
             /shared/compute-access-state.ts
             /shared/compute-state.ts
             /shared/contract/account-copy.ts
@@ -153,6 +166,7 @@ jobs:
             /shared/contract/compute.ts
             /shared/contract/docs-auth.ts
             /shared/contract/mail-admin.ts
+            /shared/contract/mail-categories.ts
             /shared/contract/oidc-authorize.ts
             /shared/contract/private-site.ts
             /shared/contract/publication-review-copy.ts
@@ -174,21 +188,9 @@ jobs:
           NEMAR_CLI_COMPUTE_ADMIN_CONTRACT: nemar-cli-contract/shared/contract/compute-admin.ts
           NEMAR_CLI_DOCS_CONTRACT: nemar-cli-contract/shared/contract/docs-auth.ts
           NEMAR_CLI_MAIL_ADMIN_CONTRACT: nemar-cli-contract/shared/contract/mail-admin.ts
+          NEMAR_CLI_MAIL_CATEGORIES: nemar-cli-contract/shared/contract/mail-categories.ts
+          NEMAR_CLI_MAIL_LINKS: nemar-cli-contract/backend/src/services/mail-links.ts
           NEMAR_CLI_OIDC_AUTHORIZE_CONTRACT: nemar-cli-contract/shared/contract/oidc-authorize.ts
           NEMAR_CLI_PRIVATE_SITE_CONTRACT: nemar-cli-contract/shared/contract/private-site.ts
           NEMAR_CLI_REVIEW_COPY: nemar-cli-contract/shared/contract/publication-review-copy.ts
           NEMAR_CLI_VALIDATOR_PIN: nemar-cli-contract/validator-version.json
-
-  build:
-    name: build
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.3
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Build
-        run: bun run build

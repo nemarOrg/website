@@ -881,6 +881,11 @@ describe("osaWidgetMarkup", () => {
     }
   });
 
+  it("is never mounted on an unsubscribe page, whose URL carries the link's token", () => {
+    expect(isOsaWidgetExcludedPath("/unsubscribe/v1.42.news.7.signature")).toBe(true);
+    expect(osaWidgetMarkup("/unsubscribe/v1.42.news.7.signature", configured)).toBe("");
+  });
+
   it("excludes every listed path, and each one's subpaths", () => {
     for (const excluded of OSA_WIDGET_EXCLUDED_PATHS) {
       expect(isOsaWidgetExcludedPath(excluded), excluded).toBe(true);

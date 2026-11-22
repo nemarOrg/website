@@ -1,0 +1,5 @@
+{
+  "iEEGCoordinateSystem": "Other",
+  "iEEGCoordinateUnits": "n/a",
+  "iEEGCoordinateSystemDescription": "x, y, z = PatientInfo.Electrodes.sejin3DCoords.origCoords as released; x_avg, y_avg, z_avg = sejin3DCoords.avgCoords. The release does not state the coordinate space or units."
+}

@@ -1,0 +1,5 @@
+{
+    "iEEGCoordinateSystem": "fsaverage",
+    "iEEGCoordinateSystemDescription": "Defined by FreeSurfer, the MRI (surface RAS) origin is at the center of a 256\u00d7256\u00d7256 mm^3 anisotropic volume (may not be in the center of the head).",
+    "iEEGCoordinateUnits": "m"
+}

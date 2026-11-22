@@ -9,6 +9,7 @@ import {
   isRetryableUnavailable,
   loadPreloadEnabled,
   saveDataRequested,
+  topoToggleTitle,
   unavailableHtml,
   unavailableMessageHtml,
 } from "./viewer";
@@ -337,5 +338,94 @@ describe("unavailableHtml", () => {
     );
     const html = unavailableHtml({ failureReason: '"><img src=x>' }, false, true);
     expect(html).not.toContain("<img");
+  });
+});
+
+/**
+ * The topomap toggle's tooltip says where a store's electrode positions came
+ * from: `subject` (the subject's own electrodes file) or `dataset` (one file for
+ * every subject), with the file named. It never calls them measured, digitized or
+ * template: a per-subject file can hold template coordinates, and the converter
+ * cannot tell. A store converted before the provenance attributes existed keeps
+ * the title it always had.
+ */
+describe("topoToggleTitle", () => {
+  const noProvenance = {
+    electrodePositionsSource: null,
+    electrodePositionsFile: null,
+    electrodeCoordsystemFile: null,
+  } as const;
+  const store = { estimated: false };
+  const montage = { estimated: true };
+  const BASE = "Scalp topomap (split panel)";
+  const MONTAGE = "Scalp topomap - standard 10-20 layout (dataset ships no electrodes.tsv)";
+  const SUBJECT = "Scalp topomap - electrode positions from this subject's electrodes file";
+  const DATASET =
+    "Scalp topomap - electrode positions from one electrodes file shared by every subject";
+
+  it("names the subject's own electrodes file and the file", () => {
+    const title = topoToggleTitle(store, {
+      ...noProvenance,
+      electrodePositionsSource: "subject",
+      electrodePositionsFile: "sub-01/eeg/sub-01_electrodes.tsv",
+    });
+    expect(title).toBe(`${SUBJECT} (sub-01/eeg/sub-01_electrodes.tsv)`);
+  });
+
+  it("names the one electrodes file shared by every subject and the file", () => {
+    const title = topoToggleTitle(store, {
+      ...noProvenance,
+      electrodePositionsSource: "dataset",
+      electrodePositionsFile: "electrodes.tsv",
+    });
+    expect(title).toBe(`${DATASET} (electrodes.tsv)`);
+  });
+
+  it("gives the sentence alone when the store names no file", () => {
+    expect(topoToggleTitle(store, { ...noProvenance, electrodePositionsSource: "subject" })).toBe(
+      SUBJECT,
+    );
+    expect(topoToggleTitle(store, { ...noProvenance, electrodePositionsSource: "dataset" })).toBe(
+      DATASET,
+    );
+  });
+
+  it("keeps the base title for a store converted before the attributes existed", () => {
+    expect(topoToggleTitle(store, noProvenance)).toBe(BASE);
+  });
+
+  it("ignores a file named without a source word", () => {
+    expect(
+      topoToggleTitle(store, { ...noProvenance, electrodePositionsFile: "electrodes.tsv" }),
+    ).toBe(BASE);
+  });
+
+  it("keeps the montage fallback's sentence, whatever the store says about a source", () => {
+    expect(topoToggleTitle(montage, noProvenance)).toBe(MONTAGE);
+    expect(
+      topoToggleTitle(montage, {
+        ...noProvenance,
+        electrodePositionsSource: "dataset",
+        electrodePositionsFile: "electrodes.tsv",
+      }),
+    ).toBe(MONTAGE);
+  });
+
+  it("never says measured, digitized or template", () => {
+    const provenances = [
+      noProvenance,
+      { ...noProvenance, electrodePositionsSource: "subject" as const },
+      { ...noProvenance, electrodePositionsSource: "dataset" as const },
+      {
+        electrodePositionsSource: "dataset" as const,
+        electrodePositionsFile: "electrodes.tsv",
+        electrodeCoordsystemFile: "coordsystem.json",
+      },
+    ];
+    for (const provenance of provenances) {
+      for (const scalp of [store, montage]) {
+        expect(topoToggleTitle(scalp, provenance)).not.toMatch(/measured|digitized|template/i);
+      }
+    }
   });
 });

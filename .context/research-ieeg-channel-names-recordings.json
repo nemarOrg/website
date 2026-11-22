@@ -1,0 +1,805 @@
+{
+ "nm000253": {
+  "version": "v1.2.0",
+  "recordings": [
+   "sub-01/ieeg/sub-01_task-movie_run-01_ieeg.vhdr",
+   "sub-04/ieeg/sub-04_task-movie_run-01_ieeg.vhdr",
+   "sub-10/ieeg/sub-10_task-movie_run-02_ieeg.vhdr"
+  ]
+ },
+ "nm000352": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-bp/ieeg/sub-bp_task-fingerflex_ieeg.vhdr",
+   "sub-jc/ieeg/sub-jc_task-speechlists_acq-verbsl2r3_ieeg.vhdr",
+   "sub-zt/ieeg/sub-zt_task-speechbasic_acq-verbs_ieeg.vhdr",
+   "sub-bp/ieeg/sub-bp_task-gestures_acq-base_ieeg.vhdr",
+   "sub-bp/ieeg/sub-bp_task-gestures_acq-fingerflex_ieeg.vhdr",
+   "sub-bp/ieeg/sub-bp_task-gestures_acq-freeform_ieeg.vhdr"
+  ]
+ },
+ "nm000354": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-P1/ieeg/sub-P1_task-arithmetic_ieeg.vhdr",
+   "sub-P19/ieeg/sub-P19_task-arithmetic_ieeg.vhdr",
+   "sub-P9/ieeg/sub-P9_task-arithmetic_ieeg.vhdr"
+  ]
+ },
+ "nm000355": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-UCI29/ieeg/sub-UCI29_task-tonedetection_ieeg.vhdr"
+  ]
+ },
+ "nm000356": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-P01/ieeg/sub-P01_task-musiclistening_ieeg.vhdr",
+   "sub-P15/ieeg/sub-P15_task-musiclistening_ieeg.vhdr",
+   "sub-P29/ieeg/sub-P29_task-musiclistening_ieeg.vhdr"
+  ]
+ },
+ "nm000357": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-CS41/ses-P41CSR1/ieeg/sub-CS41_ses-P41CSR1_task-movie_ieeg.vhdr",
+   "sub-CS51/ses-P51CSR2/ieeg/sub-CS51_ses-P51CSR2_task-movie_ieeg.vhdr",
+   "sub-CS62/ses-P62CSR2/ieeg/sub-CS62_ses-P62CSR2_task-movie_ieeg.vhdr"
+  ]
+ },
+ "nm000358": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-01/ses-3/ieeg/sub-01_ses-3_task-naturalistic_ieeg.vhdr",
+   "sub-07/ses-5/ieeg/sub-07_ses-5_task-naturalistic_ieeg.vhdr",
+   "sub-12/ses-7/ieeg/sub-12_ses-7_task-naturalistic_ieeg.vhdr"
+  ]
+ },
+ "nm000360": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-01/ieeg/sub-01_task-sleep_ieeg.edf",
+   "sub-13/ieeg/sub-13_task-sleep_ieeg.edf",
+   "sub-25/ieeg/sub-25_task-sleep_ieeg.edf"
+  ]
+ },
+ "nm000361": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-002/ieeg/sub-002_task-sleepNREM_acq-hfo512Hz_ieeg.vhdr",
+   "sub-050/ieeg/sub-050_task-sleepNREM_acq-hfo2000Hz_ieeg.vhdr",
+   "sub-090/ieeg/sub-090_task-sleepNREM_acq-hfo2000Hz_ieeg.vhdr",
+   "sub-010/ieeg/sub-010_task-sleepNREM_acq-hfo1024Hz_ieeg.vhdr"
+  ]
+ },
+ "nm000362": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-001/ieeg/sub-001_task-wake_acq-1min_ieeg.vhdr",
+   "sub-058/ieeg/sub-058_task-wake_acq-1min_ieeg.vhdr",
+   "sub-110/ieeg/sub-110_task-wake_acq-1min_ieeg.vhdr",
+   "sub-002/ieeg/sub-002_task-sleepN2_acq-10min_ieeg.vhdr"
+  ]
+ },
+ "nm000367": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-10/ieeg/sub-10_task-cogboundary_ieeg.vhdr",
+   "sub-2/ieeg/sub-2_task-cogboundary_ieeg.vhdr",
+   "sub-9/ieeg/sub-9_task-cogboundary_ieeg.vhdr"
+  ]
+ },
+ "nm000368": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-1/ses-1/ieeg/sub-1_ses-1_task-sternberg_ieeg.vhdr",
+   "sub-25/ses-1/ieeg/sub-25_ses-1_task-sternberg_ieeg.vhdr",
+   "sub-9/ses-1/ieeg/sub-9_ses-1_task-sternberg_ieeg.vhdr"
+  ]
+ },
+ "nm000369": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-S4/ieeg/sub-S4_task-motorimagery_ieeg.vhdr",
+   "sub-S5/ieeg/sub-S5_task-motorimagery_ieeg.vhdr"
+  ]
+ },
+ "nm000371": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-01/ieeg/sub-01_task-wordProduction_ieeg.vhdr",
+   "sub-05/ieeg/sub-05_task-wordProduction_ieeg.vhdr",
+   "sub-10/ieeg/sub-10_task-wordProduction_ieeg.vhdr"
+  ]
+ },
+ "nm000372": {
+  "version": "v1.0.4",
+  "recordings": [
+   "sub-01/ieeg/sub-01_task-hfs_run-1_ieeg.vhdr",
+   "sub-01/ieeg/sub-01_task-spes_run-1_ieeg.vhdr"
+  ]
+ },
+ "nm000373": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-01/ieeg/sub-01_task-categorySL_run-1_ieeg.edf",
+   "sub-05/ieeg/sub-05_task-categorySL_run-2_ieeg.edf",
+   "sub-08/ieeg/sub-08_task-random_run-1_ieeg.edf"
+  ]
+ },
+ "nm000376": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-P1/ieeg/sub-P1_task-memact_ieeg.vhdr",
+   "sub-P5/ieeg/sub-P5_task-memact_ieeg.vhdr",
+   "sub-P9/ieeg/sub-P9_task-memact_ieeg.vhdr"
+  ]
+ },
+ "nm000377": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-EC192/ieeg/sub-EC192_task-heights_ieeg.vhdr",
+   "sub-EC200/ieeg/sub-EC200_task-noheights_ieeg.vhdr",
+   "sub-EC205/ieeg/sub-EC205_task-sharks_ieeg.vhdr"
+  ]
+ },
+ "nm000379": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-01/ieeg/sub-01_task-scenerecognition_run-01_ieeg.vhdr",
+   "sub-02/ieeg/sub-02_task-scenerecognition_run-08_ieeg.vhdr",
+   "sub-06/ieeg/sub-06_task-scenerecognition_run-05_ieeg.vhdr"
+  ]
+ },
+ "nm000380": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-EC105/ieeg/sub-EC105_task-stim_acq-natus_run-01_ieeg.vhdr",
+   "sub-EC137/ieeg/sub-EC137_task-stim_acq-natus_run-04_ieeg.vhdr",
+   "sub-EC99/ieeg/sub-EC99_task-stim_acq-natus_run-01_ieeg.vhdr",
+   "sub-EC142/ieeg/sub-EC142_task-stim_acq-tdt_run-01_ieeg.vhdr",
+   "sub-EC150/ieeg/sub-EC150_task-stim_acq-neuroomega_run-01_ieeg.vhdr"
+  ]
+ },
+ "nm000399": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-DBS4038/ses-1/ieeg/sub-DBS4038_ses-1_task-reading_ieeg.vhdr",
+   "sub-DBS4049/ses-2/ieeg/sub-DBS4049_ses-2_task-reading_ieeg.vhdr",
+   "sub-DBS4056/ses-2/ieeg/sub-DBS4056_ses-2_task-reading_ieeg.vhdr"
+  ]
+ },
+ "nm000402": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-CHOP005/ses-postimplant/ieeg/sub-CHOP005_ses-postimplant_task-stim68881_run-00_ieeg.edf",
+   "sub-HUP246/ses-postimplant/ieeg/sub-HUP246_ses-postimplant_task-stim14638_run-00_ieeg.edf",
+   "sub-HUP288/ses-postimplant/ieeg/sub-HUP288_ses-postimplant_task-stim73007_run-00_ieeg.edf",
+   "sub-CHOP010/ses-postimplant/ieeg/sub-CHOP010_ses-postimplant_task-stim2230_run-00_ieeg.edf"
+  ]
+ },
+ "nm000404": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-P1/ieeg/sub-P1_task-attentionswitch_ieeg.vhdr",
+   "sub-P20/ieeg/sub-P20_task-attentionswitch_ieeg.vhdr",
+   "sub-P9/ieeg/sub-P9_task-attentionswitch_ieeg.vhdr"
+  ]
+ },
+ "nm000405": {
+  "version": "v1.0.3",
+  "recordings": [
+   "sub-000/ses-right/ieeg/sub-000_ses-right_task-force_run-0_desc-1kHz_ieeg.vhdr",
+   "sub-008/ses-left/ieeg/sub-008_ses-left_task-force_run-0_desc-1kHz_ieeg.vhdr",
+   "sub-015/ses-left/ieeg/sub-015_ses-left_task-force_run-3_desc-1kHz_ieeg.vhdr"
+  ]
+ },
+ "nm000430": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-01/ses-post/ieeg/sub-01_ses-post_task-speechprediction_desc-dbtsvd_ieeg.vhdr",
+   "sub-02/ses-post/ieeg/sub-02_ses-post_task-speechprediction_desc-dbtsvd_ieeg.vhdr",
+   "sub-02/ses-pre/ieeg/sub-02_ses-pre_task-speechprediction_desc-downsampled_ieeg.vhdr"
+  ]
+ },
+ "nm000435": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-01/ses-01/ieeg/sub-01_ses-01_task-visualwm_ieeg.vhdr",
+   "sub-08/ses-01/ieeg/sub-08_ses-01_task-visualwm_ieeg.vhdr",
+   "sub-13/ses-01/ieeg/sub-13_ses-01_task-visualwm_ieeg.vhdr"
+  ]
+ },
+ "nm000436": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-02/ieeg/sub-02_task-taps_acq-off_run-01_ieeg.vhdr",
+   "sub-08/ieeg/sub-08_task-taps_acq-off_run-03_ieeg.vhdr",
+   "sub-12/ieeg/sub-12_task-taps_acq-on_run-08_ieeg.vhdr",
+   "sub-02/ieeg/sub-02_task-taps_acq-on_run-02_ieeg.vhdr"
+  ]
+ },
+ "nm000454": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-PID02/ses-clinical01/ieeg/sub-PID02_ses-clinical01_task-ictal10046_run-04_ieeg.edf",
+   "sub-PID12/ses-clinical01/ieeg/sub-PID12_ses-clinical01_task-interictal684245_run-01_ieeg.edf",
+   "sub-PID27/ses-clinical01/ieeg/sub-PID27_ses-clinical01_task-interictal934713_run-01_ieeg.edf",
+   "sub-PID02/ses-clinical01/ieeg/sub-PID02_ses-clinical01_task-ictal139903_run-05_ieeg.edf",
+   "sub-PID20/ses-clinical01/ieeg/sub-PID20_ses-clinical01_task-ictal164694_run-01_ieeg.edf",
+   "sub-PID21/ses-clinical01/ieeg/sub-PID21_ses-clinical01_task-ictal418735_run-03_ieeg.edf"
+  ]
+ },
+ "nm000455": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-311/ses-1/ieeg/sub-311_ses-1_task-auditorythreshold_ieeg.vhdr",
+   "sub-492/ses-1/ieeg/sub-492_ses-1_task-auditorythreshold_ieeg.vhdr",
+   "sub-NS142/ses-1/ieeg/sub-NS142_ses-1_task-auditorythreshold_ieeg.vhdr"
+  ]
+ },
+ "nm000462": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-HUP224/ieeg/sub-HUP224_task-ictal_acq-spontaneous_ieeg.vhdr",
+   "sub-HUP235/ieeg/sub-HUP235_task-ictal_acq-spontaneous_ieeg.vhdr",
+   "sub-HUP238/ieeg/sub-HUP238_task-ictal_acq-spontaneous_ieeg.vhdr",
+   "sub-HUP224/ieeg/sub-HUP224_task-ictal_acq-stiminduced_ieeg.vhdr"
+  ]
+ },
+ "nm000463": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-UMHS0028/ieeg/sub-UMHS0028_task-background_ieeg.vhdr",
+   "sub-UMHS0030/ieeg/sub-UMHS0030_task-hfo_acq-elec22_ieeg.vhdr",
+   "sub-UMHS0030/ieeg/sub-UMHS0030_task-hfo_acq-elec99_ieeg.vhdr",
+   "sub-UMHS0028/ieeg/sub-UMHS0028_task-hfo_acq-elec01_ieeg.vhdr",
+   "sub-UMHS0028/ieeg/sub-UMHS0028_task-hfo_acq-elec02_ieeg.vhdr",
+   "sub-UMHS0028/ieeg/sub-UMHS0028_task-hfo_acq-elec03_ieeg.vhdr"
+  ]
+ },
+ "nm000469": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-01/ses-post/ieeg/sub-01_ses-post_task-interpretation_ieeg.vhdr",
+   "sub-01/ses-pre/ieeg/sub-01_ses-pre_task-interpretation_ieeg.vhdr"
+  ]
+ },
+ "nm000473": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-01/ieeg/sub-01_task-actionobservation_ieeg.vhdr",
+   "sub-08/ieeg/sub-08_task-actionobservation_ieeg.vhdr",
+   "sub-13/ieeg/sub-13_task-actionobservation_ieeg.vhdr"
+  ]
+ },
+ "nm000475": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-P03/ieeg/sub-P03_task-facename_run-1_ieeg.vhdr",
+   "sub-P06/ieeg/sub-P06_task-faceonly_run-1_ieeg.vhdr",
+   "sub-P07/ieeg/sub-P07_task-nameonly_run-1_ieeg.vhdr",
+   "sub-P06/ieeg/sub-P06_task-facename_run-1_ieeg.vhdr"
+  ]
+ },
+ "nm000480": {
+  "version": "v1.0.3",
+  "recordings": [
+   "sub-01/ieeg/sub-01_task-wmgating_ieeg.vhdr",
+   "sub-06/ieeg/sub-06_task-wmgating_ieeg.vhdr",
+   "sub-11/ieeg/sub-11_task-wmgating_ieeg.vhdr",
+   "sub-10/ieeg/sub-10_task-wmgating_ieeg.vhdr"
+  ]
+ },
+ "nm000481": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-01/ieeg/sub-01_task-sleep_run-1_ieeg.vhdr",
+   "sub-08/ieeg/sub-08_task-sleep_run-1_ieeg.vhdr",
+   "sub-14/ieeg/sub-14_task-sleep_run-1_ieeg.vhdr"
+  ]
+ },
+ "nm000483": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-01/ieeg/sub-01_task-interictalspike_acq-monopolar_ieeg.vhdr",
+   "sub-01/ieeg/sub-01_task-seizureonsetlvfa_acq-monopolar_ieeg.vhdr",
+   "sub-01/ieeg/sub-01_task-seizureonsetspike_acq-monopolar_ieeg.vhdr",
+   "sub-01/ieeg/sub-01_task-seizureonsetlvfa_acq-bipolar_ieeg.vhdr"
+  ]
+ },
+ "nm000485": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-P001/ieeg/sub-P001_task-wordsnonfont_run-1_ieeg.vhdr",
+   "sub-P019/ieeg/sub-P019_task-wordspseudofont_run-1_ieeg.vhdr",
+   "sub-P037/ieeg/sub-P037_task-wordspseudoword_run-1_ieeg.vhdr"
+  ]
+ },
+ "nm000487": {
+  "version": "v1.0.2",
+  "recordings": [
+   "sub-001/ieeg/sub-001_task-fpvsfaces_run-1_ieeg.vhdr",
+   "sub-071/ieeg/sub-071_task-fpvsfaces_run-1_ieeg.vhdr",
+   "sub-140/ieeg/sub-140_task-fpvsfaces_run-1_ieeg.vhdr",
+   "sub-004/ieeg/sub-004_task-fpvsfaces_run-1_ieeg.vhdr",
+   "sub-013/ieeg/sub-013_task-fpvsfaces_run-1_ieeg.vhdr"
+  ]
+ },
+ "nm000501": {
+  "version": "v1.0.1",
+  "recordings": [
+   "sub-01/ses-01/ieeg/sub-01_ses-01_task-audio_ieeg.edf",
+   "sub-02/ses-05/ieeg/sub-02_ses-05_task-audio_ieeg.edf",
+   "sub-04/ses-04/ieeg/sub-04_ses-04_task-audio_ieeg.edf"
+  ]
+ },
+ "on003374": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-01/ses-01/ieeg/sub-01_ses-01_task-jokeit_run-01_ieeg.edf",
+   "sub-06/ses-01/ieeg/sub-06_ses-01_task-jokeit_run-01_ieeg.vhdr",
+   "sub-09/ses-01/ieeg/sub-09_ses-01_task-jokeit_run-01_ieeg.edf"
+  ]
+ },
+ "on003688": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-01/ses-iemu/ieeg/sub-01_ses-iemu_task-film_acq-clinical_run-1_ieeg.vhdr",
+   "sub-31/ses-iemu/ieeg/sub-31_ses-iemu_task-rest_acq-clinical_run-1_ieeg.vhdr",
+   "sub-63/ses-iemu/ieeg/sub-63_ses-iemu_task-rest_acq-clinical_run-1_ieeg.vhdr",
+   "sub-02/ses-iemu/ieeg/sub-02_ses-iemu_task-film_acq-clinical_run-1_ieeg.vhdr",
+   "sub-30/ses-iemu/ieeg/sub-30_ses-iemu_task-film_acq-HDgrid_run-1_ieeg.vhdr",
+   "sub-45/ses-iemu/ieeg/sub-45_ses-iemu_task-film_acq-HDgrid_run-2_ieeg.vhdr"
+  ]
+ },
+ "on003708": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-01/ses-ieeg01/ieeg/sub-01_ses-ieeg01_task-ccep_run-01_ieeg.mefd"
+  ]
+ },
+ "on003848": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-RESP0521/ses-1/ieeg/sub-RESP0521_ses-1_task-SPESclin_run-021231_ieeg.vhdr",
+   "sub-RESP0749/ses-1/ieeg/sub-RESP0749_ses-1_task-Rest_run-021341_ieeg.vhdr",
+   "sub-RESP0800/ses-1/ieeg/sub-RESP0800_ses-1_task-Sleep_run-090523_ieeg.vhdr",
+   "sub-RESP0521/ses-1/ieeg/sub-RESP0521_ses-1_task-Sleep_run-060307_ieeg.vhdr"
+  ]
+ },
+ "on004080": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-ccepAgeUMCU01/ses-1/ieeg/sub-ccepAgeUMCU01_ses-1_task-SPESclin_run-021448_ieeg.vhdr",
+   "sub-ccepAgeUMCU32/ses-1/ieeg/sub-ccepAgeUMCU32_ses-1_task-SPESclin_run-031733_ieeg.vhdr",
+   "sub-ccepAgeUMCU74/ses-1/ieeg/sub-ccepAgeUMCU74_ses-1_task-SPESclin_run-041028_ieeg.vhdr",
+   "sub-ccepAgeUMCU01/ses-1/ieeg/sub-ccepAgeUMCU01_ses-1_task-SPESclin_run-061233_ieeg.vhdr"
+  ]
+ },
+ "on004100": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-HUP060/ses-presurgery/ieeg/sub-HUP060_ses-presurgery_task-ictal_acq-seeg_run-01_ieeg.edf",
+   "sub-HUP139/ses-presurgery/ieeg/sub-HUP139_ses-presurgery_task-ictal_acq-seeg_run-01_ieeg.edf",
+   "sub-HUP190/ses-presurgery/ieeg/sub-HUP190_ses-presurgery_task-interictal_acq-seeg_run-02_ieeg.edf",
+   "sub-HUP064/ses-presurgery/ieeg/sub-HUP064_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.edf",
+   "sub-HUP094/ses-presurgery/ieeg/sub-HUP094_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.edf",
+   "sub-HUP126/ses-presurgery/ieeg/sub-HUP126_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.edf"
+  ]
+ },
+ "on004194": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-p01/ses-umcuiemu01/ieeg/sub-p01_ses-umcuiemu01_task-prf_acq-clinical_run-01_ieeg.vhdr",
+   "sub-p09/ses-nyuecog01/ieeg/sub-p09_ses-nyuecog01_task-temporalpattern_acq-clinical_run-03_ieeg.vhdr",
+   "sub-p14/ses-nyuecog01/ieeg/sub-p14_ses-nyuecog01_task-sixcatloctemporal_acq-clinical_run-02_ieeg.vhdr",
+   "sub-p01/ses-umcuiemu01/ieeg/sub-p01_ses-umcuiemu01_task-prf_acq-clinical_run-03_ieeg.vhdr"
+  ]
+ },
+ "on004370": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-PRIOS01/ses-1/ieeg/sub-PRIOS01_ses-1_task-SPESclin_run-021358_ieeg.vhdr",
+   "sub-PRIOS04/ses-1/ieeg/sub-PRIOS04_ses-1_task-SPESclin_run-020955_ieeg.vhdr",
+   "sub-PRIOS09/ses-1/ieeg/sub-PRIOS09_ses-1_task-SPESprop_run-090815_ieeg.vhdr"
+  ]
+ },
+ "on004457": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-1/ses-ieeg01/ieeg/sub-1_ses-ieeg01_task-ccep_run-01_ieeg.mefd",
+   "sub-3/ses-ieeg01/ieeg/sub-3_ses-ieeg01_task-ccep_run-01_ieeg.mefd",
+   "sub-5/ses-ieeg01/ieeg/sub-5_ses-ieeg01_task-ccep_run-01_ieeg.mefd"
+  ]
+ },
+ "on004473": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-1/ieeg/sub-1_task-SlowFast_ieeg.edf",
+   "sub-2/ieeg/sub-2_task-SlowFast_ieeg.edf",
+   "sub-9/ieeg/sub-9_task-SlowFast_ieeg.edf"
+  ]
+ },
+ "on004551": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-001/ses-01/ieeg/sub-001_ses-01_task-sleep_run-01_ieeg.edf",
+   "sub-056/ses-02/ieeg/sub-056_ses-02_task-sleep_run-01_ieeg.edf",
+   "sub-114/ses-01/ieeg/sub-114_ses-01_task-sleep_run-01_ieeg.edf"
+  ]
+ },
+ "on004624": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-c02/ses-Closedloop/ieeg/sub-c02_ses-Closedloop_task-Alpha_acq-rec_run-1_ieeg.mefd",
+   "sub-c02/ses-Longterm/ieeg/sub-c02_ses-Longterm_task-Stimulation_acq-Stim2328001_run-25_ieeg.mefd",
+   "sub-c04/ses-Longterm/ieeg/sub-c04_ses-Longterm_task-Stimulation_acq-rec_run-9_ieeg.mefd",
+   "sub-c02/ses-Longterm/ieeg/sub-c02_ses-Longterm_task-Stimulation_acq-Stim1318001_run-10_ieeg.mefd",
+   "sub-c02/ses-Longterm/ieeg/sub-c02_ses-Longterm_task-Stimulation_acq-Stim2328001_run-10_ieeg.mefd",
+   "sub-c02/ses-Longterm/ieeg/sub-c02_ses-Longterm_task-Stimulation_acq-Stim612001_run-10_ieeg.mefd"
+  ]
+ },
+ "on004696": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-01/ses-ieeg01/ieeg/sub-01_ses-ieeg01_task-ccep_run-01_ieeg.mefd",
+   "sub-05/ses-ieeg01/ieeg/sub-05_ses-ieeg01_task-ccep_run-01_ieeg.mefd",
+   "sub-08/ses-ieeg01/ieeg/sub-08_ses-ieeg01_task-ccep_run-01_ieeg.mefd"
+  ]
+ },
+ "on004752": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-01/ses-01/eeg/sub-01_ses-01_task-verbalWM_run-01_eeg.edf",
+   "sub-09/ses-01/eeg/sub-09_ses-01_task-verbalWM_run-01_eeg.edf",
+   "sub-15/ses-04/ieeg/sub-15_ses-04_task-verbalWM_run-01_ieeg.edf",
+   "sub-01/ses-01/ieeg/sub-01_ses-01_task-verbalWM_run-01_ieeg.edf",
+   "sub-10/ses-01/eeg/sub-10_ses-01_task-verbalWM_run-01_eeg.edf"
+  ]
+ },
+ "on004774": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-MAYO01/ses-ieeg01/ieeg/sub-MAYO01_ses-ieeg01_task-ccep_run-01_ieeg.mefd",
+   "sub-UMCU22/ses-1/ieeg/sub-UMCU22_ses-1_task-SPESclin_run-011714_ieeg.vhdr",
+   "sub-UMCU67/ses-1/ieeg/sub-UMCU67_ses-1_task-SPESclin_run-021704_ieeg.vhdr"
+  ]
+ },
+ "on004789": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-FR1_acq-bipolar_ieeg.edf",
+   "sub-R1195E/ses-2/ieeg/sub-R1195E_ses-2_task-FR1_acq-bipolar_ieeg.edf",
+   "sub-R1573T/ses-0/ieeg/sub-R1573T_ses-0_task-FR1_acq-monopolar_ieeg.edf",
+   "sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-FR1_acq-monopolar_ieeg.edf",
+   "sub-R1010J/ses-0/ieeg/sub-R1010J_ses-0_task-FR1_acq-bipolar_ieeg.edf",
+   "sub-R1010J/ses-0/ieeg/sub-R1010J_ses-0_task-FR1_acq-monopolar_ieeg.edf"
+  ]
+ },
+ "on004809": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-R1004D/ses-0/ieeg/sub-R1004D_ses-0_task-catFR1_acq-bipolar_ieeg.edf",
+   "sub-R1385E/ses-0/ieeg/sub-R1385E_ses-0_task-catFR1_acq-bipolar_ieeg.edf",
+   "sub-R1683A/ses-3/ieeg/sub-R1683A_ses-3_task-catFR1_acq-bipolar_ieeg.edf",
+   "sub-R1004D/ses-0/ieeg/sub-R1004D_ses-0_task-catFR1_acq-monopolar_ieeg.edf",
+   "sub-R1013E/ses-0/ieeg/sub-R1013E_ses-0_task-catFR1_acq-bipolar_ieeg.edf",
+   "sub-R1013E/ses-0/ieeg/sub-R1013E_ses-0_task-catFR1_acq-monopolar_ieeg.edf"
+  ]
+ },
+ "on004859": {
+  "version": "v1.0.1",
+  "recordings": [
+   "sub-001/ses-01/ieeg/sub-001_ses-01_task-stroop_run-01_ieeg.edf",
+   "sub-005/ses-01/ieeg/sub-005_ses-01_task-stroop_run-01_ieeg.edf",
+   "sub-007/ses-02/ieeg/sub-007_ses-02_task-stroop_run-01_ieeg.edf"
+  ]
+ },
+ "on004865": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-TJ005/ses-5/ieeg/sub-TJ005_ses-5_task-pyFR_acq-bipolar_ieeg.edf",
+   "sub-TJ061/ses-0/ieeg/sub-TJ061_ses-0_task-pyFR_acq-bipolar_ieeg.edf",
+   "sub-UP045/ses-3/ieeg/sub-UP045_ses-3_task-pyFR_acq-monopolar_ieeg.edf",
+   "sub-TJ005/ses-5/ieeg/sub-TJ005_ses-5_task-pyFR_acq-monopolar_ieeg.edf",
+   "sub-TJ019/ses-1/ieeg/sub-TJ019_ses-1_task-pyFR_acq-bipolar_ieeg.edf",
+   "sub-TJ019/ses-1/ieeg/sub-TJ019_ses-1_task-pyFR_acq-monopolar_ieeg.edf"
+  ]
+ },
+ "on004977": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-1/ses-ieeg01/ieeg/sub-1_ses-ieeg01_task-ccep_run-01_ieeg.mefd",
+   "sub-2/ses-ieeg01/ieeg/sub-2_ses-ieeg01_task-ccep_run-12_ieeg.mefd",
+   "sub-4/ses-ieeg01/ieeg/sub-4_ses-ieeg01_task-ccep_run-02_ieeg.mefd"
+  ]
+ },
+ "on004993": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-W1/ses-iemu/ieeg/sub-W1_ses-iemu_task-movietrailers_acq-B3_run-01_ieeg.edf",
+   "sub-W2/ses-iemu/ieeg/sub-W2_ses-iemu_task-timit5_acq-B8_run-01_ieeg.edf",
+   "sub-W3/ses-iemu/ieeg/sub-W3_ses-iemu_task-timit4_acq-B8_run-01_ieeg.edf"
+  ]
+ },
+ "on005007": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-01/ses-01/ieeg/sub-01_ses-01_task-namingtask_run-01_ieeg.edf",
+   "sub-21/ses-01/ieeg/sub-21_ses-01_task-namingtask_run-01_ieeg.edf",
+   "sub-40/ses-01/ieeg/sub-40_ses-01_task-namingtask_run-01_ieeg.edf"
+  ]
+ },
+ "on005059": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-PAL1_acq-bipolar_ieeg.edf",
+   "sub-R1162N/ses-3/ieeg/sub-R1162N_ses-3_task-PAL1_acq-bipolar_ieeg.edf",
+   "sub-R1392N/ses-1/ieeg/sub-R1392N_ses-1_task-PAL1_acq-monopolar_ieeg.edf",
+   "sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-PAL1_acq-monopolar_ieeg.edf",
+   "sub-R1023J/ses-0/ieeg/sub-R1023J_ses-0_task-PAL1_acq-bipolar_ieeg.edf",
+   "sub-R1023J/ses-0/ieeg/sub-R1023J_ses-0_task-PAL1_acq-monopolar_ieeg.edf"
+  ]
+ },
+ "on005169": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-01/ses-01/ieeg/sub-01_ses-01_task-dcs_ieeg.vhdr",
+   "sub-13/ses-01/ieeg/sub-13_ses-01_task-dcs_ieeg.vhdr",
+   "sub-22/ses-04/ieeg/sub-22_ses-04_task-dcs_ieeg.vhdr"
+  ]
+ },
+ "on005398": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-Detroit001/ses-01/ieeg/sub-Detroit001_ses-01_task-sleep_ieeg.edf",
+   "sub-Detroit093/ses-01/ieeg/sub-Detroit093_ses-01_task-sleep_ieeg.edf",
+   "sub-UCLA50/ses-01/ieeg/sub-UCLA50_ses-01_task-sleep_ieeg.edf"
+  ]
+ },
+ "on005411": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-R1204T/ses-0/ieeg/sub-R1204T_ses-0_task-RepFR1_acq-bipolar_ieeg.edf",
+   "sub-R1612E/ses-0/ieeg/sub-R1612E_ses-0_task-RepFR1_acq-monopolar_ieeg.edf",
+   "sub-R1692T/ses-0/ieeg/sub-R1692T_ses-0_task-RepFR1_acq-monopolar_ieeg.edf",
+   "sub-R1204T/ses-0/ieeg/sub-R1204T_ses-0_task-RepFR1_acq-monopolar_ieeg.edf",
+   "sub-R1534D/ses-0/ieeg/sub-R1534D_ses-0_task-RepFR1_acq-bipolar_ieeg.edf",
+   "sub-R1534D/ses-0/ieeg/sub-R1534D_ses-0_task-RepFR1_acq-monopolar_ieeg.edf"
+  ]
+ },
+ "on005415": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-72/ieeg/sub-72_task-numbers_run-1_ieeg.edf",
+   "sub-82/ieeg/sub-82_task-numbers_run-1_ieeg.edf",
+   "sub-86/ieeg/sub-86_task-numbers_run-1_ieeg.edf"
+  ]
+ },
+ "on005448": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-STREEF01/ses-1/ieeg/sub-STREEF01_ses-1_task-SPESclin_run-021250_ieeg.vhdr",
+   "sub-STREEF08/ses-1/ieeg/sub-STREEF08_ses-1_task-SPESclin_run-031031_ieeg.vhdr",
+   "sub-STREEF13/ses-1/ieeg/sub-STREEF13_ses-1_task-SPESclin_run-021320_ieeg.vhdr"
+  ]
+ },
+ "on005489": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-FR2_acq-bipolar_ieeg.edf",
+   "sub-R1035M/ses-0/ieeg/sub-R1035M_ses-0_task-FR2_acq-bipolar_ieeg.edf",
+   "sub-R1184M/ses-3/ieeg/sub-R1184M_ses-3_task-FR2_acq-monopolar_ieeg.edf",
+   "sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-FR2_acq-monopolar_ieeg.edf",
+   "sub-R1006P/ses-0/ieeg/sub-R1006P_ses-0_task-FR2_acq-monopolar_ieeg.edf",
+   "sub-R1020J/ses-0/ieeg/sub-R1020J_ses-0_task-FR2_acq-bipolar_ieeg.edf"
+  ]
+ },
+ "on005491": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-R1016M/ses-0/ieeg/sub-R1016M_ses-0_task-catFR2_acq-bipolar_ieeg.edf",
+   "sub-R1036M/ses-2/ieeg/sub-R1036M_ses-2_task-catFR2_acq-monopolar_ieeg.edf",
+   "sub-R1192C/ses-1/ieeg/sub-R1192C_ses-1_task-catFR2_acq-monopolar_ieeg.edf",
+   "sub-R1016M/ses-0/ieeg/sub-R1016M_ses-0_task-catFR2_acq-monopolar_ieeg.edf",
+   "sub-R1026D/ses-0/ieeg/sub-R1026D_ses-0_task-catFR2_acq-bipolar_ieeg.edf",
+   "sub-R1026D/ses-0/ieeg/sub-R1026D_ses-0_task-catFR2_acq-monopolar_ieeg.edf"
+  ]
+ },
+ "on005494": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-R1003P/ses-0/ieeg/sub-R1003P_ses-0_task-PAL2_acq-bipolar_ieeg.edf",
+   "sub-R1082N/ses-0/ieeg/sub-R1082N_ses-0_task-PAL2_acq-bipolar_ieeg.edf",
+   "sub-R1185N/ses-0/ieeg/sub-R1185N_ses-0_task-PAL2_acq-monopolar_ieeg.edf",
+   "sub-R1003P/ses-0/ieeg/sub-R1003P_ses-0_task-PAL2_acq-monopolar_ieeg.edf",
+   "sub-R1082N/ses-0/ieeg/sub-R1082N_ses-0_task-PAL2_acq-monopolar_ieeg.edf"
+  ]
+ },
+ "on005522": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_acq-bipolar_ieeg.edf",
+   "sub-R1047D/ses-1/ieeg/sub-R1047D_ses-1_task-YC1_acq-monopolar_ieeg.edf",
+   "sub-R1177M/ses-0/ieeg/sub-R1177M_ses-0_task-YC1_acq-monopolar_ieeg.edf",
+   "sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_acq-monopolar_ieeg.edf",
+   "sub-R1008J/ses-0/ieeg/sub-R1008J_ses-0_task-YC1_acq-bipolar_ieeg.edf",
+   "sub-R1008J/ses-0/ieeg/sub-R1008J_ses-0_task-YC1_acq-monopolar_ieeg.edf"
+  ]
+ },
+ "on005523": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-R1006P/ses-0/ieeg/sub-R1006P_ses-0_task-YC2_acq-bipolar_ieeg.edf",
+   "sub-R1026D/ses-0/ieeg/sub-R1026D_ses-0_task-YC2_acq-monopolar_ieeg.edf",
+   "sub-R1069M/ses-0/ieeg/sub-R1069M_ses-0_task-YC2_acq-monopolar_ieeg.edf",
+   "sub-R1006P/ses-0/ieeg/sub-R1006P_ses-0_task-YC2_acq-monopolar_ieeg.edf",
+   "sub-R1013E/ses-1/ieeg/sub-R1013E_ses-1_task-YC2_acq-bipolar_ieeg.edf",
+   "sub-R1013E/ses-1/ieeg/sub-R1013E_ses-1_task-YC2_acq-monopolar_ieeg.edf"
+  ]
+ },
+ "on005545": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-01/ses-01/ieeg/sub-01_ses-01_task-auditory_run-01_ieeg.edf",
+   "sub-47/ses-02/ieeg/sub-47_ses-02_task-auditory_run-01_ieeg.edf",
+   "sub-99/ses-04/ieeg/sub-99_ses-04_task-auditory_run-01_ieeg.edf"
+  ]
+ },
+ "on005557": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-R1124J/ses-0/ieeg/sub-R1124J_ses-0_task-FR3_acq-bipolar_ieeg.edf",
+   "sub-R1170J/ses-0/ieeg/sub-R1170J_ses-0_task-FR3_acq-monopolar_ieeg.edf",
+   "sub-R1293P/ses-1/ieeg/sub-R1293P_ses-1_task-FR3_acq-monopolar_ieeg.edf",
+   "sub-R1124J/ses-0/ieeg/sub-R1124J_ses-0_task-FR3_acq-monopolar_ieeg.edf"
+  ]
+ },
+ "on005558": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-R1226D/ses-0/ieeg/sub-R1226D_ses-0_task-catFR3_acq-bipolar_ieeg.edf",
+   "sub-R1260D/ses-2/ieeg/sub-R1260D_ses-2_task-catFR3_acq-monopolar_ieeg.edf",
+   "sub-R1286J/ses-1/ieeg/sub-R1286J_ses-1_task-catFR3_acq-monopolar_ieeg.edf",
+   "sub-R1226D/ses-0/ieeg/sub-R1226D_ses-0_task-catFR3_acq-monopolar_ieeg.edf"
+  ]
+ },
+ "on005574": {
+  "version": "v1.0.3",
+  "recordings": [
+   "sub-01/ieeg/sub-01_task-podcast_ieeg.edf",
+   "sub-07/ieeg/sub-07_task-podcast_ieeg.edf",
+   "sub-09/ieeg/sub-09_task-podcast_ieeg.edf"
+  ]
+ },
+ "on005670": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-01/ieeg/sub-01_task-rest_ieeg.edf",
+   "sub-02/ieeg/sub-02_task-rest_ieeg.edf"
+  ]
+ },
+ "on005931": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-01/ses-01/ieeg/sub-01_ses-01_task-game_run-01_ieeg.edf",
+   "sub-05/ses-01/ieeg/sub-05_ses-01_task-game_run-01_ieeg.edf",
+   "sub-08/ses-02/ieeg/sub-08_ses-02_task-game_run-01_ieeg.edf"
+  ]
+ },
+ "on005953": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-01/ses-01/ieeg/sub-01_ses-01_task-visual_run-01_ieeg.vhdr",
+   "sub-02/ses-01/ieeg/sub-02_ses-01_task-visual_run-01_ieeg.vhdr",
+   "sub-02/ses-01/ieeg/sub-02_ses-01_task-visual_run-02_ieeg.vhdr"
+  ]
+ },
+ "on006065": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-UC004/ieeg/sub-UC004_task-clcontrol_ieeg.vhdr",
+   "sub-p17/ieeg/sub-p17_task-restcontrolpre_ieeg.vhdr",
+   "sub-p20/ieeg/sub-p20_task-restcontrolpre_ieeg.vhdr"
+  ]
+ },
+ "on006107": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-01/ses-01/ieeg/sub-01_ses-01_task-sws_run-01_ieeg.edf",
+   "sub-166/ses-01/ieeg/sub-166_ses-01_task-sws_run-01_ieeg.edf",
+   "sub-99/ses-01/ieeg/sub-99_ses-01_task-sws_run-01_ieeg.edf"
+  ]
+ },
+ "on006136": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-MU1/ieeg/sub-MU1_task-OWM_ieeg.edf",
+   "sub-P1/ieeg/sub-P1_task-OWM_ieeg.edf",
+   "sub-P7/ieeg/sub-P7_task-OWM_ieeg.edf"
+  ]
+ },
+ "on006233": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-007/ses-1/ieeg/sub-007_ses-1_task-picture_ieeg.edf",
+   "sub-067/ses-3/ieeg/sub-067_ses-3_task-picture_ieeg.edf",
+   "sub-125/ses-3/ieeg/sub-125_ses-3_task-picture_ieeg.edf"
+  ]
+ },
+ "on006392": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-ieegModulator/ses-ieeg01/ieeg/sub-ieegModulator_ses-ieeg01_task-photicstim_run-01_ieeg.mefd"
+  ]
+ },
+ "on006519": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-01/ses-01/ieeg/sub-01_ses-01_task-dcs_ieeg.vhdr",
+   "sub-11/ses-01/ieeg/sub-11_ses-01_task-dcs_ieeg.vhdr",
+   "sub-23/ses-02/ieeg/sub-23_ses-02_task-dcs_ieeg.vhdr",
+   "sub-21/ses-01/ieeg/sub-21_ses-01_task-dcs_ieeg.vhdr"
+  ]
+ },
+ "on006890": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-monkeyb/ses-day09/ieeg/sub-monkeyb_ses-day09_task-rest_run-01_ieeg.edf",
+   "sub-monkeyc/ses-day120/ieeg/sub-monkeyc_ses-day120_task-rest_run-01_ieeg.edf",
+   "sub-monkeyc/ses-day98/ieeg/sub-monkeyc_ses-day98_task-rest_run-01_ieeg.edf"
+  ]
+ },
+ "on006910": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-001/ses-1/ieeg/sub-001_ses-1_task-auditory_ieeg.edf",
+   "sub-063/ses-2/ieeg/sub-063_ses-2_task-auditory_ieeg.edf",
+   "sub-127/ses-3/ieeg/sub-127_ses-3_task-auditory_ieeg.edf"
+  ]
+ },
+ "on006914": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-007/ses-1/ieeg/sub-007_ses-1_task-picture_ieeg.edf",
+   "sub-068/ses-2/ieeg/sub-068_ses-2_task-picture_ieeg.edf",
+   "sub-127/ses-3/ieeg/sub-127_ses-3_task-picture_ieeg.edf"
+  ]
+ },
+ "on007095": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-01/ses-01/ieeg/sub-01_ses-01_task-seizure_run-01_ieeg.edf",
+   "sub-05/ses-11/ieeg/sub-05_ses-11_task-seizure_run-15_ieeg.edf",
+   "sub-08/ses-39/ieeg/sub-08_ses-39_task-seizure_run-27_ieeg.edf"
+  ]
+ },
+ "on007118": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-001/ses-01/ieeg/sub-001_ses-01_task-sleep_acq-A_run-01_ieeg.edf",
+   "sub-033/ses-01/ieeg/sub-033_ses-01_task-sleep_acq-A_run-02_ieeg.edf",
+   "sub-065/ses-01/ieeg/sub-065_ses-01_task-sleep_acq-A_run-02_ieeg.edf",
+   "sub-027/ses-01/ieeg/sub-027_ses-01_task-sleep_acq-B_run-01_ieeg.edf"
+  ]
+ },
+ "on007119": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-131/ses-01/ieeg/sub-131_ses-01_task-sleep_acq-A_run-01_ieeg.edf",
+   "sub-182/ses-01/ieeg/sub-182_ses-01_task-sleep_acq-A_run-01_ieeg.edf",
+   "sub-233/ses-01/ieeg/sub-233_ses-01_task-sleep_acq-A_run-01_ieeg.edf",
+   "sub-187/ses-01/ieeg/sub-187_ses-01_task-sleep_acq-B_run-01_ieeg.edf"
+  ]
+ },
+ "on007120": {
+  "version": "v1.0.0",
+  "recordings": [
+   "sub-066/ses-01/ieeg/sub-066_ses-01_task-sleep_acq-A_run-01_ieeg.edf",
+   "sub-098/ses-01/ieeg/sub-098_ses-01_task-sleep_acq-A_run-01_ieeg.edf",
+   "sub-130/ses-01/ieeg/sub-130_ses-01_task-sleep_acq-A_run-01_ieeg.edf"
+  ]
+ }
+}

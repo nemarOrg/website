@@ -77,6 +77,10 @@ describe("isAppRoute", () => {
     "/compute/",
     "/compute/jobs/abc",
     "/compute/jobs/job_000000000000000000000001",
+    // A community mail's unsubscribe page and its endpoint (nemar-cli ADR 0132): the backend's
+    // link points at the app host.
+    "/unsubscribe/v1.42.news.7.signature",
+    "/api/mail/unsubscribe",
   ])("treats %s as app", (path) => {
     expect(isAppRoute(path)).toBe(true);
   });
