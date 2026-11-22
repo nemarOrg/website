@@ -128,7 +128,7 @@ jobs:
       # and reasons) and shared/oidc.ts beside it (the page's path). Same `dev` pairing, and strict.
       # test/mail-categories-drift.test.ts is an EIGHTH, against shared/contract/mail-categories.ts
       # (the community mail categories the Settings card and the unsubscribe page read). Same `dev`
-      # pairing, and strict: red until nemar-cli epic #2260 reaches `dev`. The same test also reads
+      # pairing, and strict (nemar-cli epic #2260 reached `dev` in PR #2293). The same test also reads
       # backend/src/services/mail-links.ts (NEMAR_CLI_MAIL_LINKS) to compare the unsubscribe
       # token pattern with the backend's TOKEN_RE.
       # test/compute-terms-contract-drift.test.ts is a NINTH, against shared/contract/compute-terms.ts:
