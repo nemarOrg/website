@@ -1,0 +1,11 @@
+Usage: nemar login [options]
+
+Sign in with your browser (shortcut for 'auth login')
+
+Options:
+  -k, --key <key>  Paste an existing API key instead (alternative:
+                   NEMAR_API_KEY)
+  --no-open        Print the sign-in link instead of trying to open a browser
+  -y, --yes        Skip confirmation and proceed
+  -n, --no         Skip confirmation and decline
+  -h, --help       display help for command

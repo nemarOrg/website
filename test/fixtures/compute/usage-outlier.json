@@ -1,0 +1,56 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-read-fixtures.mjs",
+    "nemar_cli_commit": "e0685a25",
+    "route": "GET /compute/me/usage",
+    "request": "group=day,partition&from=2026-10-09&to=2026-11-07",
+    "note": "One large day (250.000 SU) among days under 1 SU on one partition."
+  },
+  "status": 200,
+  "body": {
+    "from": "2026-10-09",
+    "to": "2026-11-07",
+    "group": [
+      "day",
+      "partition"
+    ],
+    "rows": [
+      {
+        "charged_milli": 500,
+        "jobs": 1,
+        "day": "2026-10-10",
+        "partition": "shared"
+      },
+      {
+        "charged_milli": 750,
+        "jobs": 1,
+        "day": "2026-10-11",
+        "partition": "shared"
+      },
+      {
+        "charged_milli": 400,
+        "jobs": 1,
+        "day": "2026-10-15",
+        "partition": "shared"
+      },
+      {
+        "charged_milli": 250000,
+        "jobs": 1,
+        "day": "2026-10-20",
+        "partition": "shared"
+      },
+      {
+        "charged_milli": 600,
+        "jobs": 1,
+        "day": "2026-10-21",
+        "partition": "shared"
+      },
+      {
+        "charged_milli": 300,
+        "jobs": 1,
+        "day": "2026-11-01",
+        "partition": "shared"
+      }
+    ]
+  }
+}

@@ -1,4 +1,5 @@
 ---
+import { ACCOUNT_COPY } from "../lib/account-copy";
 /**
  * Shared shell for every page under `/admin`. Renders the admin header, the
  * cross-page section nav, and hands off the page body to the default slot.
@@ -18,6 +19,8 @@
  */
 import { ADMIN_TABS, type AdminTab } from "../lib/admin-tabs";
 import type { AuthSession } from "../lib/auth";
+import { fetchComputeRequestsCount } from "../lib/compute-admin-api";
+import { requestsBadge } from "../lib/compute-admin-view";
 import { fetchImportsAttentionCount } from "../lib/imports-admin-api";
 import { fetchUnreadTicketCount } from "../lib/mail-admin-api";
 import { fetchAwaitingApprovalCount } from "../lib/users-admin-api";
@@ -40,17 +43,19 @@ const { title, active } = Astro.props;
 const hasLede = Astro.slots.has("lede");
 
 // Tab badges, rendered from every admin page (not just their own tab) since
-// the shell is shared. All three are fail-soft — neither throws — so a
+// the shell is shared. All four are fail-soft (none throws), so a
 // `nemar-cli` hiccup degrades to "no badge" instead of breaking every admin
 // page's render; see each fetch's docstring for the mirrored contract in
 // observability.ts. Issued together so the deadlines overlap rather
 // than stacking on the critical path of every render.
 const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
-const [usersAwaitingApproval, importsNeedingAttention, unreadTickets] = await Promise.all([
-  fetchAwaitingApprovalCount({ cookieHeader }),
-  fetchImportsAttentionCount({ cookieHeader }),
-  fetchUnreadTicketCount({ cookieHeader }),
-]);
+const [usersAwaitingApproval, importsNeedingAttention, unreadTickets, computeRequests] =
+  await Promise.all([
+    fetchAwaitingApprovalCount({ cookieHeader }),
+    fetchImportsAttentionCount({ cookieHeader }),
+    fetchUnreadTicketCount({ cookieHeader }),
+    fetchComputeRequestsCount({ cookieHeader }),
+  ]);
 
 // What each badge counts, for a screen reader that would otherwise hear a
 // bare number after the tab name.
@@ -58,12 +63,16 @@ const BADGE_WORDS: Partial<Record<AdminTab, string>> = {
   users: "awaiting approval",
   imports: "needing attention",
   mail: "unread",
+  compute: ACCOUNT_COPY["compute_admin.badge.awaiting_decision"],
 };
-function badgeCount(tab: AdminTab): number {
-  if (tab === "users") return usersAwaitingApproval ?? 0;
-  if (tab === "imports") return importsNeedingAttention ?? 0;
-  if (tab === "mail") return unreadTickets ?? 0;
-  return 0;
+// The text of a tab's badge, or null for none. A string, not a number, because the compute count
+// is the length of a served page and reads "50+" when more exist.
+function badgeText(tab: AdminTab): string | null {
+  if (tab === "users") return usersAwaitingApproval ? String(usersAwaitingApproval) : null;
+  if (tab === "imports") return importsNeedingAttention ? String(importsNeedingAttention) : null;
+  if (tab === "mail") return unreadTickets ? String(unreadTickets) : null;
+  if (tab === "compute") return requestsBadge(computeRequests);
+  return null;
 }
 ---
 
@@ -89,9 +98,9 @@ function badgeCount(tab: AdminTab): number {
               aria-current={tab.id === active ? "page" : undefined}
             >
               {tab.label}
-              {Boolean(badgeCount(tab.id)) && (
-                <span class="admin-tabs__badge">
-                  {badgeCount(tab.id)}
+              {badgeText(tab.id) !== null && (
+                <span class="admin-tabs__badge" data-admin-badge={tab.id}>
+                  <span data-badge-count>{badgeText(tab.id)}</span>
                   <span class="visually-hidden"> {BADGE_WORDS[tab.id]}</span>
                 </span>
               )}

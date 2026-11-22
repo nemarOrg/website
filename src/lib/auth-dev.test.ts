@@ -152,6 +152,71 @@ describe("buildDevUser", () => {
   });
 });
 
+describe("buildDevUser: compute-access personas", () => {
+  const CASES: Array<[string, string, string | undefined, string | undefined]> = [
+    ["cnone", "none", undefined, undefined],
+    ["creq", "requested", "2026-10-20 09:30:00", undefined],
+    ["cactive", "active", "2026-10-20 09:30:00", "2026-10-24 14:05:00"],
+    ["csusp", "suspended", "2026-10-20 09:30:00", "2026-10-24 14:05:00"],
+    ["cdenied", "denied", "2026-10-20 09:30:00", undefined],
+    ["crevoked", "revoked", "2026-10-20 09:30:00", "2026-10-24 14:05:00"],
+  ];
+
+  it.each(CASES)(
+    "@nemar.%s carries %s with the stamps the backend keeps",
+    (suffix, state, requested, granted) => {
+      const u = buildDevUser(`Tester@nemar.${suffix}`);
+      expect(u.compute_access).toBe(state);
+      expect(u.compute_access_requested_at).toBe(requested);
+      expect(u.compute_access_granted_at).toBe(granted);
+    },
+  );
+
+  it("gives them a complete profile and the base tier, so only the compute state differs", () => {
+    for (const [suffix] of CASES) {
+      const u = buildDevUser(`t@nemar.${suffix}`);
+      expect(u.status).toBe("active");
+      expect(u.service_access).toBe(false);
+      expect(u.email_verified).toBe(true);
+      for (const field of [
+        "given_name",
+        "family_name",
+        "city",
+        "country",
+        "affiliation",
+      ] as const) {
+        expect(u[field], `${suffix} ${field}`).toBeTruthy();
+      }
+    }
+  });
+
+  it("has an unverified persona that still carries the field", () => {
+    const u = buildDevUser("t@nemar.cpending");
+    expect(u.status).toBe("pending");
+    expect(u.email_verified).toBe(false);
+    expect(u.compute_access).toBe("none");
+  });
+
+  it("leaves every existing persona without compute_access: absent means unknown", () => {
+    for (const suffix of [
+      "example.com",
+      "nemar.admin",
+      "nemar.blank",
+      "nemar.base",
+      "nemar.pending",
+      "nemar.asked",
+      "nemar.new",
+      "nemar.assigned",
+      "nemar.noname",
+    ]) {
+      const u = buildDevUser(`t@${suffix}`);
+      expect(u, suffix).not.toHaveProperty("compute_access");
+      expect(u, suffix).not.toHaveProperty("compute_access_requested_at");
+      expect(u, suffix).not.toHaveProperty("compute_access_granted_at");
+    }
+  });
+});
+
 describe("signDevSession + verifyDevSession round-trip", () => {
   it("verifies a freshly-signed token back to the original user", async () => {
     const user = buildDevUser("alice@example.com");

@@ -13,7 +13,8 @@ export type AdminTab =
   | "imports"
   | "notices"
   | "news"
-  | "mail";
+  | "mail"
+  | "compute";
 
 export interface AdminTabDef {
   readonly id: AdminTab;
@@ -35,6 +36,7 @@ export const ADMIN_TABS: readonly AdminTabDef[] = [
   { id: "notices", label: "Notices", href: "/admin/notices", enabled: true },
   { id: "news", label: "News", href: "/admin/news", enabled: true },
   { id: "mail", label: "Mail", href: "/admin/mail", enabled: true },
+  { id: "compute", label: "Compute", href: "/admin/compute", enabled: true },
 ];
 
 /**

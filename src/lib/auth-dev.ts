@@ -11,6 +11,7 @@
  */
 
 import type { AuthSession, AuthUser } from "./auth";
+import type { ComputeAccessState } from "./compute-access-state";
 
 const DEV_SECRET = "nemar-dev-insecure-key-do-not-use-in-prod";
 const DEV_SESSION_TTL_SECONDS = 7 * 86_400;
@@ -123,6 +124,14 @@ export async function verifyDevSession(token: string): Promise<AuthSession | nul
  * - `@nemar.assigned` is the base tier with a username the BACKEND chose
  *   (`username_auto_assigned`, nemar-cli#1268): `/onboarding` renders the
  *   one-time change offer, which is the only state that reaches it.
+ * - `@nemar.cnone`, `.creq`, `.cactive`, `.csusp`, `.cdenied`, `.crevoked` are
+ *   base-tier accounts with a COMPLETE profile and one compute-access state
+ *   each (none, requested, active, suspended, denied, revoked), with the
+ *   stamps the backend keeps, so the Settings compute card renders every
+ *   state locally. `.cpending` is the unverified tier with the field present,
+ *   for the card's verify-first state. Every OTHER persona carries no
+ *   `compute_access` at all, which is the old-backend case: absent means
+ *   unknown, and the card does not render.
  * - `@nemar.noname` is the stuck state: a VERIFIED ORCID iD whose record
  *   publishes no name. It is the one combination in which neither the name
  *   fields nor the onboarding name step render, so Settings' stuck-state
@@ -148,20 +157,32 @@ export function buildDevUser(email: string): AuthUser {
   // block exists for. Keeps its grant, because the state is reachable from
   // any tier and the block does not depend on one.
   const orcidNoName = lower.endsWith("@nemar.noname");
+  // Compute-access personas (website ADR 0030): a complete profile, so only
+  // the compute state differs between them. `@nemar.cpending` is also the
+  // unverified tier.
+  const computeState = COMPUTE_PERSONAS.find(([suffix]) => lower.endsWith(suffix))?.[1];
+  const computePersona = computeState !== undefined;
+  const unverifiedCompute = lower.endsWith("@nemar.cpending");
   const baseTier =
-    lower.endsWith("@nemar.base") || unverified || asked || fresh || assignedUsername;
+    lower.endsWith("@nemar.base") ||
+    unverified ||
+    asked ||
+    fresh ||
+    assignedUsername ||
+    computePersona;
   // The assigned-username persona keeps a filled profile on purpose: with
   // gaps outstanding /onboarding would render anyway, and the offer would
   // not be the thing under test.
-  const blankProfile = (lower.endsWith("@nemar.blank") || baseTier) && !assignedUsername;
+  const blankProfile =
+    (lower.endsWith("@nemar.blank") || baseTier) && !assignedUsername && !computePersona;
   return {
     id: `dev-${lower.replace(/[^a-z0-9]/g, "_")}`,
     email: lower,
     role: isAdmin ? "admin" : "user",
-    status: unverified ? "pending" : "active",
+    status: unverified || unverifiedCompute ? "pending" : "active",
     // Every road out of `pending` sets this (nemar-cli ADR 0040 phase 2), so
     // the two move together here as well.
-    email_verified: !unverified,
+    email_verified: !(unverified || unverifiedCompute),
     // NULL on a real ORCID/web signup until onboarding fills it in. Empty
     // string rather than omitted so the local session still ANSWERS the
     // question — an omitted key sends `fetchAccountIdentity` to `/users/me`,
@@ -193,7 +214,48 @@ export function buildDevUser(email: string): AuthUser {
     // Absent means "the user chose their own handle", which is every other
     // persona and every account on today's backend.
     ...(assignedUsername ? { username_auto_assigned: true } : {}),
+    ...(computeState ? computeStamps(computeState) : {}),
   };
+}
+
+/** Email suffix to compute state. The order does not matter: no suffix is a
+ *  suffix of another. */
+const COMPUTE_PERSONAS: ReadonlyArray<readonly [string, ComputeAccessState]> = [
+  ["@nemar.cnone", "none"],
+  ["@nemar.cpending", "none"],
+  ["@nemar.creq", "requested"],
+  ["@nemar.cactive", "active"],
+  ["@nemar.csusp", "suspended"],
+  ["@nemar.cdenied", "denied"],
+  ["@nemar.crevoked", "revoked"],
+];
+
+/**
+ * The compute fields a persona carries, shaped as the backend keeps them: the
+ * stamps are history, so a suspended or revoked account still has the grant
+ * time it was once given, and a denied one has the request time. Fixed
+ * timestamps, so a screenshot is stable.
+ */
+function computeStamps(
+  state: ComputeAccessState,
+): Pick<AuthUser, "compute_access" | "compute_access_requested_at" | "compute_access_granted_at"> {
+  const requested = "2026-10-20 09:30:00";
+  const granted = "2026-10-24 14:05:00";
+  switch (state) {
+    case "none":
+      return { compute_access: state };
+    case "requested":
+    case "denied":
+      return { compute_access: state, compute_access_requested_at: requested };
+    case "active":
+    case "suspended":
+    case "revoked":
+      return {
+        compute_access: state,
+        compute_access_requested_at: requested,
+        compute_access_granted_at: granted,
+      };
+  }
 }
 
 /**

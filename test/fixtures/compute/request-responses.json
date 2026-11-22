@@ -1,0 +1,140 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-fixtures.mjs",
+    "nemar_cli_commit": "3a869903",
+    "route": "POST /users/me/compute-access/request",
+    "note": "Real route over a real migrated database. Only requested_at of the two success bodies is pinned to a fixed value. Emails are @example.org."
+  },
+  "purpose_required": {
+    "status": 400,
+    "body": {
+      "error": "purpose_required",
+      "message": "Describe what you intend to compute in 20-1000 characters",
+      "missing": [
+        "purpose"
+      ]
+    }
+  },
+  "terms_not_accepted": {
+    "status": 400,
+    "body": {
+      "error": "terms_not_accepted",
+      "message": "Accept the compute terms (version 2026-11-draft) to request compute access",
+      "missing": [
+        "accept_terms_version"
+      ]
+    }
+  },
+  "email_not_verified": {
+    "status": 400,
+    "body": {
+      "error": "email_not_verified",
+      "message": "Verify your email address before requesting compute access; the review happens over email",
+      "missing": [
+        "email_verified"
+      ]
+    }
+  },
+  "orcid_not_proven": {
+    "status": 400,
+    "body": {
+      "error": "orcid_not_proven",
+      "message": "Prove your ORCID iD by signing in with ORCID before requesting compute access",
+      "missing": [
+        "orcid_verified"
+      ]
+    }
+  },
+  "profile_incomplete": {
+    "status": 400,
+    "body": {
+      "error": "profile_incomplete",
+      "message": "Complete your profile before requesting compute access: given_name, family_name, city, country, affiliation",
+      "missing": [
+        "given_name",
+        "family_name",
+        "city",
+        "country",
+        "affiliation"
+      ]
+    }
+  },
+  "profile_incomplete_affiliation_only": {
+    "status": 400,
+    "body": {
+      "error": "profile_incomplete",
+      "message": "Complete your profile before requesting compute access: affiliation",
+      "missing": [
+        "affiliation"
+      ]
+    }
+  },
+  "access_closed_denied": {
+    "status": 409,
+    "body": {
+      "error": "access_closed",
+      "message": "This request has been answered and cannot be asked again. If you think that is a mistake, contact support and an admin will take another look.",
+      "missing": []
+    }
+  },
+  "access_closed_revoked": {
+    "status": 409,
+    "body": {
+      "error": "access_closed",
+      "message": "This request has been answered and cannot be asked again. If you think that is a mistake, contact support and an admin will take another look.",
+      "missing": []
+    }
+  },
+  "access_closed_suspended": {
+    "status": 409,
+    "body": {
+      "error": "access_closed",
+      "message": "Your compute access is paused. Contact support to find out why or to ask for it to be lifted.",
+      "missing": []
+    }
+  },
+  "already_active": {
+    "status": 409,
+    "body": {
+      "error": "already_active",
+      "message": "This account already has compute access; there is nothing to request",
+      "missing": []
+    }
+  },
+  "terms_unpublished": {
+    "status": 503,
+    "body": {
+      "error": "terms_unpublished",
+      "message": "Compute access is not open yet: the compute terms are not published. Please check back later.",
+      "missing": []
+    }
+  },
+  "created": {
+    "status": 201,
+    "body": {
+      "ok": true,
+      "already_requested": false,
+      "email_sent": true,
+      "admins_notified": 1
+    }
+  },
+  "already_requested": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "already_requested": true,
+      "requested_at": "2026-11-05 12:00:00",
+      "email_sent": true,
+      "admins_notified": null
+    }
+  },
+  "created_unnotified": {
+    "status": 201,
+    "body": {
+      "ok": true,
+      "already_requested": false,
+      "email_sent": false,
+      "admins_notified": 0
+    }
+  }
+}

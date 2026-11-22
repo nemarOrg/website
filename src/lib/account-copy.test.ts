@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ACCOUNT_COPY, type AccountCopyKey, accountCopy, fillCopy } from "./account-copy";
-import { WHY_MAX_CHARS, WHY_MIN_CHARS } from "./account-tier";
+import {
+  COMPUTE_PURPOSE_MAX_CHARS,
+  COMPUTE_PURPOSE_MIN_CHARS,
+  WHY_MAX_CHARS,
+  WHY_MIN_CHARS,
+} from "./account-tier";
 
 const ENTRIES = Object.entries(ACCOUNT_COPY) as Array<[AccountCopyKey, string]>;
 
@@ -58,6 +63,110 @@ describe("the sentences that embed a number", () => {
     expect(ACCOUNT_COPY["upload_access.request.why_hint"]).toBe(
       `Describe what you intend to upload in ${WHY_MIN_CHARS}-${WHY_MAX_CHARS} characters`,
     );
+  });
+});
+
+describe("compute access copy (nemar-cli 3a869903)", () => {
+  /** The 27 non-`cli.` keys the compute epic added to nemar-cli's contract:
+   *  22 `compute_access.*`, the two `gap.blocks` keys and the three
+   *  `gap.field.affiliation.*` keys. */
+  const COMPUTE_KEYS: readonly AccountCopyKey[] = [
+    "compute_access.section.title",
+    "compute_access.section.lede",
+    "compute_access.state.none",
+    "compute_access.state.requested",
+    "compute_access.state.active",
+    "compute_access.state.suspended",
+    "compute_access.state.denied",
+    "compute_access.state.revoked",
+    "compute_access.request.cta",
+    "compute_access.request.form_body",
+    "compute_access.request.purpose_label",
+    "compute_access.request.purpose_hint",
+    "compute_access.request.terms_label",
+    "compute_access.requested.title",
+    "compute_access.requested.lede",
+    "compute_access.requested.lede_dated",
+    "compute_access.requested.body",
+    "compute_access.granted.body",
+    "compute_access.closed.body",
+    "compute_access.suspended.body",
+    "compute_access.terms_unpublished.body",
+    "compute_access.docs_link",
+    "gap.blocks.compute_access",
+    "gap.blocks.noun.compute_access",
+    "gap.field.affiliation.label",
+    "gap.field.affiliation.set_on.web",
+    "gap.field.affiliation.set_on.cli",
+  ];
+
+  it("has all 27 keys, each a non-empty string", () => {
+    expect(COMPUTE_KEYS).toHaveLength(27);
+    for (const key of COMPUTE_KEYS) {
+      expect(Object.hasOwn(ACCOUNT_COPY, key), key).toBe(true);
+      expect(ACCOUNT_COPY[key].trim().length, key).toBeGreaterThan(0);
+    }
+  });
+
+  it("does not carry the CLI's own compute key", () => {
+    // `cli.`-prefixed keys are the CLI's own and the website ignores them.
+    expect(Object.keys(ACCOUNT_COPY).filter((k) => k.startsWith("cli."))).toEqual([]);
+  });
+
+  it("keeps the purpose bounds in step with the constants", () => {
+    // The value is a literal (the drift test reads the nemar-cli file as text);
+    // this is what stops it drifting from the rule it describes.
+    expect(ACCOUNT_COPY["compute_access.request.purpose_hint"]).toBe(
+      `Describe what you intend to compute in ${COMPUTE_PURPOSE_MIN_CHARS}-${COMPUTE_PURPOSE_MAX_CHARS} characters`,
+    );
+  });
+
+  it("keeps the dated lede a template with one `{date}` placeholder", () => {
+    expect(ACCOUNT_COPY["compute_access.requested.lede_dated"]).toBe(
+      "An admin is reviewing your request from {date}.",
+    );
+    expect(fillCopy(ACCOUNT_COPY["compute_access.requested.lede_dated"], { date: "20 Oct" })).toBe(
+      "An admin is reviewing your request from 20 Oct.",
+    );
+  });
+
+  it("keeps the curly apostrophes of the source", () => {
+    // Transcribed exactly: "We’ll" and "there’s" with U+2019, not a straight quote.
+    expect(ACCOUNT_COPY["compute_access.requested.body"]).toContain("We\u2019ll");
+    expect(ACCOUNT_COPY["compute_access.requested.body"]).toContain("there\u2019s");
+  });
+});
+
+describe("compute page copy (nemar-cli epic #2021 phase E2)", () => {
+  /** The seven keys the `/compute` page added to nemar-cli's contract. */
+  const PAGE_KEYS = [
+    "compute_page.frozen.body",
+    "compute_page.units_note",
+    "compute_page.available_note",
+    "compute_page.queue_note",
+    "compute_page.usage_note",
+    "compute_page.unreported_note",
+    "compute_access.granted.link",
+  ] as const;
+
+  it("has all seven keys, each a non-empty string with no placeholder", () => {
+    expect(PAGE_KEYS).toHaveLength(7);
+    for (const key of PAGE_KEYS) {
+      expect(Object.hasOwn(ACCOUNT_COPY, key), key).toBe(true);
+      expect(ACCOUNT_COPY[key].trim().length, key).toBeGreaterThan(0);
+      expect(ACCOUNT_COPY[key], key).not.toMatch(/\{\w+\}/);
+    }
+  });
+
+  it("says jobs are submitted with the command line, not from the website", () => {
+    // The epic builds no web submission; the sentence used to promise one.
+    expect(ACCOUNT_COPY["compute_access.granted.body"]).toContain("`nemar compute` command line");
+    expect(ACCOUNT_COPY["compute_access.granted.body"]).not.toContain("from there");
+  });
+
+  it("promises neither an allocation (the default may be zero) nor a human review", () => {
+    expect(ACCOUNT_COPY["compute_access.granted.body"]).not.toMatch(/allocation/i);
+    expect(ACCOUNT_COPY["compute_page.unreported_note"]).not.toMatch(/administrator|admin/i);
   });
 });
 

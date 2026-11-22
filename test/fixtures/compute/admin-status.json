@@ -1,0 +1,158 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-admin-fixtures.mjs",
+    "nemar_cli_commit": "81d4e050",
+    "route": "GET /admin/compute/status",
+    "note": "Real routes over a real migrated database. Wall-clock stamps are pinned to fixed values and job ids to a stable sequence. Emails are @example.org."
+  },
+  "compute_off": {
+    "status": 200,
+    "body": {
+      "switches": {
+        "environment": "other",
+        "compute_enabled": false,
+        "pipelines_dispatch_enabled": false
+      },
+      "tapis": {
+        "configured": false,
+        "strategy": null,
+        "problems": [
+          "TAPIS_AUTH_STRATEGY:missing",
+          "TAPIS_TENANT_ID:missing"
+        ],
+        "token": "unconfigured",
+        "health": "ok"
+      },
+      "storage": {
+        "records_binding": true,
+        "results_binding": true,
+        "signing_configured": true
+      },
+      "access": {
+        "key_configured": false,
+        "resource_name_configured": false
+      },
+      "runtime_image": {
+        "set": true,
+        "valid": true,
+        "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "prerequisites": {
+        "callback_secret": true,
+        "api_base_url": true,
+        "pipelines_account": false,
+        "policy_set": false,
+        "people_pool_granted": true,
+        "pipelines_pool_granted": false
+      },
+      "reconciliation": {
+        "paused": true
+      },
+      "attention": {
+        "access_reports_failed": 0,
+        "cancel_pending_failed": 0,
+        "copy_abandoned": 0,
+        "runner_cancel_pending_failed": 0,
+        "runner_copy_abandoned": 0,
+        "runner_records_unwritten": 0,
+        "runner_waiting_stale": 0,
+        "partner_capped_no_final": 0,
+        "tenant_over_ceiling": 0,
+        "policy_unreadable": 0
+      },
+      "tenant": {
+        "ceiling": 20,
+        "occupied": 0,
+        "by_class": {
+          "people": 0,
+          "pipelines": 0,
+          "partner": 0,
+          "other": 0
+        },
+        "reserved": {
+          "people": 8,
+          "pipelines": 2,
+          "partner": 0
+        }
+      }
+    }
+  },
+  "attention": {
+    "status": 200,
+    "body": {
+      "switches": {
+        "environment": "other",
+        "compute_enabled": false,
+        "pipelines_dispatch_enabled": false
+      },
+      "tapis": {
+        "configured": false,
+        "strategy": null,
+        "problems": [
+          "TAPIS_AUTH_STRATEGY:missing",
+          "TAPIS_TENANT_ID:missing"
+        ],
+        "token": "unconfigured",
+        "health": "ok"
+      },
+      "storage": {
+        "records_binding": true,
+        "results_binding": true,
+        "signing_configured": true
+      },
+      "access": {
+        "key_configured": false,
+        "resource_name_configured": false
+      },
+      "runtime_image": {
+        "set": true,
+        "valid": true,
+        "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "prerequisites": {
+        "callback_secret": true,
+        "api_base_url": true,
+        "pipelines_account": false,
+        "policy_set": false,
+        "people_pool_granted": true,
+        "pipelines_pool_granted": false
+      },
+      "reconciliation": {
+        "paused": true
+      },
+      "attention": {
+        "access_reports_failed": 0,
+        "cancel_pending_failed": 1,
+        "copy_abandoned": 0,
+        "runner_cancel_pending_failed": 0,
+        "runner_copy_abandoned": 0,
+        "runner_records_unwritten": 0,
+        "runner_waiting_stale": 0,
+        "partner_capped_no_final": 0,
+        "tenant_over_ceiling": 0,
+        "policy_unreadable": 0
+      },
+      "tenant": {
+        "ceiling": 20,
+        "occupied": 1,
+        "by_class": {
+          "people": 1,
+          "pipelines": 0,
+          "partner": 0,
+          "other": 0
+        },
+        "reserved": {
+          "people": 8,
+          "pipelines": 2,
+          "partner": 0
+        }
+      }
+    }
+  },
+  "member": {
+    "status": 403,
+    "body": {
+      "error": "Admin access required"
+    }
+  }
+}

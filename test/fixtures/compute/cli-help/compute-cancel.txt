@@ -1,0 +1,26 @@
+Usage: nemar compute cancel [options] <job>
+
+Cancel one of your jobs
+
+Arguments:
+  job  The job id
+
+Options:
+  --yes       Do not ask first
+  --json      Print only the answer, as JSON
+  -h, --help  display help for command
+
+Description:
+  Stops one of your jobs. A job that has not started is released and costs nothing; a job that is running
+  is stopped and charged for the time it used. A job that has already ended is left as it is and the
+  answer says so. It asks you to confirm; --yes skips the question (it is required with --json or when
+  there is no terminal to ask).
+
+Exit codes:
+  0  the job was canceled, a cancel was recorded, or the job had already ended.
+  1  you are not signed in, there is no such job of yours, you answered no, or NEMAR could not answer.
+  2  the job id is not valid, or there is no terminal to ask and --yes was not given (nothing about the job was sent).
+
+Examples:
+  $ nemar compute cancel job_0123456789abcdef01234567
+  $ nemar compute cancel job_0123456789abcdef01234567 --yes --json

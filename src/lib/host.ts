@@ -79,6 +79,10 @@ const APP_ROUTE_PREFIXES: readonly string[] = [
   // session's own account through the `Domain=app.nemar.org` cookie.
   "/onboarding",
   "/dashboard",
+  // Compute dashboard (website ADR 0030 phase E2): balances, usage and jobs of the signed-in
+  // account, read with the app-host session cookie. `/compute/jobs/<id>` (phase E3) is covered
+  // by the same prefix; `/computex` is not.
+  "/compute",
   "/upload",
   "/admin",
   "/settings",

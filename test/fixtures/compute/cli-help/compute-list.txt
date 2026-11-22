@@ -1,0 +1,24 @@
+Usage: nemar compute list [options]
+
+List your compute jobs
+
+Options:
+  --state <state>  Only jobs in this state
+  --limit <n>      Jobs per page (1-100, default 25)
+  --all            Read every page
+  --json           Print the Worker's answer as JSON
+  -h, --help       display help for command
+
+Description:
+  Lists your compute jobs, newest first, from every front door (this command line, the website and a
+  partner site). By default one page of 25; --limit sets the page size (1 to 100) and --all
+  reads every page. --state keeps one state (created, uploading, submitted, queued, running, archiving, finished, failed, cancelled, unreported).
+
+Exit codes:
+  0  the list was read (an empty list is a list).
+  1  you are not signed in, an option is not valid, or the list could not be read.
+
+Examples:
+  $ nemar compute list
+  $ nemar compute list --state running
+  $ nemar compute list --all --json
