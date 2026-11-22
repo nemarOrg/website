@@ -33,7 +33,8 @@
  *   results.json            GET and POST renew of a finished job, a second page by cursor (a job with
  *                           more outputs than one page; the first page is summarized, not stored),
  *                           the expired and the not-finished refusals
- *   cancel.json             POST /compute/jobs/:id/cancel: each outcome the route gives
+ *   cancel.json             POST /compute/jobs/:id/cancel: each outcome the route gives, a waiting
+ *                           runner job's `cancelled` included
  *   errors-job.json         job_not_found for a foreign, an absent and a malformed id, on every
  *                           job route; the credential refusals
  *
@@ -463,11 +464,28 @@ const cancelNeverStarted = asJson(
 const cancelEnded = asJson(
   await call("POST", `/jobs/${endedWithLog.job.id}/cancel`, endedWithLog.key),
 );
+// A runner job nobody has claimed yet (portable compute): the route ends it in the call, so the outcome
+// is `cancelled`, not `cancel_requested`. A runner job is a pipeline job (the table's CHECK), written with
+// `insertJob` and then given the runner executor and no accounting, the two columns the cancel reads.
+const waitingRunnerId = insertJob(db, {
+  account_id: owner.id,
+  source: "pipeline",
+  state: "created",
+  created_at: T.created,
+});
+db.query("UPDATE compute_jobs SET executor = 'runner', accounting = 'none' WHERE id = ?").run(
+  waitingRunnerId,
+);
+const cancelWaitingRunner = asJson(await call("POST", `/jobs/${waitingRunnerId}/cancel`, ownerKey));
+const cancelWaitingRunnerAgain = asJson(
+  await call("POST", `/jobs/${waitingRunnerId}/cancel`, ownerKey),
+);
+const readWaitingRunner = asJson(await readJob(waitingRunnerId));
 const cancel = {
   _provenance: provenance(
     "POST /compute/jobs/:id/cancel",
-    "a running job twice, a running job while the cluster cannot be reached, a job that never started, a finished job",
-    "Real route, no body, no key. A cancel never refuses by state: an ended job answers 200 `already_ended` with `cancelled: false`. The Tapis stand-in carries out the cancel of a running job at once, so the state is already `cancelled`; with the stand-in down the intent is recorded and the job stays live (`cluster_down`).",
+    "a running job twice, a running job while the cluster cannot be reached, a job that never started, a finished job, a runner job still waiting to be claimed (twice)",
+    "Real route, no body, no key. A cancel never refuses by state: an ended job answers 200 `already_ended` with `cancelled: false`. The Tapis stand-in carries out the cancel of a running job at once, so the state is already `cancelled`; with the stand-in down the intent is recorded and the job stays live (`cluster_down`). A runner job nobody has claimed is ended in the call (`waiting_runner`: outcome `cancelled`); it is a row written by `insertJob` with the runner executor, so its read-after time `ended_at` is fresh on every run.",
   ),
   running: cancelRunning,
   running_again: cancelAgain,
@@ -477,6 +495,9 @@ const cancel = {
   cluster_down_read_after: readClusterDown,
   never_started: cancelNeverStarted,
   finished: cancelEnded,
+  waiting_runner: cancelWaitingRunner,
+  waiting_runner_again: cancelWaitingRunnerAgain,
+  waiting_runner_read_after: readWaitingRunner,
 };
 
 // --- Refusals -----------------------------------------------------------------------------------------

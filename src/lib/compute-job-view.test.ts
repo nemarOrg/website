@@ -515,6 +515,12 @@ describe("cancelOutcome", () => {
     expect(ended.kind).toBe("ended");
     expect(ended.sentence).toBe("The job had already ended (finished); nothing was canceled.");
     expect(ended.poll).toBe(false);
+    // A runner job nobody had claimed is ended in the call: outcome `cancelled`, final, no polling.
+    expect((cancelFx.waiting_runner as { body: { outcome: string } }).body.outcome).toBe(
+      "cancelled",
+    );
+    expect(fx("waiting_runner")).toMatchObject({ kind: "canceled", poll: false });
+    expect(fx("waiting_runner_again")).toMatchObject({ kind: "canceled", poll: false });
   });
 
   it("words the rows the stand-in cannot make", () => {
@@ -534,11 +540,6 @@ describe("cancelOutcome", () => {
     expect(
       cancelOutcome({ state: "running", outcome: "something_new", cancelled: true }).kind,
     ).toBe("unknown");
-    // A waiting runner job is ended in the call: `cancelled` is final, whatever state came back.
-    expect(cancelOutcome({ ...live, outcome: "cancelled" })).toMatchObject({
-      kind: "canceled",
-      poll: false,
-    });
   });
 
   it("always asks for the job to be read again and promises no amount", () => {
