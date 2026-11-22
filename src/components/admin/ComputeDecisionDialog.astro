@@ -10,6 +10,12 @@
  * administrator reads comes from the copy: the four titles and consequence lists are rendered here
  * and shown one at a time, and the page script fills only the subject (text nodes).
  *
+ *  - a notice to the person, the text the decision mail carries: required for a SUSPEND and a
+ *    REVOKE, optional for a DENY, and not shown for a GRANT (which refuses one). The check is
+ *    `computeAccessNoticeProblem`, the transcription of nemar-cli's rule (at most 1000 code points
+ *    after trimming, newline and tab allowed, other control characters refused, only whitespace
+ *    counts as none); the confirm button stays disabled while it finds a problem, and the line
+ *    under the field says which;
  *  - an optional reason, at most 500 characters counted as UTF-16 code units (the server's
  *    count), with the line saying it is recorded in the audit log and not sent to the person;
  *  - for a GRANT only, an unticked acknowledgement that the person's name, affiliation and stated
@@ -22,11 +28,12 @@
  *
  * Events (the style of `ConfirmDialog.astro`):
  *   in   `nemar:compute-decision-open`    { id, decision, label, opener, subject: { account, country, affiliation } }
- *   out  `nemar:compute-decision-confirm` { id, decision, reason }
+ *   out  `nemar:compute-decision-confirm` { id, decision, reason, notice }  (notice undefined for a grant)
  */
 import { ACCOUNT_COPY, fillCopy } from "../../lib/account-copy";
 import {
   COMPUTE_ACCESS_DECISIONS,
+  COMPUTE_ACCESS_NOTICE_MAX_CHARS,
   COMPUTE_ACCESS_REASON_MAX_CHARS,
 } from "../../lib/compute-admin-contract";
 import { REVOKE_CONFIRM_WORD } from "../../lib/compute-admin-view";
@@ -55,6 +62,7 @@ const typeWord = fillCopy(ACCOUNT_COPY["compute_admin.dialog.type_word"], {
   data-compute-dialog
   data-reason-max={COMPUTE_ACCESS_REASON_MAX_CHARS}
   data-reason-count-template={ACCOUNT_COPY["compute_admin.dialog.reason_count"]}
+  data-notice-max={COMPUTE_ACCESS_NOTICE_MAX_CHARS}
   data-revoke-word={REVOKE_CONFIRM_WORD}
 >
   <form class="compute-dialog__form" method="dialog" data-compute-form>
@@ -85,6 +93,32 @@ const typeWord = fillCopy(ACCOUNT_COPY["compute_admin.dialog.type_word"], {
         <dd data-subject="affiliation"></dd>
       </div>
     </dl>
+
+    <div class="compute-dialog__field" data-notice-field hidden>
+      <label for={`${DIALOG_ID}-notice`}>
+        <span data-notice-label="required">{ACCOUNT_COPY["compute_admin.dialog.notice_label"]}</span>
+        <span data-notice-label="optional" hidden>
+          {ACCOUNT_COPY["compute_admin.dialog.notice_label_optional"]}
+        </span>
+      </label>
+      <textarea
+        id={`${DIALOG_ID}-notice`}
+        class="compute-dialog__reason"
+        rows="4"
+        autocomplete="off"
+        spellcheck="true"
+        aria-describedby={`${DIALOG_ID}-notice-help ${DIALOG_ID}-notice-count ${DIALOG_ID}-notice-problem`}
+        data-notice></textarea>
+      <p class="compute-dialog__hint" id={`${DIALOG_ID}-notice-help`}>
+        {ACCOUNT_COPY["compute_admin.dialog.notice_help"]}
+      </p>
+      <p class="compute-dialog__hint" id={`${DIALOG_ID}-notice-count`} data-notice-count></p>
+      <p
+        class="compute-dialog__hint compute-dialog__problem"
+        id={`${DIALOG_ID}-notice-problem`}
+        aria-live="polite"
+        data-notice-problem></p>
+    </div>
 
     <div class="compute-dialog__field">
       <label for={`${DIALOG_ID}-reason`}>{ACCOUNT_COPY["compute_admin.dialog.reason_label"]}</label>
@@ -212,6 +246,13 @@ const typeWord = fillCopy(ACCOUNT_COPY["compute_admin.dialog.type_word"], {
     font-size: var(--fs-xs);
     color: var(--color-fg-muted);
   }
+  .compute-dialog__problem:empty {
+    display: none;
+  }
+  .compute-dialog__problem {
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+  }
   .compute-dialog__check {
     display: flex;
     gap: var(--space-3);
@@ -279,7 +320,14 @@ const typeWord = fillCopy(ACCOUNT_COPY["compute_admin.dialog.type_word"], {
 </style>
 
 <script>
-  import { fillCopy } from "../../lib/account-copy";
+  import { ACCOUNT_COPY, fillCopy } from "../../lib/account-copy";
+  import { noticeProblemText } from "../../lib/compute-admin-api";
+  import {
+    COMPUTE_ACCESS_NOTICE_RULE,
+    type ComputeAccessDecision,
+    type ComputeAccessNoticeProblem,
+    computeAccessNoticeProblem,
+  } from "../../lib/compute-admin-contract";
 
   const dialog = document.querySelector<HTMLDialogElement>("[data-compute-dialog]");
   if (dialog) {
@@ -293,6 +341,12 @@ const typeWord = fillCopy(ACCOUNT_COPY["compute_admin.dialog.type_word"], {
     const revokeOnly = dialog.querySelector<HTMLElement>("[data-revoke-only]");
     const revokeInput = dialog.querySelector<HTMLInputElement>("[data-revoke-input]");
     const blocks = Array.from(dialog.querySelectorAll<HTMLElement>("[data-decision-block]"));
+    const noticeField = dialog.querySelector<HTMLElement>("[data-notice-field]");
+    const notice = dialog.querySelector<HTMLTextAreaElement>("[data-notice]");
+    const noticeCounter = dialog.querySelector<HTMLElement>("[data-notice-count]");
+    const noticeProblemLine = dialog.querySelector<HTMLElement>("[data-notice-problem]");
+    const noticeLabels = Array.from(dialog.querySelectorAll<HTMLElement>("[data-notice-label]"));
+    const noticeMax = Number(dialog.dataset.noticeMax) || 1000;
     const max = Number(dialog.dataset.reasonMax) || 500;
     const countTemplate = dialog.dataset.reasonCountTemplate ?? "";
     const revokeWord = dialog.dataset.revokeWord ?? "";
@@ -313,6 +367,44 @@ const typeWord = fillCopy(ACCOUNT_COPY["compute_admin.dialog.type_word"], {
       const el = dialog?.querySelector<HTMLElement>(`[data-subject="${key}"]`);
       if (el) el.textContent = text;
     }
+    function noticeRule(): "required" | "optional" | "refused" | null {
+      if (!current) return null;
+      return COMPUTE_ACCESS_NOTICE_RULE[current.decision as ComputeAccessDecision] ?? null;
+    }
+    // What the notice would be sent as: nothing at all for a grant, which refuses one.
+    function noticeValue(): string | undefined {
+      const rule = noticeRule();
+      return rule === null || rule === "refused" ? undefined : (notice?.value ?? "");
+    }
+    function noticeProblem(): ComputeAccessNoticeProblem | null {
+      if (!current || noticeRule() === null) return "notice_required";
+      return computeAccessNoticeProblem(current.decision as ComputeAccessDecision, noticeValue());
+    }
+    // The count is the rule's: code points after trimming.
+    function syncNotice(): void {
+      if (!notice) return;
+      if (noticeCounter) {
+        noticeCounter.textContent = fillCopy(countTemplate, {
+          count: String([...notice.value.trim()].length),
+          max: String(noticeMax),
+        });
+      }
+      const problem = noticeRule() === "refused" ? null : noticeProblem();
+      if (noticeProblemLine) {
+        // An empty required notice is an instruction, not an error yet.
+        noticeProblemLine.textContent =
+          problem === null
+            ? ""
+            : problem === "notice_required"
+              ? ACCOUNT_COPY["compute_admin.dialog.notice_required_hint"]
+              : noticeProblemText(problem);
+      }
+      if (problem !== null && problem !== "notice_required") {
+        notice.setAttribute("aria-invalid", "true");
+      } else {
+        notice.removeAttribute("aria-invalid");
+      }
+    }
     function syncCount(): void {
       if (!counter || !reason) return;
       // `.length` is the UTF-16 length, which is what the server counts.
@@ -326,10 +418,15 @@ const typeWord = fillCopy(ACCOUNT_COPY["compute_admin.dialog.type_word"], {
       if (!confirm || !current) return;
       const ackOk = current.decision !== "grant" || ack?.checked === true;
       const typedOk = current.decision !== "revoke" || revokeInput?.value === revokeWord;
-      confirm.disabled = !(ackOk && typedOk);
+      const noticeOk = noticeProblem() === null;
+      confirm.disabled = !(ackOk && typedOk && noticeOk);
     }
 
     reason?.addEventListener("input", syncCount);
+    notice?.addEventListener("input", () => {
+      syncNotice();
+      syncConfirm();
+    });
     ack?.addEventListener("change", syncConfirm);
     revokeInput?.addEventListener("input", syncConfirm);
     cancel?.addEventListener("click", () => dialog.close("cancel"));
@@ -360,11 +457,22 @@ const typeWord = fillCopy(ACCOUNT_COPY["compute_admin.dialog.type_word"], {
       setSubject("affiliation", detail.subject.affiliation);
       confirm.textContent = detail.label;
       if (reason) reason.value = "";
+      if (notice) notice.value = "";
+      const rule = noticeRule();
+      if (noticeField) noticeField.hidden = rule === null || rule === "refused";
+      if (notice) {
+        if (rule === "required") notice.setAttribute("aria-required", "true");
+        else notice.removeAttribute("aria-required");
+      }
+      for (const label of noticeLabels) {
+        label.hidden = label.dataset.noticeLabel !== (rule === "optional" ? "optional" : "required");
+      }
       if (ack) ack.checked = false;
       if (revokeInput) revokeInput.value = "";
       if (grantOnly) grantOnly.hidden = detail.decision !== "grant";
       if (revokeOnly) revokeOnly.hidden = detail.decision !== "revoke";
       syncCount();
+      syncNotice();
       syncConfirm();
       // An Escape close leaves the last returnValue, so a stale "confirm" would fire on the next
       // Escape. Start every opening from nothing.
@@ -383,6 +491,7 @@ const typeWord = fillCopy(ACCOUNT_COPY["compute_admin.dialog.type_word"], {
               id: current.id,
               decision: current.decision,
               reason: reason?.value ?? "",
+              notice: noticeValue(),
             },
           }),
         );
