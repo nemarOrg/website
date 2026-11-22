@@ -23,6 +23,7 @@ The release pull request from `staging` to `main` moves those entries under the 
   A decision is never retried: after a lost answer the page says the result is not confirmed and reads the account again.
   After a decision the tab's count goes down and a card that no longer matches the filter moves to a "Decided on this page" group, and the result is announced to screen readers.
   Read-only views show the pools, the quarterly usage counts, flagged jobs (unreserved, unattributed, mismatch, overrun) and reconciliation status with the unmatched accounting rows; each read fails alone.
+  A runner job (portable compute) in the flagged list shows its executor under the front door (`runner, local`), and a job with no service-unit accounting prints the word `none` for held and charged instead of zeros.
   Where the API serves nothing yet (platform usage by day, the difference between NEMAR's ledger and the scheduler's accounting) the section says so and links the tracking issue (nemar-cli#2083, #2084).
   The tab's badge is the number of requests in the first 50 rows (`50+` when there are more), fail-soft.
   The suspend and revoke dialogs and the mismatch flag explain how a partner reservation is handled.

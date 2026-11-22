@@ -472,7 +472,10 @@ if (view === "drift") {
                         <th scope="row" class="mono">{m.id}</th>
                         <td class="nowrap">{m.flags.join(", ")}</td>
                         <td>{m.account}</td>
-                        <td>{m.source}</td>
+                        <td>
+                          {m.source}
+                          {m.executor && <span class="compute-executor mono">{m.executor}</span>}
+                        </td>
                         <td>{m.partition}</td>
                         <td>{m.pool}</td>
                         <td><ComputePill tone={badge.tone} icon={badge.icon} label={badge.label} /></td>
@@ -876,6 +879,10 @@ if (view === "drift") {
   .compute-table .mono {
     font-family: var(--font-mono);
     font-size: var(--fs-xs);
+  }
+  .compute-table .compute-executor {
+    display: block;
+    color: var(--color-fg-muted);
   }
   .compute-table-wrap:focus-visible {
     outline: 2px solid var(--color-focus);

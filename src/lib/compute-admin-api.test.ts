@@ -145,6 +145,19 @@ describe("each reader parses its captured fixture", () => {
       )
     ).jobs.find((j) => j.source === "partner");
     expect(partner).toMatchObject({ partner_state: "mismatch", partner_flag: "owner_mismatch" });
+    // A runner job carries who ran it and how it is accounted; a Tapis row reads `tapis` and `su`.
+    const runner = await listComputeJobs(
+      { flag: "mismatch" },
+      { fetch: recorder(() => captured(flagged.runner)).fetchImpl },
+    );
+    expect(runner.jobs[0]).toMatchObject({
+      executor: "runner",
+      accounting: "none",
+      runner_backend: "local",
+      held_milli: 0,
+      charged_milli: 0,
+    });
+    expect(partner).toMatchObject({ executor: "tapis", accounting: "su", runner_backend: null });
     const um = await listUnmatchedAccounting(100, {
       fetch: recorder(() => captured(unmatched.list)).fetchImpl,
     });

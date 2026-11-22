@@ -21,7 +21,7 @@
  *   admin-access-list.json       GET /admin/compute/access, every state, a page, empty, refused
  *   admin-access-decisions.json  POST /admin/compute/access/<decision>/by-id/<id>, every outcome
  *   admin-pools.json             GET /admin/compute/pools, each holder kind
- *   admin-jobs-flagged.json      GET /admin/compute/jobs?flag=, one page per flag
+ *   admin-jobs-flagged.json      GET /admin/compute/jobs?flag=, one page per flag, and a runner job
  *   admin-jobs-unmatched.json    GET /admin/compute/jobs?unmatched=1
  *   admin-access-report.json     GET /admin/compute/access-report
  *   admin-status.json            GET /admin/compute/status
@@ -536,6 +536,35 @@ await world();
   status.member = await call("GET", "/status", "member", undefined, { env: off });
 }
 files["admin-status.json"] = status;
+
+// --- 6. A runner job in the flagged list ----------------------------------------------------------
+
+// Last, so the stable job ids above do not move. A runner job (portable compute) is a pipeline job run by
+// a registered runner with no service-unit accounting. No path at this commit flags one; the flag is set
+// by SQL as for the rows above, so the list shows how a runner row is served: `executor: "runner"`,
+// `accounting: "none"`, nothing held or charged. The row is written by the backend's `insertJob` (no
+// ledger entry, as for a job with no accounting), then given the runner columns.
+await world();
+{
+  const { insertJob } = await load("backend/test/helpers/compute-user-seed.ts");
+  const runnerJob = insertJob(db, {
+    account_id: ids.member,
+    source: "pipeline",
+    state: "failed",
+    failure_code: "runner_lost",
+    platform_failure: 1,
+    flag_mismatch: 1,
+    started_at: "2026-11-06 09:02:00",
+    ended_at: "2026-11-06 09:32:00",
+  });
+  sql(
+    `UPDATE compute_jobs SET executor = 'runner', accounting = 'none', runner_backend = 'local',
+       failure_detail = 'lease_expired', runner_wall_seconds = 1800, runner_cpu_seconds = 5400,
+       runner_max_rss_mb = 2048 WHERE id = ?`,
+    runnerJob,
+  );
+  jobs.runner = await call("GET", "/jobs?flag=mismatch&limit=50", "admin");
+}
 
 // --- Write ---------------------------------------------------------------------------------------
 

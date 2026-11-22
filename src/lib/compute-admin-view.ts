@@ -568,9 +568,15 @@ export interface JobRowModel {
   readonly account: string;
   readonly flags: readonly string[];
   readonly source: string;
+  /**
+   * Who ran the job, for a job that is not a Tapis one: the executor word and, where served, the
+   * runner's backend (`runner, local`). Null for a Tapis job, which every row was before runners.
+   */
+  readonly executor: string | null;
   readonly partition: string;
   readonly pool: string;
   readonly state: string;
+  /** The charge in SU, or the accounting word itself (`none`) for a job with no SU accounting. */
   readonly charged: string;
   readonly held: string;
   readonly platformFailure: boolean;
@@ -583,6 +589,17 @@ export interface JobRowModel {
 export function jobRowModel(job: ComputeJobRow): JobRowModel {
   const created = parseBackendTimestamp(job.created_at);
   const ended = parseBackendTimestamp(job.ended_at);
+  // A job outside the SU ledger holds and is charged nothing: its zeros are not a charge, so the
+  // accounting word is printed in their place (the API's own word, as for any word without copy).
+  const su = job.accounting === "su";
+  const noSu = displaySafeLine(job.accounting);
+  const executor =
+    job.executor === "tapis"
+      ? null
+      : [job.executor, job.runner_backend]
+          .filter((p): p is string => p !== null && p.length > 0)
+          .map((p) => displaySafeLine(p))
+          .join(", ");
   const failureParts = [job.failure_code, job.failure_detail]
     .map((p) => displaySafeLine((p ?? "").trim()))
     .filter((p) => p.length > 0);
@@ -594,11 +611,12 @@ export function jobRowModel(job: ComputeJobRow): JobRowModel {
         : fillCopy(ACCOUNT_COPY["compute_admin.ref.account"], { id: String(job.account_id) }),
     flags: job.flags.map(flagLabel),
     source: displaySafeLine(job.source),
+    executor,
     partition: displaySafeLine(job.partition),
     pool: displaySafeLine(job.pool),
     state: job.state,
-    charged: formatSu(job.charged_milli),
-    held: formatSu(job.held_milli),
+    charged: su ? formatSu(job.charged_milli) : noSu,
+    held: su ? formatSu(job.held_milli) : noSu,
     platformFailure: job.platform_failure,
     failure: failureParts.length > 0 ? failureParts.join(": ") : null,
     partner:

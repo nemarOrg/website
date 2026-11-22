@@ -21,7 +21,9 @@ import {
   COMPUTE_ACCESS_PAGE_MAX,
   COMPUTE_ACCESS_REASON_MAX_CHARS,
   COMPUTE_ACCESS_TRANSITIONS,
+  COMPUTE_ACCOUNTING,
   COMPUTE_DECISION_TARGET,
+  COMPUTE_EXECUTORS,
   COMPUTE_JOB_FLAGS,
   COMPUTE_POOLS_PAGE_MAX,
   COMPUTE_POOL_HOLDER_KINDS,
@@ -151,6 +153,8 @@ describe.skipIf(SHOULD_SKIP)("against nemar-cli's compute contracts", () => {
         extractStringArray(admin, "COMPUTE_POOL_HOLDER_KINDS"),
       ],
       ["COMPUTE_JOB_FLAGS", COMPUTE_JOB_FLAGS, extractStringArray(state, "COMPUTE_JOB_FLAGS")],
+      ["COMPUTE_EXECUTORS", COMPUTE_EXECUTORS, extractStringArray(state, "COMPUTE_EXECUTORS")],
+      ["COMPUTE_ACCOUNTING", COMPUTE_ACCOUNTING, extractStringArray(state, "COMPUTE_ACCOUNTING")],
     ];
     const differences = lists
       .map(([name, ours, theirs]) => compareLists(name, ours, theirs))

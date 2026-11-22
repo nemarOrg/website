@@ -384,6 +384,12 @@ export interface ComputeJobRow {
   readonly ended_at: string | null;
   readonly partner_state: string | null;
   readonly partner_flag: string | null;
+  /** `tapis` or `runner` (portable compute); an API older than runners sends none, read as `tapis`. */
+  readonly executor: string;
+  /** `su` (service units, held and charged) or `none` (no ledger entry); absent reads as `su`. */
+  readonly accounting: string;
+  /** Where a runner job executes (`local`, `slurm`); null for a Tapis job. */
+  readonly runner_backend: string | null;
 }
 
 export function parseJobRow(value: unknown): ComputeJobRow {
@@ -406,6 +412,9 @@ export function parseJobRow(value: unknown): ComputeJobRow {
     ended_at: strOrNull(o.ended_at),
     partner_state: strOrNull(o.partner_state),
     partner_flag: strOrNull(o.partner_flag),
+    executor: strOrNull(o.executor) ?? "tapis",
+    accounting: strOrNull(o.accounting) ?? "su",
+    runner_backend: strOrNull(o.runner_backend),
   };
 }
 

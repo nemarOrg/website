@@ -81,3 +81,11 @@ export type ComputePoolHolderKind = (typeof COMPUTE_POOL_HOLDER_KINDS)[number];
 /** What an administrator is told about a job, besides its state. The API takes ONE per call. */
 export const COMPUTE_JOB_FLAGS = ["unreserved", "unattributed", "mismatch", "overrun"] as const;
 export type ComputeJobFlag = (typeof COMPUTE_JOB_FLAGS)[number];
+
+/** Who runs a job (nemar-cli `shared/compute-state.ts`): Tapis on an allocation, or a runner. */
+export const COMPUTE_EXECUTORS = ["tapis", "runner"] as const;
+export type ComputeExecutor = (typeof COMPUTE_EXECUTORS)[number];
+
+/** How a job is accounted: `su` is the ledger in service units, `none` writes no ledger entry. */
+export const COMPUTE_ACCOUNTING = ["su", "none"] as const;
+export type ComputeAccounting = (typeof COMPUTE_ACCOUNTING)[number];

@@ -360,7 +360,7 @@ describe("pool rows", () => {
 });
 
 describe("job rows", () => {
-  const job = (flag: "unreserved" | "mismatch" | "overrun") =>
+  const job = (flag: "unreserved" | "mismatch" | "overrun" | "runner") =>
     parseJobsPage((flagged as unknown as Record<string, { body: unknown }>)[flag].body).jobs.map(
       jobRowModel,
     );
@@ -398,6 +398,33 @@ describe("job rows", () => {
   });
   it("prints charged and held through formatSu", () => {
     expect(job("overrun")[0].charged).toMatch(/^\d+(\.\d+)?$/);
+    expect(job("overrun")[0].executor).toBeNull();
+  });
+  it("shows a runner job as one: its executor, and no SU figures for accounting none", () => {
+    const [r] = job("runner");
+    expect(r).toMatchObject({
+      source: "pipeline",
+      executor: "runner, local",
+      charged: "none",
+      held: "none",
+      platformFailure: true,
+      failure: "runner_lost: lease_expired",
+    });
+    // An older API sends no executor or accounting: the row reads as the Tapis/SU row it was.
+    const {
+      executor: _e,
+      accounting: _a,
+      runner_backend: _b,
+      ...older
+    } = (flagged.overrun.body.jobs as unknown as Record<string, unknown>[])[0];
+    const old = jobRowModel(parseJobsPage({ jobs: [older], next_after: null }).jobs[0]);
+    expect(old.executor).toBeNull();
+    expect(old.charged).toMatch(/^\d+(\.\d+)?$/);
+    // A served word is escaped like every other.
+    const base = parseJobsPage(flagged.runner.body).jobs[0];
+    expect(jobRowModel({ ...base, runner_backend: "sl\u202eurm" }).executor).toBe(
+      "runner, sl\\u202eurm",
+    );
   });
 });
 
