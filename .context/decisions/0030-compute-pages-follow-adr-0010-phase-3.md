@@ -55,7 +55,7 @@ The captured fixtures in `test/fixtures/compute/` gain a `GET /compute/me` captu
 ## Consequences
 
 - A compute sentence is never typed in a page; `test/compute-access-ui.test.ts` fails if one is.
-- Until the compute epic merges to nemar-cli `dev`, the website's compute drift tests (the shared copy, the terms version and the user, job and admin contracts) are red on any website branch that CI pairs with `dev`; the compute work must not reach website `staging` before then, or every nemar-cli pull request goes red.
+- Until the compute epic merges to nemar-cli `dev`, the website's compute drift tests (the shared copy, the terms version and the user, job and admin contracts) are red on any website branch that CI pairs with `dev`; the compute work must not reach website `staging` before then, or every nemar-cli pull request goes red. (Amended 2026-11-22, see "Addendum: the merge order of the coupled change" below: the two sides merge as a pair, website `staging` first.)
 - The site must not be promoted to production before the production API serves `GET /compute/me`: against an API without it, `/compute` shows one "not available" notice.
 - The card needs a backend that sends `compute_access`; against an older one it is absent, by design.
 - The affiliation gap now exists on the admin review card for upload requests ("blocks compute access"); it does not change what an upload request is refused for.
@@ -125,6 +125,20 @@ Receipts for this addendum: website#498, #493; nemar-cli#2021, #2024, #2090, #20
 - **Copy and contract.** The 156 `compute_admin.*` keys were added to nemar-cli's `account-copy.ts` (nemar-cli#2087, PR #2089) and transcribed here; `test/compute-admin-contract-drift.test.ts` compares the closed lists, edges, decision targets and bounds, strict in CI.
 
 Receipts for this addendum: website#497, PR #504; nemar-cli#2083 to #2089.
+
+## Addendum: the merge order of the coupled change (2026-11-22)
+
+The Consequences bullet above reads as if nemar-cli `dev` could take the compute epic first and website `staging` follow at leisure.
+It cannot, because the parity check runs in both directions against the other side's pre-release branch:
+the website's drift tests read nemar-cli `dev` (the `NEMAR_CLI_*` sparse checkout in `ci.yml`),
+and nemar-cli's `test/account-copy-parity.test.ts` reads website `staging` (its `test.yml`, nemar-cli ADR 0046).
+A change to the shared copy or contract is therefore red on whichever side merges second until it does, and nemar-cli `dev` forbids admin merges, so its side cannot be the one merged red.
+
+- **The coupled change merges as a pair: website `staging` first, then nemar-cli `dev` immediately after.**
+  The website pull request goes in while its drift tests against nemar-cli `dev` are still red (the window this addendum accepts);
+  nemar-cli's pull request is then rerun, finds the matching copy on website `staging`, goes green and merges without an admin override, and the website side turns green on its next run.
+- Nothing else merges to either pre-release branch between the two; the second merge follows the first in the same sitting.
+- The old wording above is kept: "must not reach `staging` before then" still holds for anything that is not the paired merge.
 
 ## Receipts
 

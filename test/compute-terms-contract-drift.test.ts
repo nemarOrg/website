@@ -18,7 +18,12 @@
  *
  * EXPECTED RED on a phase PR into the epic branch until nemar-cli `dev` carries
  * compute-terms.ts (the compute epic merges there). Never put this on `staging`
- * before then.
+ * before then, except as the first half of the paired merge below.
+ *
+ * MERGE ORDER (website ADR 0030 addendum of 2026-11-22): the coupled change merges as a pair, website
+ * `staging` first, then nemar-cli `dev` immediately after, because each side's parity check reads the
+ * other's pre-release branch and nemar-cli `dev` forbids admin merges. This test is red against nemar-cli
+ * `dev` only in the window between the two merges.
  */
 
 import { describe, expect, it } from "vitest";
