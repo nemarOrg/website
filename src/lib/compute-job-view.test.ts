@@ -534,6 +534,11 @@ describe("cancelOutcome", () => {
     expect(
       cancelOutcome({ state: "running", outcome: "something_new", cancelled: true }).kind,
     ).toBe("unknown");
+    // A waiting runner job is ended in the call: `cancelled` is final, whatever state came back.
+    expect(cancelOutcome({ ...live, outcome: "cancelled" })).toMatchObject({
+      kind: "canceled",
+      poll: false,
+    });
   });
 
   it("always asks for the job to be read again and promises no amount", () => {

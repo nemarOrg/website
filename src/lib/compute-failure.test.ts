@@ -14,8 +14,8 @@ import { FAILURE_SENTENCES, failureView } from "./compute-failure";
 const ID = "job_0123456789abcdef01234567";
 
 describe("failureView", () => {
-  it("has a plain sentence for each of the 17 codes", () => {
-    expect(COMPUTE_FAILURE_CODES.length).toBe(17);
+  it("has a plain sentence for each of the 18 codes", () => {
+    expect(COMPUTE_FAILURE_CODES.length).toBe(18);
     for (const code of COMPUTE_FAILURE_CODES) {
       const v = failureView(code, ID);
       expect(v.known, code).toBe(true);
@@ -27,7 +27,7 @@ describe("failureView", () => {
     expect(Object.keys(FAILURE_SENTENCES).sort()).toEqual([...COMPUTE_FAILURE_CODES].sort());
   });
 
-  it("points at the log for the seven launcher codes and at nothing for the other ten", () => {
+  it("points at the log for the seven launcher codes and at nothing for the other eleven", () => {
     for (const code of COMPUTE_FAILURE_CODES) {
       const v = failureView(code, ID);
       const launcher = (COMPUTE_LAUNCHER_FAILURE_CODES as readonly string[]).includes(code);

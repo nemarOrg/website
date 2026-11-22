@@ -577,7 +577,7 @@ export function cancelOutcome(answer: ComputeCancel): CancelOutcomeView {
     return { kind: "ended", sentence: C.ended(state), refresh: true, poll: false };
   }
   if (!known) return { kind: "unknown", sentence: C.unknown, refresh: true, poll: true };
-  if (answer.state === "cancelled") {
+  if (answer.state === "cancelled" || answer.outcome === "cancelled") {
     return { kind: "canceled", sentence: C.canceled, refresh: true, poll: false };
   }
   if (answer.outcome === "already_cancelled") {

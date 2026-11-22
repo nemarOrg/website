@@ -118,6 +118,8 @@ export const COMPUTE_PLATFORM_FAILURE_CODES = [
   "records_unavailable",
   "result_upload_failed",
   "tapis_record_lost",
+  // A job a runner claimed and then lost (portable compute); the user view serves no detail.
+  "runner_lost",
 ] as const;
 
 /** Failures that are no launcher code (nemar-cli `SUBMITTER_FAILURE_CODES`). */
@@ -139,6 +141,8 @@ export const COMPUTE_FAILURE_CODES: readonly string[] = [
 /** What `POST /compute/jobs/:id/cancel` may answer in `outcome` today (the field is open). */
 export const COMPUTE_CANCEL_OUTCOMES = [
   "cancel_requested",
+  // A waiting runner job (portable compute) is ended at once, in the call.
+  "cancelled",
   "already_cancelled",
   "already_ended",
 ] as const;

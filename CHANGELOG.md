@@ -30,7 +30,7 @@ The release pull request from `staging` to `main` moves those entries under the 
   Needs the nemar-cli API with the compute routes; an older API reads "Compute is not available on this server yet."
 
 - **The compute job page** (website#496, epic website#493 phase E3; nemar-cli epic #2021 phase D3, website ADR 0030 addendum).
-  `/compute/jobs/<id>` shows one job: its state on a timeline that claims only what the record carries (three times), its resources and charge (the same three-decimal digits as `nemar compute status`), a plain sentence for each of the 17 failure codes, its log on request, its result links on request (renewable), and a cancel for a live job.
+  `/compute/jobs/<id>` shows one job: its state on a timeline that claims only what the record carries (three times), its resources and charge (the same three-decimal digits as `nemar compute status`), a plain sentence for each of the 18 failure codes, its log on request, its result links on request (renewable), and a cancel for a live job.
   A live job refreshes itself every 10 seconds, backing off to 60 while nothing changes, pausing in a hidden tab and stopping at an ended state.
   The log is shown as inert text with hostile characters written out (`\x1b`, `\u202e`) rather than silently dropped; a log cut at 1 MiB says so and points at `nemar compute logs` (the end of a long log cannot be read yet: nemar-cli#2094).
   Result links are bearer links: viewing the page mints none, only the button does, and they are never stored, logged or copied.
