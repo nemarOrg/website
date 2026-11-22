@@ -1,0 +1,58 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-read-fixtures.mjs",
+    "nemar_cli_commit": "e0685a25",
+    "route": "GET /compute/me*",
+    "request": "the refusals below",
+    "note": "Real refusals. On the read routes the sentence is in `error` and the machine word in `code` (the reverse of what api-base.ts readError assumes). The 401 and the 403 are authMiddleware's own shapes, which is what a cookie session meets."
+  },
+  "invalid_cursor": {
+    "status": 400,
+    "body": {
+      "error": "after is not a cursor this route gave.",
+      "code": "invalid_cursor"
+    }
+  },
+  "invalid_limit": {
+    "status": 400,
+    "body": {
+      "error": "limit is a whole number from 1 to 100.",
+      "code": "invalid_limit"
+    }
+  },
+  "invalid_state": {
+    "status": 400,
+    "body": {
+      "error": "state is not a job state.",
+      "code": "invalid_state"
+    }
+  },
+  "invalid_group": {
+    "status": 400,
+    "body": {
+      "error": "group is a comma list of day, app, partition and source, each at most once.",
+      "code": "invalid_group"
+    }
+  },
+  "invalid_range": {
+    "status": 400,
+    "body": {
+      "error": "from and to are days as YYYY-MM-DD in UTC, from is not after to, and the window is at most 366 days.",
+      "code": "invalid_range"
+    }
+  },
+  "no_credential": {
+    "status": 401,
+    "body": {
+      "error": "Missing Authorization header"
+    }
+  },
+  "account_not_approved": {
+    "status": 403,
+    "body": {
+      "error": "Account not approved",
+      "status": "pending",
+      "message": "Verify your email address to activate your account. Check your inbox for the verification link, or run 'nemar auth resend-verification' to get a new one."
+    }
+  }
+}

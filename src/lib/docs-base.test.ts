@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveDocsBase } from "./docs-base";
+import { DOCS_COMPUTE_ACCESS_PATH, DOCS_COMPUTE_TERMS_PATH, resolveDocsBase } from "./docs-base";
 
 describe("resolveDocsBase", () => {
   it("falls back to the production docs host when nothing overrides it", () => {
@@ -26,5 +26,21 @@ describe("resolveDocsBase", () => {
     // A non-absolute return value would throw during SSR and take the whole
     // page down rather than degrade.
     expect(new URL(resolveDocsBase()).host).toBe("docs.nemar.org");
+  });
+});
+
+describe("the compute doc paths", () => {
+  it("are the terms page and the explainer, with the slashes the docs site serves", () => {
+    expect(DOCS_COMPUTE_TERMS_PATH).toBe("/policies/compute-terms/");
+    expect(DOCS_COMPUTE_ACCESS_PATH).toBe("/ecosystem/compute/");
+  });
+
+  it("resolve to absolute docs URLs", () => {
+    expect(`${resolveDocsBase()}${DOCS_COMPUTE_TERMS_PATH}`).toBe(
+      "https://docs.nemar.org/policies/compute-terms/",
+    );
+    expect(`${resolveDocsBase()}${DOCS_COMPUTE_ACCESS_PATH}`).toBe(
+      "https://docs.nemar.org/ecosystem/compute/",
+    );
   });
 });

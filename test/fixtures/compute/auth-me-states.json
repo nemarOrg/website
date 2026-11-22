@@ -1,0 +1,242 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-fixtures.mjs",
+    "nemar_cli_commit": "3a869903",
+    "route": "GET /auth/me (the `user` object)",
+    "note": "Real route, one account per state. The compute stamps are written with fixed values; the state column is the backend's own vocabulary. Emails are @example.org."
+  },
+  "none": {
+    "status": 200,
+    "user": {
+      "id": 1,
+      "email": "requester@example.org",
+      "username": "requester",
+      "role": "member",
+      "status": "active",
+      "email_verified": true,
+      "given_name": "Ada",
+      "family_name": "Rivers",
+      "orcid": "0000-0002-1825-0097",
+      "orcid_verified": true,
+      "github_username": null,
+      "city": "San Diego",
+      "country": "USA",
+      "affiliation": "Example Institute",
+      "service_access": false,
+      "service_access_granted_at": null,
+      "upload_access_requested_at": null,
+      "profile_gaps": [
+        {
+          "field": "github_username",
+          "blocks": [
+            "upload_access",
+            "publication"
+          ],
+          "set_on": [
+            "web",
+            "cli"
+          ]
+        }
+      ],
+      "compute_access": "none",
+      "compute_access_requested_at": null,
+      "compute_access_granted_at": null,
+      "username_auto_assigned": false
+    }
+  },
+  "requested": {
+    "status": 200,
+    "user": {
+      "id": 1,
+      "email": "requester@example.org",
+      "username": "requester",
+      "role": "member",
+      "status": "active",
+      "email_verified": true,
+      "given_name": "Ada",
+      "family_name": "Rivers",
+      "orcid": "0000-0002-1825-0097",
+      "orcid_verified": true,
+      "github_username": null,
+      "city": "San Diego",
+      "country": "USA",
+      "affiliation": "Example Institute",
+      "service_access": false,
+      "service_access_granted_at": null,
+      "upload_access_requested_at": null,
+      "profile_gaps": [
+        {
+          "field": "github_username",
+          "blocks": [
+            "upload_access",
+            "publication"
+          ],
+          "set_on": [
+            "web",
+            "cli"
+          ]
+        }
+      ],
+      "compute_access": "requested",
+      "compute_access_requested_at": "2026-10-20 09:30:00",
+      "compute_access_granted_at": null,
+      "username_auto_assigned": false
+    }
+  },
+  "active": {
+    "status": 200,
+    "user": {
+      "id": 1,
+      "email": "requester@example.org",
+      "username": "requester",
+      "role": "member",
+      "status": "active",
+      "email_verified": true,
+      "given_name": "Ada",
+      "family_name": "Rivers",
+      "orcid": "0000-0002-1825-0097",
+      "orcid_verified": true,
+      "github_username": null,
+      "city": "San Diego",
+      "country": "USA",
+      "affiliation": "Example Institute",
+      "service_access": false,
+      "service_access_granted_at": null,
+      "upload_access_requested_at": null,
+      "profile_gaps": [
+        {
+          "field": "github_username",
+          "blocks": [
+            "upload_access",
+            "publication"
+          ],
+          "set_on": [
+            "web",
+            "cli"
+          ]
+        }
+      ],
+      "compute_access": "active",
+      "compute_access_requested_at": "2026-10-20 09:30:00",
+      "compute_access_granted_at": "2026-10-24 14:05:00",
+      "username_auto_assigned": false
+    }
+  },
+  "suspended": {
+    "status": 200,
+    "user": {
+      "id": 1,
+      "email": "requester@example.org",
+      "username": "requester",
+      "role": "member",
+      "status": "active",
+      "email_verified": true,
+      "given_name": "Ada",
+      "family_name": "Rivers",
+      "orcid": "0000-0002-1825-0097",
+      "orcid_verified": true,
+      "github_username": null,
+      "city": "San Diego",
+      "country": "USA",
+      "affiliation": "Example Institute",
+      "service_access": false,
+      "service_access_granted_at": null,
+      "upload_access_requested_at": null,
+      "profile_gaps": [
+        {
+          "field": "github_username",
+          "blocks": [
+            "upload_access",
+            "publication"
+          ],
+          "set_on": [
+            "web",
+            "cli"
+          ]
+        }
+      ],
+      "compute_access": "suspended",
+      "compute_access_requested_at": "2026-10-20 09:30:00",
+      "compute_access_granted_at": "2026-10-24 14:05:00",
+      "username_auto_assigned": false
+    }
+  },
+  "denied": {
+    "status": 200,
+    "user": {
+      "id": 1,
+      "email": "requester@example.org",
+      "username": "requester",
+      "role": "member",
+      "status": "active",
+      "email_verified": true,
+      "given_name": "Ada",
+      "family_name": "Rivers",
+      "orcid": "0000-0002-1825-0097",
+      "orcid_verified": true,
+      "github_username": null,
+      "city": "San Diego",
+      "country": "USA",
+      "affiliation": "Example Institute",
+      "service_access": false,
+      "service_access_granted_at": null,
+      "upload_access_requested_at": null,
+      "profile_gaps": [
+        {
+          "field": "github_username",
+          "blocks": [
+            "upload_access",
+            "publication"
+          ],
+          "set_on": [
+            "web",
+            "cli"
+          ]
+        }
+      ],
+      "compute_access": "denied",
+      "compute_access_requested_at": "2026-10-20 09:30:00",
+      "compute_access_granted_at": null,
+      "username_auto_assigned": false
+    }
+  },
+  "revoked": {
+    "status": 200,
+    "user": {
+      "id": 1,
+      "email": "requester@example.org",
+      "username": "requester",
+      "role": "member",
+      "status": "active",
+      "email_verified": true,
+      "given_name": "Ada",
+      "family_name": "Rivers",
+      "orcid": "0000-0002-1825-0097",
+      "orcid_verified": true,
+      "github_username": null,
+      "city": "San Diego",
+      "country": "USA",
+      "affiliation": "Example Institute",
+      "service_access": false,
+      "service_access_granted_at": null,
+      "upload_access_requested_at": null,
+      "profile_gaps": [
+        {
+          "field": "github_username",
+          "blocks": [
+            "upload_access",
+            "publication"
+          ],
+          "set_on": [
+            "web",
+            "cli"
+          ]
+        }
+      ],
+      "compute_access": "revoked",
+      "compute_access_requested_at": "2026-10-20 09:30:00",
+      "compute_access_granted_at": "2026-10-24 14:05:00",
+      "username_auto_assigned": false
+    }
+  }
+}

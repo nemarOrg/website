@@ -43,6 +43,14 @@ export class AccountApiError extends Error {
   readonly code?: string;
   readonly missing: readonly string[];
   readonly attemptsRemaining?: number;
+  /**
+   * The body's own `message`, and only that. {@link Error.message} falls back
+   * to the code (or a generic sentence) when the body sent none, which makes
+   * it unusable for a caller that must tell "the backend said this" from "we
+   * made this up": the compute card prints the backend's sentence for some
+   * codes and ignores it for others.
+   */
+  readonly backendMessage?: string;
 
   constructor(
     message: string,
@@ -51,6 +59,7 @@ export class AccountApiError extends Error {
       code?: string;
       missing?: readonly string[];
       attemptsRemaining?: number;
+      backendMessage?: string;
     } = {},
   ) {
     super(message);
@@ -59,6 +68,7 @@ export class AccountApiError extends Error {
     this.code = detail.code;
     this.missing = detail.missing ?? [];
     this.attemptsRemaining = detail.attemptsRemaining;
+    this.backendMessage = detail.backendMessage;
   }
 }
 
@@ -105,6 +115,7 @@ async function throwFromResponse(res: Response, fallback: string): Promise<never
     code: detail.code,
     missing: detail.missing,
     attemptsRemaining: detail.attemptsRemaining,
+    backendMessage: detail.message,
   });
 }
 
@@ -215,6 +226,64 @@ export async function requestUploadAccess(
     ok: true,
     already_requested: body.already_requested === true,
     requested_at: typeof body.requested_at === "string" ? body.requested_at : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Compute access
+// ---------------------------------------------------------------------------
+
+export interface ComputeAccessRequestResult {
+  readonly ok: true;
+  /** True when a request was already open (HTTP 200): nothing new was written. */
+  readonly already_requested: boolean;
+  readonly requested_at: string | null;
+  /** Whether at least one administrator received the review card. Absent from
+   *  a backend that predates the field; `false` means a repeat call (from the
+   *  CLI) re-sends it, which is why the success text promises no email. */
+  readonly email_sent?: boolean;
+}
+
+/**
+ * Ask for compute access, once (nemar-cli `POST /users/me/compute-access/request`).
+ *
+ * 201 is a fresh request and 200 with `already_requested` an open one; both
+ * leave the card to reload. Every refusal carries `{ error, message, missing }`
+ * and is thrown as an {@link AccountApiError}.
+ *
+ * The deadline is the mutate-sized 15 seconds because the administrators' mail
+ * is sent INSIDE the request.
+ */
+export async function requestComputeAccess(
+  input: { readonly purpose: string; readonly acceptTermsVersion: string },
+  init: Init = {},
+): Promise<ComputeAccessRequestResult> {
+  const fetchImpl = init.fetch ?? fetch;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
+  const res = await fetchImpl(
+    `${dashboardApiBase(init.cookieHeader)}/users/me/compute-access/request`,
+    {
+      method: "POST",
+      headers,
+      credentials: "include",
+      body: JSON.stringify({
+        purpose: input.purpose,
+        accept_terms_version: input.acceptTermsVersion,
+      }),
+      signal: resolveSignal(init, 15_000),
+    },
+  );
+  if (!res.ok) await throwFromResponse(res, "Could not send the request");
+  const body = ((await readJson(res)) ?? {}) as Record<string, unknown>;
+  return {
+    ok: true,
+    already_requested: body.already_requested === true,
+    requested_at: typeof body.requested_at === "string" ? body.requested_at : null,
+    ...(typeof body.email_sent === "boolean" ? { email_sent: body.email_sent } : {}),
   };
 }
 

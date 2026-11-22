@@ -4,6 +4,7 @@ import { apiFetch } from "./lib/api-fetch";
 import { type AuthSession, type AuthUser, readSessionCookie } from "./lib/auth";
 import { verifyDevSession } from "./lib/auth-dev";
 import { BUILD_ID } from "./lib/build-info";
+import { isComputeAccessState } from "./lib/compute-access-state";
 import { edgeCacheUrl } from "./lib/edge-cache";
 import { isEmbedRoute } from "./lib/embed";
 import { embedCallPoint } from "./lib/embed-analytics";
@@ -132,14 +133,21 @@ export function isOidcAuthorizeRoute(pathname: string): boolean {
 }
 
 /**
- * Routes whose responses never enter the edge cache, whatever they say: everything under `/oauth`.
- * Each answer there is per visitor and some carry a one-time code; the page sends `no-store`, and
- * this keeps the cache from even being consulted for them.
+ * Routes whose responses never enter the edge cache, whatever they say: everything under `/oauth`
+ * and everything under `/compute`. Each answer there is per visitor; `/oauth` carries one-time codes
+ * and a job page can carry bearer result links after a click (website#496). The page sends
+ * `no-store`, and this keeps the cache from even being consulted for them, so even a signed-out
+ * redirect or a mistaken header cannot put one in the shared cache.
  *
  * Exported for the middleware unit tests.
  */
 export function routeBypassesEdgeCache(pathname: string): boolean {
-  return pathname === "/oauth" || pathname.startsWith("/oauth/");
+  return (
+    pathname === "/oauth" ||
+    pathname.startsWith("/oauth/") ||
+    pathname === "/compute" ||
+    pathname.startsWith("/compute/")
+  );
 }
 
 /** Base connect-src for every route: same-site APIs plus the raw README host. */
@@ -973,6 +981,16 @@ export function parseAuthMeResponse(raw: unknown): AuthSession | null {
   if (typeof user.username_auto_assigned === "boolean") {
     withOptional.username_auto_assigned = user.username_auto_assigned;
   }
+  // Compute access (nemar-cli epic #2021 phase D1). The state is validated
+  // against the closed six and DROPPED when it is anything else, so a value
+  // this build predates renders no card instead of a wrong one; it is never
+  // defaulted to "none". The two stamps are history and ride on the same
+  // rule as every other date here.
+  if (isComputeAccessState(user.compute_access)) {
+    withOptional.compute_access = user.compute_access;
+  }
+  withOptional.compute_access_requested_at = str(user.compute_access_requested_at);
+  withOptional.compute_access_granted_at = str(user.compute_access_granted_at);
   // The server-computed gap list (nemar-cli#1268). Attached only when it is
   // an ARRAY, because that is the difference between "the backend says
   // nothing is missing" (`[]`, honoured verbatim) and "the backend does not

@@ -1,0 +1,90 @@
+Usage: nemar compute submit [options] [path] [args...]
+
+Run a script, a folder or a container image on NEMAR compute
+
+Arguments:
+  path  A script file or a folder (default: this folder)
+  args  Arguments for your script, after --
+
+Options:
+  --entry <file>          The file in the folder to run
+  --dataset <id@version>  A dataset the job reads (repeatable), like
+                          nm000104@1.0.2
+  --partition <name>      Where it runs (default shared)
+  --nodes <n>             Nodes (default 1)
+  --cores <n>             Cores per node (default 1)
+  --mem <size>            Memory per node, like 16G
+  --gpus <n>              GPUs per node (default 0)
+  --time <duration>       The longest it may run, like 2h or 1h30m (default 1h)
+  --name <text>           A name for the job (default: the script's name)
+  --runtime <name>        python, matlab or image (a .py or .m file picks its
+                          own)
+  --image <ref>           A container image pinned by digest:
+                          docker://<registry>/<repo>@sha256:<digest>
+  --env <NAME=value>      An environment variable from the allowed list
+                          (repeatable)
+  --wait                  Follow the job until it ends
+  --dry-run               Pack and check the job and print it; send nothing
+                          about it
+  --json                  Print only the answer, as JSON
+  -h, --help              display help for command
+
+Description:
+  Runs a script, a folder of code or a pinned container image on NEMAR compute and returns the job's id.
+
+  PATH is a script (a .py or .m file) or a folder; with no PATH an image job (--image) has no code and the
+  command to run follows --, and any other job uses the current folder. A folder needs --entry (or
+  entry = "..." in its nemar-job.toml). What the job asks for comes from, in this order: the flags, a
+  "# /// nemar" block in the script ("% /// nemar" in a .m file), the folder's nemar-job.toml, then
+  defaults (partition shared, 1 node, 1 core, 1 hour). The block's keys are name, runtime, entry, datasets,
+  partition, nodes, cores, memory, time, gpus and args; memory is like 16G and time like 2h or 1h30m.
+  Everything after -- is passed to your script as its arguments.
+
+  The code is packed into one archive: .git, caches, virtual environments, node_modules, symbolic links and
+  files over 25 MiB are left out (more with a .nemarignore file, one pattern a line), at most 2,000 files and
+  100 MiB. Every file is scanned for credentials (private keys, cloud and source-host tokens, NEMAR keys, and
+  files named .env, .netrc, id_rsa or *.pem); a finding refuses the job, prints the file and rule and never
+  the value, and has no override.
+
+  --image must be docker://<registry>/<repo>@sha256:<digest>; a tag is not accepted. The registry must be
+  one NEMAR allows.
+
+  --dry-run packs and scans and prints what would be sent, and sends nothing about the job (it needs no sign-in).
+  In a dry run or a local refusal no job data leaves this machine; the command's routine notice and update
+  checks can still run.
+
+  Running submit again makes a SECOND job and a second hold: every run has its own Idempotency-Key. A 503
+  after the hold is finished by repeating the same key, which the command does itself (three retries); an
+  interrupted or failed run is not resumed, and a job left waiting for its bundle ends by itself after an
+  hour, or sooner with nemar compute cancel <job>.
+  --wait follows the job until it ends. Ctrl-C stops waiting and does NOT cancel the job.
+
+  With --json standard output is only the answer: NEMAR's answer to the submission (or, with --wait, the
+  job's last state); with --dry-run it is the request that would have been sent. Failures are on standard
+  error.
+
+Job environment (under development; see https://docs.nemar.org/cli/guides/compute-job-environment/):
+  Your job runs in /work, which is writable. Your code is at /code, read-only. Each dataset
+  you name is at /data/<id>, read-only, with no version in the path and its files at their dataset paths.
+  Results: only regular files under $NEMAR_OUT (/work/outputs, created before your code starts) come back.
+  Anything else in /work or /tmp is discarded when the job ends, and a symbolic link or special file
+  under /work is deleted, so write results to /work/outputs and not to a relative path. A job whose
+  results pass the limits (currently 5,000 files and 20 GiB per job) ends as result_upload_failed.
+  Environment: the job sees only $NEMAR_OUT and what you set with --env, which accepts only
+  OMP_NUM_THREADS, MKL_NUM_THREADS, OPENBLAS_NUM_THREADS, NUMEXPR_NUM_THREADS, PYTHONHASHSEED, MPLBACKEND.
+  Not promised yet: network access from the job; HOME, PATH and LANG; free disk space in /work or /tmp; more than one node.
+
+Exit codes:
+  0  the job was submitted (with --wait: it finished); with --dry-run, what would be sent was printed.
+  1  NEMAR refused or could not take the job, the job failed or was canceled, or you are not signed in.
+  2  refused on this machine before anything about the job was sent: an invalid option or job, a file or folder that
+     cannot be packed, over a size limit, or a credential in the code.
+  3  with --wait, the wait ended with the job still live (you pressed Ctrl-C, NEMAR could not be
+     reached, or the job outlasted its time limit by 30 minutes); the job goes on.
+
+Examples:
+  $ nemar compute submit analysis.py --wait
+  $ nemar compute submit ./study --entry run.py --dataset nm000104@1.0.2 --cores 8 --mem 16G --time 2h
+  $ nemar compute submit analysis.py --dry-run
+  $ nemar compute submit analysis.py -- --subject 4 --fast
+  $ nemar compute submit --image docker://ghcr.io/team/tool@sha256:<digest> --partition shared -- run-it --fast

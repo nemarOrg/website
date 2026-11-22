@@ -13,6 +13,7 @@ import {
   isValidGithubUsername,
   isValidOrcid,
   maskEmail,
+  nextWithHash,
   readSessionCookie,
   safeRedirectPath,
 } from "./auth";
@@ -32,6 +33,11 @@ describe("safeRedirectPath", () => {
     expect(safeRedirectPath("/path\nwith\nnewline")).toBe("/");
     expect(safeRedirectPath("/path\rwith\rcr")).toBe("/");
   });
+  it("keeps a job page path, which the mail link and a signed-out visit return to", () => {
+    const job = "/compute/jobs/job_0123456789abcdef01234567";
+    expect(safeRedirectPath(job)).toBe(job);
+    expect(safeRedirectPath(decodeURIComponent(encodeURIComponent(job)))).toBe(job);
+  });
   it("guards against URL-encoded protocol-relative URLs", () => {
     expect(safeRedirectPath("/%2F%2Fevil.com")).toBe("/");
     expect(safeRedirectPath("/%5C%5Cevil.com")).toBe("/");
@@ -42,6 +48,52 @@ describe("safeRedirectPath", () => {
   it("returns the path unchanged when it's a same-origin path", () => {
     expect(safeRedirectPath("/dashboard")).toBe("/dashboard");
     expect(safeRedirectPath("/dataset/nm000103?tab=files")).toBe("/dataset/nm000103?tab=files");
+  });
+});
+
+describe("nextWithHash", () => {
+  it("carries a plain anchor name through sign-in", () => {
+    expect(nextWithHash("/settings", "#compute-access")).toBe("/settings#compute-access");
+    expect(nextWithHash("/settings?tab=x", "#a_b-1")).toBe("/settings?tab=x#a_b-1");
+  });
+  it("leaves next alone when there is no hash or it is empty", () => {
+    expect(nextWithHash("/settings", "")).toBe("/settings");
+    expect(nextWithHash("/settings", "#")).toBe("/settings");
+  });
+  it("drops a hostile or odd hash", () => {
+    for (const hash of [
+      "#javascript:alert(1)",
+      "#//evil.com",
+      "#/evil",
+      "#%0Aevil",
+      "#a%0d%0ab",
+      "#a b",
+      "#1abc",
+      "#a\nb",
+      "#a/b",
+      "#a?b=c",
+      "#a#b",
+      "#<script>",
+    ]) {
+      expect(nextWithHash("/settings", hash), hash).toBe("/settings");
+    }
+  });
+  it("keeps a fragment next already has", () => {
+    expect(nextWithHash("/settings#profile", "#compute-access")).toBe("/settings#profile");
+  });
+  it("the result survives safeRedirectPath and a URLSearchParams round trip", () => {
+    const next = nextWithHash("/settings", "#compute-access");
+    expect(safeRedirectPath(next)).toBe("/settings#compute-access");
+    const params = new URLSearchParams({ email: "a@b.c", remember: "0" });
+    params.set("next", next);
+    expect(params.toString()).toContain("next=%2Fsettings%23compute-access");
+    const back = new URLSearchParams(params.toString()).get("next");
+    expect(back).toBe("/settings#compute-access");
+    expect(safeRedirectPath(back)).toBe("/settings#compute-access");
+  });
+  it("never turns a refused next into an accepted one", () => {
+    const next = nextWithHash("//evil.com", "#compute-access");
+    expect(safeRedirectPath(next)).toBe("/");
   });
 });
 

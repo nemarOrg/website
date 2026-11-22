@@ -745,6 +745,8 @@ nemar auth login</code></pre>
 </style>
 
 <script>
+  import { nextWithHash } from "../lib/auth";
+
   const form = document.querySelector<HTMLFormElement>("[data-login-form]");
   const emailEl = document.querySelector<HTMLInputElement>("[data-login-email]");
   const rememberEl = document.querySelector<HTMLInputElement>("[data-login-remember]");
@@ -752,7 +754,9 @@ nemar auth login</code></pre>
   const errorEl = document.querySelector<HTMLElement>("[data-login-inline-error]");
 
   if (form && emailEl && rememberEl && submitEl && errorEl) {
-    const nextPath = form.dataset.next ?? "/";
+    // Settings sends a signed-out visitor here with `next=/settings`, and the fragment they asked for
+    // (`#compute-access`) never reached the server; carry it through sign-in.
+    const nextPath = nextWithHash(form.dataset.next ?? "/", location.hash);
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const email = emailEl.value.trim().toLowerCase();

@@ -1,0 +1,75 @@
+---
+/**
+ * The Access panel of /compute: the state as a badge, the state's own sentences from the shared copy
+ * (`ACCOUNT_COPY`, mirrored from nemar-cli), and a link to the request card in Settings when a request
+ * is open. Every sentence comes from `accessView` in `src/lib/compute-view.ts`; nothing is typed here.
+ * An account whose state this build does not know shows the escaped raw word in a neutral pill and
+ * nothing else: the page decides nothing the backend did not state.
+ */
+import { COMPUTE_LABELS } from "../lib/compute-labels";
+import type { AccessView } from "../lib/compute-view";
+import ComputeBadge from "./ComputeBadge.astro";
+import ComputePanel from "./ComputePanel.astro";
+
+interface Props {
+  view: AccessView;
+}
+
+const { view } = Astro.props;
+---
+
+<ComputePanel
+  id="access"
+  title={COMPUTE_LABELS.panels.access}
+  attrs={{ "data-compute-access-state": view.known ? view.state : "unknown" }}
+>
+  <div class="compute-access__status">
+    <span class="compute-access__status-label">{COMPUTE_LABELS.access.status}</span>
+    <ComputeBadge label={view.badge.label} tone={view.badge.tone} icon={view.badge.icon} />
+    {view.grantedSince && (
+      <span class="compute-access__since">{COMPUTE_LABELS.access.since} {view.grantedSince}</span>
+    )}
+  </div>
+  {view.paragraphs.map((text) => <p class="compute-access__body">{text}</p>)}
+  {view.link && (
+    <p class="compute-access__body">
+      <a class="compute-access__cta" href={view.link.href}>{view.link.label}</a>
+    </p>
+  )}
+</ComputePanel>
+
+<style>
+  .compute-access__status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .compute-access__status-label,
+  .compute-access__since {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .compute-access__body {
+    margin: 0;
+    max-inline-size: 60ch;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+    overflow-wrap: anywhere;
+  }
+  .compute-access__cta {
+    min-block-size: 40px;
+    padding: 0 var(--space-5);
+    display: inline-flex;
+    align-items: center;
+    border-radius: var(--radius-pill);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    font-weight: var(--fw-semibold);
+    text-decoration: none;
+  }
+  .compute-access__cta:hover {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+</style>

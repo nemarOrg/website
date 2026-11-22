@@ -1,0 +1,20 @@
+Usage: nemar compute limits [options]
+
+Show the partitions offered to you and your limits
+
+Options:
+  --json      Print the Worker's answer as JSON
+  -h, --help  display help for command
+
+Description:
+  Shows what one job may ask for on each partition offered to you (nodes, cores per node, GPUs per node
+  and the longest run), how many jobs you may have created, queued or running at once, and how long your
+  results are kept.
+
+Exit codes:
+  0  the limits were read.
+  1  you are not signed in, or the limits could not be read.
+
+Examples:
+  $ nemar compute limits
+  $ nemar compute limits --json

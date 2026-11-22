@@ -1,0 +1,168 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-job-fixtures.mjs",
+    "nemar_cli_commit": "81d4e050",
+    "route": "POST /compute/jobs/:id/cancel",
+    "request": "a running job twice, a running job while the cluster cannot be reached, a job that never started, a finished job, a runner job still waiting to be claimed (twice)",
+    "note": "Real route, no body, no key. A cancel never refuses by state: an ended job answers 200 `already_ended` with `cancelled: false`. The Tapis stand-in carries out the cancel of a running job at once, so the state is already `cancelled`; with the stand-in down the intent is recorded and the job stays live (`cluster_down`). A runner job nobody has claimed is ended in the call (`waiting_runner`: outcome `cancelled`); it is a row written by `insertJob` with the runner executor, so its read-after time `ended_at` is fresh on every run."
+  },
+  "running": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "state": "cancelled",
+      "outcome": "cancel_requested",
+      "cancelled": true
+    }
+  },
+  "running_again": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "state": "cancelled",
+      "outcome": "already_cancelled",
+      "cancelled": true
+    }
+  },
+  "running_read_after": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_8933d2ec3ca1c95ee9e94ed4",
+        "kind": "batch",
+        "source": "cli",
+        "state": "cancelled",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-22 14:38:17",
+        "started_at": "2026-11-22 14:38:17",
+        "ended_at": "2026-11-22 14:38:17",
+        "charged_milli": 1000,
+        "failure_code": null,
+        "cancel_requested": true
+      },
+      "stale": false
+    }
+  },
+  "cluster_down": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "state": "running",
+      "outcome": "cancel_requested",
+      "cancelled": true
+    }
+  },
+  "cluster_down_again": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "state": "running",
+      "outcome": "cancel_requested",
+      "cancelled": true
+    }
+  },
+  "cluster_down_read_after": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_de98922e544d0c58b14b3216",
+        "kind": "batch",
+        "source": "cli",
+        "state": "running",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-22 14:38:17",
+        "started_at": "2026-11-22 14:38:17",
+        "ended_at": null,
+        "charged_milli": 0,
+        "failure_code": null,
+        "cancel_requested": true
+      },
+      "stale": false
+    }
+  },
+  "never_started": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "state": "cancelled",
+      "outcome": "cancel_requested",
+      "cancelled": true
+    }
+  },
+  "finished": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "state": "finished",
+      "outcome": "already_ended",
+      "cancelled": false
+    }
+  },
+  "waiting_runner": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "state": "cancelled",
+      "outcome": "cancelled",
+      "cancelled": true
+    }
+  },
+  "waiting_runner_again": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "state": "cancelled",
+      "outcome": "already_cancelled",
+      "cancelled": true
+    }
+  },
+  "waiting_runner_read_after": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_00000000000000000000001e",
+        "kind": "batch",
+        "source": "pipeline",
+        "state": "cancelled",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": null,
+        "ended_at": "2026-11-22 14:38:17",
+        "charged_milli": 0,
+        "failure_code": null,
+        "cancel_requested": true
+      },
+      "stale": false
+    }
+  }
+}

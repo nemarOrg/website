@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_TABS, adminMetricHref } from "./admin-tabs";
 
 describe("ADMIN_TABS", () => {
-  it("defines the five phase-1..5 sections, then News (website#371) and Mail, in order", () => {
+  it("defines the five phase-1..5 sections, then News (website#371), Mail and Compute (website#497), in order", () => {
     expect(ADMIN_TABS.map((t) => t.id)).toEqual([
       "overview",
       "publications",
@@ -11,6 +11,7 @@ describe("ADMIN_TABS", () => {
       "notices",
       "news",
       "mail",
+      "compute",
     ]);
   });
 
@@ -24,6 +25,7 @@ describe("ADMIN_TABS", () => {
       "notices",
       "news",
       "mail",
+      "compute",
     ]);
   });
 
@@ -36,6 +38,7 @@ describe("ADMIN_TABS", () => {
     expect(ADMIN_TABS.find((t) => t.id === "imports")?.href).toBe("/admin/imports");
     expect(ADMIN_TABS.find((t) => t.id === "news")?.href).toBe("/admin/news");
     expect(ADMIN_TABS.find((t) => t.id === "mail")?.href).toBe("/admin/mail");
+    expect(ADMIN_TABS.find((t) => t.id === "compute")?.href).toBe("/admin/compute");
   });
 
   it("has a unique id and href per tab", () => {
@@ -99,5 +102,12 @@ describe("adminMetricHref", () => {
     expect(adminMetricHref("datasets.public")).toBeUndefined();
     expect(adminMetricHref("zarr.converted")).toBeUndefined();
     expect(adminMetricHref("archive.bytes")).toBeUndefined();
+  });
+
+  // The observability metrics expose no `compute.` family today, so the Compute tab has no tile
+  // to deep-link from; a family would need an entry in TAB_FOR_METRIC_FAMILY first.
+  it("returns undefined for compute.* until a metric family is mapped", () => {
+    expect(adminMetricHref("compute.requests")).toBeUndefined();
+    expect(adminMetricHref("compute.pools")).toBeUndefined();
   });
 });

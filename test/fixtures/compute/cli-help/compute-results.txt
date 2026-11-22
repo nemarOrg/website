@@ -1,0 +1,43 @@
+Usage: nemar compute results [options] <job>
+
+List, or download, the files a finished job made
+
+Arguments:
+  job  The job id
+
+Options:
+  --download <dir>  Download the files into this folder, verifying each
+  --renew           Make new links for the same files
+  --force           With --download: replace a file that exists and differs
+  --json            Print only the answer, as JSON
+  -h, --help        display help for command
+
+Description:
+  Lists the files a finished job made, and with --download <dir> fetches them into <dir>, checking each
+  file's size and SHA-256 against what NEMAR recorded (a file that does not match is deleted and reported).
+  A file already there with the same size and checksum is left alone; one that exists and DIFFERS is not
+  overwritten (it is reported) unless you pass --force. Nothing is written outside <dir>, through a
+  symbolic link or otherwise, and a link that is not https, or that redirects, is refused. Two results whose
+  names differ only in case cannot both be written on a case-insensitive disk: the later one is reported.
+
+  What a job returns: only regular files under $NEMAR_OUT (/work/outputs) inside the job. Anything else
+  the job leaves in /work or /tmp is discarded, and a symbolic link or special file is deleted. See
+  nemar compute submit --help-all for the job environment.
+
+  The links are BEARER links: anyone who holds one can download that file until it expires, seven days
+  after it was made. This command prints no link unless you ask with --json; keep them private. --renew
+  makes new links for the same files while the files still exist. Results are kept for a limited time
+  after a job ends.
+
+  With --json standard output is only NEMAR's answer, every page of files in one document.
+
+Exit codes:
+  0  the files were listed (and, with --download, all were fetched and verified).
+  1  you are not signed in, there is no such finished job of yours, its results have expired, NEMAR could
+     not answer, or a file could not be downloaded and verified.
+  2  the job id is not valid (nothing about the job was sent).
+
+Examples:
+  $ nemar compute results job_0123456789abcdef01234567
+  $ nemar compute results job_0123456789abcdef01234567 --download ./results
+  $ nemar compute results job_0123456789abcdef01234567 --renew --json

@@ -1,0 +1,26 @@
+Usage: nemar compute status [options] <job>
+
+Show one of your compute jobs
+
+Arguments:
+  job  The job id
+
+Options:
+  --json      Print the Worker's answer as JSON
+  -h, --help  display help for command
+
+Description:
+  Shows one of your jobs: its state, where it runs, what it asked for, when it was created, started and
+  ended, what it was charged, and the failure code of a job that failed. A job that is running is read
+  back from the cluster when the stored record is more than a minute old; if that cannot be done the stored
+  record is shown and the output says it may be out of date.
+
+  <job> is the job id, like job_0123456789abcdef01234567.
+
+Exit codes:
+  0  the job was read.
+  1  you are not signed in, the id is not a job id, there is no such job of yours, or it could not be read.
+
+Examples:
+  $ nemar compute status job_0123456789abcdef01234567
+  $ nemar compute status job_0123456789abcdef01234567 --json

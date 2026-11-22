@@ -18,7 +18,7 @@ import {
 } from "../lib/dashboard-api";
 import { DOCS_UPLOAD_ACCESS_PATH, resolveDocsBase } from "../lib/docs-base";
 import { formatDate } from "../lib/format";
-import { profileGaps } from "../lib/profile-gaps";
+import { profileGaps, withoutComputeOnlyGaps } from "../lib/profile-gaps";
 import type { Dataset } from "../lib/types";
 
 const session = getSession(Astro.locals);
@@ -106,9 +106,13 @@ const identity =
 // `profile_gaps` when /auth/me carries it and derives the identical list
 // until then; the resolved username is spread in because /auth/me does not
 // report one yet (undefined there means "could not ask", which does not raise
-// the gap).
+// the gap). Gaps that stop compute access and nothing else (Affiliation) are
+// left out: an account that never asked for compute is not nagged about a field
+// it does not need, and the field surfaces in Settings (website ADR 0030).
 const gaps =
-  tier === "unverified" ? [] : profileGaps({ ...session.user, username: identity.username });
+  tier === "unverified"
+    ? []
+    : withoutComputeOnlyGaps(profileGaps({ ...session.user, username: identity.username }));
 const showSetupPrompt =
   tier !== "unverified" &&
   needsOnboarding({
