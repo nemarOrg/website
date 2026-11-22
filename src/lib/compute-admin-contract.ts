@@ -7,14 +7,16 @@
  *   shared/compute-state.ts             the job flags (the job states and front doors are
  *                                       `compute-contract.ts`'s, drift-tested by
  *                                       `test/compute-user-contract-drift.test.ts`)
- *   shared/contract/compute-access.ts   the decision error words, page and reason bounds
+ *   shared/contract/compute-access.ts   the decision error words, page and reason bounds, and
+ *                                       the notice rule (its record, words, bound and function body)
  *   shared/contract/compute-admin.ts    pool holder kinds, platform keys, page bounds
  *
  * Words this build does not know are a normal state of affairs (the API and the site deploy
  * independently), so every lookup that reads these has a defined answer for an unknown word
  * and the page prints it as text.
  *
- * A leaf module: no Astro, no network, nothing imported.
+ * A leaf module: no Astro, no network, nothing imported. The notice rule is the one piece of
+ * logic here, a transcription held to nemar-cli's text by the drift test.
  */
 
 /** The states an administrator can list. `none` is every account that never asked. */
@@ -69,6 +71,60 @@ export type ComputeAccessAdminErrorCode = (typeof COMPUTE_ACCESS_ADMIN_ERROR_COD
 export const COMPUTE_ACCESS_REASON_MAX_CHARS = 500;
 /** The most accounts one listing answers with. */
 export const COMPUTE_ACCESS_PAGE_MAX = 200;
+
+/** The most characters (code points) a notice to the person may have, counted after trimming. */
+export const COMPUTE_ACCESS_NOTICE_MAX_CHARS = 1000;
+
+/**
+ * Whether a decision takes a `notice`, the text the PERSON is emailed (the `reason` is the audit
+ * record's and is never mailed): required for a suspension and a revocation, optional for a denial,
+ * refused for a grant. nemar-cli `COMPUTE_ACCESS_NOTICE_RULE`; the backend still decides.
+ */
+export const COMPUTE_ACCESS_NOTICE_RULE = {
+  grant: "refused",
+  deny: "optional",
+  suspend: "required",
+  revoke: "required",
+} as const satisfies Record<ComputeAccessDecision, "required" | "optional" | "refused">;
+
+/** Why a notice cannot go with a decision, as the word the backend names under `fields`. */
+export const COMPUTE_ACCESS_NOTICE_PROBLEMS = [
+  "notice_required",
+  "notice_refused",
+  "notice_too_long",
+  "notice_control_char",
+] as const;
+export type ComputeAccessNoticeProblem = (typeof COMPUTE_ACCESS_NOTICE_PROBLEMS)[number];
+
+/**
+ * A control character other than tab and newline (nemar-cli `hasPurposeControlChar`). The body is
+ * kept identical to nemar-cli's, which the drift test checks text for text.
+ */
+export function hasPurposeControlChar(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if ((c < 32 && c !== 9 && c !== 10) || c === 127) return true;
+  }
+  return false;
+}
+
+/**
+ * The notice rule, transcribed from nemar-cli `computeAccessNoticeProblem` with the same body (the
+ * drift test compares the two text for text): `notice` is the value as it would be sent, undefined
+ * when absent; only whitespace counts as absent; the bound is in code points after trimming.
+ */
+export function computeAccessNoticeProblem(
+  decision: ComputeAccessDecision,
+  notice: string | undefined,
+): ComputeAccessNoticeProblem | null {
+  const rule = COMPUTE_ACCESS_NOTICE_RULE[decision];
+  if (rule === "refused") return notice === undefined ? null : "notice_refused";
+  const trimmed = notice?.trim() ?? "";
+  if (trimmed === "") return rule === "required" ? "notice_required" : null;
+  if ([...trimmed].length > COMPUTE_ACCESS_NOTICE_MAX_CHARS) return "notice_too_long";
+  if (hasPurposeControlChar(trimmed)) return "notice_control_char";
+  return null;
+}
 /** The most pools one listing answers with. */
 export const COMPUTE_POOLS_PAGE_MAX = 200;
 /** The most rows one jobs or reporting read answers with. */
