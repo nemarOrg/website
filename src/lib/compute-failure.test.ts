@@ -50,6 +50,15 @@ describe("failureView", () => {
     }
   });
 
+  it("words runner_lost for every detail without naming a cause or a runner", () => {
+    // The user view serves no detail, and runner_lost covers a lost lease, exhausted claims, a passed
+    // deadline, a revoked runner and a waiting job whose dataset is no longer eligible (nemar-cli
+    // RUNNER_LOST_DETAILS): the one sentence has to be true of all five.
+    const { sentence } = failureView("runner_lost", ID);
+    expect(sentence).toBe("NEMAR could not run this job to the end and ended it.");
+    expect(sentence).not.toMatch(/runner|lease|claim|deadline|revok|dataset|finish/i);
+  });
+
   it("uses the backend's own sentence for an upload that expired", () => {
     expect(failureView("upload_expired", ID).sentence).toBe(COMPUTE_UPLOAD_EXPIRED_SENTENCE);
   });

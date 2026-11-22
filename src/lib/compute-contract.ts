@@ -118,7 +118,7 @@ export const COMPUTE_PLATFORM_FAILURE_CODES = [
   "records_unavailable",
   "result_upload_failed",
   "tapis_record_lost",
-  // A job a runner claimed and then lost (portable compute); the user view serves no detail.
+  // A runner job that was lost or could never be claimed (portable compute); the user view serves no detail.
   "runner_lost",
 ] as const;
 

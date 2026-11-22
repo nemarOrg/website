@@ -34,7 +34,7 @@ export const FAILURE_SENTENCES: Readonly<Record<string, string>> = {
   records_unavailable:
     "The job finished, but NEMAR could not read the files it needs to check the results.",
   tapis_record_lost: "NEMAR lost track of this job on the cluster and ended it.",
-  runner_lost: "No runner could finish this job, so NEMAR ended it.",
+  runner_lost: "NEMAR could not run this job to the end and ended it.",
   upload_expired: COMPUTE_UPLOAD_EXPIRED_SENTENCE,
 };
 
