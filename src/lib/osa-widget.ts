@@ -353,6 +353,9 @@ export const OSA_WIDGET_EXCLUDED_PATHS = [
   // The OpenID Connect consent screen (nemar-cli ADR 0119): it asks the reader to let another site
   // act as them, and its URL carries that site's request.
   "/oauth",
+  // A community mail's unsubscribe link (nemar-cli ADR 0132): its URL carries the token that is the
+  // link's whole authority, and the widget's "Share page URL" would send it to OSA.
+  "/unsubscribe",
 ] as const;
 
 export function isOsaWidgetExcludedPath(pathname: string): boolean {

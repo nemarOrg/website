@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import BASE_LAYOUT from "../layouts/Base.astro?raw";
 import {
+  ANALYTICS_EXCLUDED_PATHS,
   UMAMI_EVENT_NAMES,
+  isAnalyticsExcludedPath,
   isProductionAnalyticsHost,
   isUmamiWebsiteId,
   pageViewForPathname,
@@ -59,5 +62,36 @@ describe("anonymous Umami tracking contract", () => {
       "upload_started",
       "upload_completed",
     ]);
+  });
+});
+
+describe("pages that never load analytics (nemar-cli ADR 0132)", () => {
+  it("excludes the unsubscribe page and everything below it, not a sibling", () => {
+    expect([...ANALYTICS_EXCLUDED_PATHS]).toContain("/unsubscribe");
+    expect(isAnalyticsExcludedPath("/unsubscribe")).toBe(true);
+    expect(isAnalyticsExcludedPath("/unsubscribe/v1.42.news.7.signature")).toBe(true);
+    expect(isAnalyticsExcludedPath("/unsubscribed")).toBe(false);
+    expect(isAnalyticsExcludedPath("/discover")).toBe(false);
+  });
+
+  it("is a gate in the layout: the installer script renders only when the path is not excluded", () => {
+    expect(BASE_LAYOUT).toContain(
+      "const analyticsAllowed = !isAnalyticsExcludedPath(Astro.url.pathname);",
+    );
+    // The one installer call sits inside the `analyticsAllowed &&` block, not beside it.
+    const gate = BASE_LAYOUT.indexOf("{analyticsAllowed && (");
+    const install = BASE_LAYOUT.indexOf("installUmamiAnalytics(");
+    const gateEnd = BASE_LAYOUT.indexOf(")}", install);
+    expect(gate).toBeGreaterThan(-1);
+    expect(install).toBeGreaterThan(gate);
+    expect(gateEnd).toBeGreaterThan(install);
+    expect(BASE_LAYOUT.split("installUmamiAnalytics(").length - 1).toBe(1);
+  });
+
+  it("is checked by the installer too, so a page that still loads it stays idle", async () => {
+    const source = (await import("./umami-analytics.ts?raw")).default as string;
+    expect(source).toMatch(
+      /const eligible = \(\): boolean =>\s*!isAnalyticsExcludedPath\(window\.location\.pathname\) &&/,
+    );
   });
 });
