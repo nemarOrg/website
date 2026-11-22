@@ -196,14 +196,14 @@ describe("the row badge on a real queue row", () => {
 
 describe("cliApproveCommand", () => {
   it("points a pending request at a plain approve", () => {
-    expect(cliApproveCommand(variant(833, {}))).toBe("nemar admin publish approve nm000288");
+    expect(cliApproveCommand(variant(833, {}))).toBe("nemar admin repo publish approve nm000288");
   });
 
   // An approving request has already run steps, some of them irreversible.
   // Without --resume the CLI would start the whole list again.
   it("resumes an approving request instead of starting it over", () => {
     const stuck = variant(833, { status: "approving", current_step: "s3_lock" });
-    expect(cliApproveCommand(stuck)).toBe("nemar admin publish approve nm000288 --resume");
+    expect(cliApproveCommand(stuck)).toBe("nemar admin repo publish approve nm000288 --resume");
   });
 
   // The id comes from the backend and the command is meant to be pasted into a
@@ -217,7 +217,7 @@ describe("cliApproveCommand", () => {
 
   it("accepts an exemplar id, which only the dev catalog holds", () => {
     expect(cliApproveCommand(variant(833, { dataset_id: "xx099904" }))).toBe(
-      "nemar admin publish approve xx099904",
+      "nemar admin repo publish approve xx099904",
     );
   });
 });
@@ -327,7 +327,7 @@ describe("rowView", () => {
     expect(view.start).toBeNull();
     expect(view.terminal).toEqual({
       lead: "Approve from a terminal",
-      command: "nemar admin publish approve nm000288",
+      command: "nemar admin repo publish approve nm000288",
     });
   });
 
@@ -335,7 +335,7 @@ describe("rowView", () => {
   it("falls back to the CLI command on a backend that cannot dispatch", () => {
     const view = rowView(variant(833, {}), true);
     expect(view.start).toBeNull();
-    expect(view.terminal?.command).toBe("nemar admin publish approve nm000288");
+    expect(view.terminal?.command).toBe("nemar admin repo publish approve nm000288");
     expect(view.canDeny).toBe(true);
   });
 
@@ -349,7 +349,7 @@ describe("rowView", () => {
     const view = rowView(live({ status: "approving", current_step: "s3_lock" }), true);
     expect(view.start).toEqual({ kind: "resume", label: "Resume approval" });
     expect(view.canDeny).toBe(false);
-    expect(view.terminal?.command).toBe("nemar admin publish approve nm000288 --resume");
+    expect(view.terminal?.command).toBe("nemar admin repo publish approve nm000288 --resume");
     expect(view.terminal?.lead).toBe("Or from a terminal");
   });
 

@@ -193,7 +193,7 @@ export function cliApproveCommand(
   request: Pick<PublicationRequest, "dataset_id" | "status">,
 ): string | null {
   if (!DATASET_ID_SHAPE.test(request.dataset_id)) return null;
-  const base = `nemar admin publish approve ${request.dataset_id}`;
+  const base = `nemar admin repo publish approve ${request.dataset_id}`;
   return request.status === "approving" ? `${base} --resume` : base;
 }
 
