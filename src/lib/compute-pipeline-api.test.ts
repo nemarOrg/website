@@ -205,7 +205,7 @@ describe("required keys that may be null", () => {
   it("keeps a column whose name is an Object method as a plain column", async () => {
     // Built inline: a column named `constructor`.
     const body = clone(grid.all.body) as { rows: { cells: Record<string, unknown> }[] };
-    body.rows[0].cells = { ...body.rows[0].cells, ["constructor"]: body.rows[0].cells.import };
+    body.rows[0].cells = { ...body.rows[0].cells, constructor: body.rows[0].cells.import };
     const page = await getPipelineGrid(
       { recipe: "nemar-floor" },
       { fetch: replay({ status: 200, body }).fetchImpl },
