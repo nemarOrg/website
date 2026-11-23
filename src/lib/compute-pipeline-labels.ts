@@ -131,3 +131,18 @@ export function stalledMeaning(minutes: number): string {
 export function failuresMeaning(max: number = PROGRESS_MAX_FAILURES): string {
   return `A checkpoint lists at most ${max} (the first ones of the recordings table once the run is reconciled, the most recent ones while it reports)`;
 }
+
+/** What a checkpoint's list leaves out (the CLI prints the same count as "and N more"). */
+export function unlistedText(count: number): string {
+  return `and ${count} more recordings that stopped here are not listed.`;
+}
+
+/** A checkpoint's counts in words. */
+export function countsText(c: {
+  passed: number;
+  failed: number;
+  skipped: number;
+  total: number;
+}): string {
+  return `${c.passed} passed, ${c.failed} failed, ${c.skipped} skipped of ${c.total}`;
+}
