@@ -1,0 +1,8 @@
+{
+  "note": "Real output of `nemar admin compute pipeline <sub> --help-all`; regenerate with scripts/capture-pipeline-cli-help.mjs",
+  "nemar_cli_commit": "146c3efa",
+  "commands": [
+    "admin compute pipeline status",
+    "admin compute pipeline failures"
+  ]
+}
