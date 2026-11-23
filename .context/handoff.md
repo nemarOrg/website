@@ -1,6 +1,18 @@
 # Handoff — nemar.org website
 
-**Last session:** 2026-11-07.
+**Last session:** 2026-11-23.
+
+## 2026-11-23: Admin Pipelines tab (website#586, nemar-cli epic #2324 phase 4b)
+
+Branch `feature/issue-586-pipeline-dashboard`, PR into the epic branch `feature/issue-586-epic-pipeline-progress` (not `staging`). ADR 0030 addendum of 2026-11-23. Pages `/admin/pipelines`, `/admin/pipelines/<recipe>`, `/admin/pipelines/runs/<id>`; a panel on `/admin`.
+
+- **Routes:** nemar-cli phase 4a's read-only `/admin/compute/pipeline/{coverage,grid,runs/:stamp}` (PR #2335). The website never sends `sync`.
+- **Fixtures:** `NEMAR_CLI_DIR=<epic #2324 checkout> bun scripts/capture-compute-pipeline-fixtures.mjs` and `bun scripts/capture-pipeline-cli-help.mjs` (needs `bun install` at the checkout root and in `backend/`); a rerun writes the same bytes.
+- **Gates:** `test/compute-pipeline-contract-drift.test.ts` (strict with `NEMAR_CLI_COMPUTE_ADMIN_CONTRACT`) is red in CI until nemar-cli `dev` carries the grid contract; `test/compute-pipeline-cli-parity.test.ts` pins the page's words to the CLI's help.
+- **Merge order:** one-directional: nemar-cli `dev` first, then website `staging` (nothing this tab adds is read by nemar-cli).
+- **Local world:** `LOCAL_BACKEND_JOBS=1 NEMAR_CLI_DIR=<checkout> PORT=8791 bun scripts/local-backend.mjs --seed-pipeline`, then `PUBLIC_API_BASE_URL=http://localhost:8791 bun run dev`; sign in as `owner`.
+- **Staging check after the merges:** dispatch two or three `nemar-floor` runs on dev (test fixtures only, never nm000103-107), then open the three pages on test.nemar.org; close #586 by hand.
+- **Follow-ups:** coverage history (nemar-cli#2333), paging the whole recordings table (nemar-cli#2334).
 
 ## 2026-11-07: The compute dashboard (website#495, epic website#493 phase E2)
 

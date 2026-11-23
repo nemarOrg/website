@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_TABS, adminMetricHref } from "./admin-tabs";
 
 describe("ADMIN_TABS", () => {
-  it("defines the five phase-1..5 sections, then News (website#371), Mail and Compute (website#497), in order", () => {
+  it("defines the five phase-1..5 sections, then News (website#371), Mail, Compute (website#497) and Pipelines (website#586), in order", () => {
     expect(ADMIN_TABS.map((t) => t.id)).toEqual([
       "overview",
       "publications",
@@ -12,6 +12,7 @@ describe("ADMIN_TABS", () => {
       "news",
       "mail",
       "compute",
+      "pipelines",
     ]);
   });
 
@@ -26,6 +27,7 @@ describe("ADMIN_TABS", () => {
       "news",
       "mail",
       "compute",
+      "pipelines",
     ]);
   });
 
@@ -39,6 +41,7 @@ describe("ADMIN_TABS", () => {
     expect(ADMIN_TABS.find((t) => t.id === "news")?.href).toBe("/admin/news");
     expect(ADMIN_TABS.find((t) => t.id === "mail")?.href).toBe("/admin/mail");
     expect(ADMIN_TABS.find((t) => t.id === "compute")?.href).toBe("/admin/compute");
+    expect(ADMIN_TABS.find((t) => t.id === "pipelines")?.href).toBe("/admin/pipelines");
   });
 
   it("has a unique id and href per tab", () => {

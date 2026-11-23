@@ -1,0 +1,65 @@
+---
+/**
+ * The admin Pipelines tab's landing page (nemar-cli ADR 0134 decision 5; epic nemarOrg/nemar-cli#2324
+ * phase 4b, website#586): one coverage card per recipe, placeholders included and marked, each card's
+ * status counts linking to its grid. READ ONLY: one API call, never a sync.
+ */
+import PipelineCoveragePanel from "../../../components/admin/PipelineCoveragePanel.astro";
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { adminGate } from "../../../lib/admin-guard";
+import { getSession } from "../../../lib/auth";
+import { computeAdminErrorText } from "../../../lib/compute-admin-api";
+import { getPipelineCoverage, isNotAvailable } from "../../../lib/compute-pipeline-api";
+import { PIPELINE_HELP, PIPELINE_LABELS } from "../../../lib/compute-pipeline-labels";
+import { parseDaysParam } from "../../../lib/compute-pipeline-view";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
+}
+if (!session) {
+  // adminGate(null, ...) always returns a redirect above; this only narrows `session`.
+  return Astro.redirect("/login");
+}
+Astro.response.headers.set("Cache-Control", "no-store");
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+const days = parseDaysParam(new URL(Astro.request.url).searchParams.get("days"));
+const result = await getPipelineCoverage(days, { cookieHeader }).then(
+  (value) => ({ ok: true as const, value }),
+  (err: unknown) => ({
+    ok: false as const,
+    notAvailable: isNotAvailable(err),
+    what: PIPELINE_LABELS.whatCoverage,
+    reason: computeAdminErrorText(err),
+  }),
+);
+---
+
+<AdminLayout title={PIPELINE_LABELS.tab} active="pipelines" session={session}>
+  <Fragment slot="lede">{PIPELINE_LABELS.lede}</Fragment>
+
+  <div class="pipelines">
+    <PipelineCoveragePanel
+      result={result}
+      landing
+      heading={PIPELINE_LABELS.landingHeading}
+      lede={`${PIPELINE_LABELS.coverageLead} ${PIPELINE_HELP.coverage}`}
+      headingId="pipeline-recipes-title"
+    />
+    <p class="pipelines__lag">{PIPELINE_LABELS.readOnlyLead} {PIPELINE_HELP.lag}</p>
+  </div>
+</AdminLayout>
+
+<style>
+  .pipelines {
+    display: grid;
+    gap: var(--space-5);
+  }
+  .pipelines__lag {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+</style>

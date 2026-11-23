@@ -14,7 +14,8 @@ export type AdminTab =
   | "notices"
   | "news"
   | "mail"
-  | "compute";
+  | "compute"
+  | "pipelines";
 
 export interface AdminTabDef {
   readonly id: AdminTab;
@@ -37,6 +38,9 @@ export const ADMIN_TABS: readonly AdminTabDef[] = [
   { id: "news", label: "News", href: "/admin/news", enabled: true },
   { id: "mail", label: "Mail", href: "/admin/mail", enabled: true },
   { id: "compute", label: "Compute", href: "/admin/compute", enabled: true },
+  // nemar-cli ADR 0134 phase 4b (website#586): read only, no badge (a badge would cost every admin
+  // page render one more API call).
+  { id: "pipelines", label: "Pipelines", href: "/admin/pipelines", enabled: true },
 ];
 
 /**

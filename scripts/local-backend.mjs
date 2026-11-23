@@ -37,6 +37,14 @@
  *                   PUBLIC_API_BASE_URL has the `@nemar.cpending` mock for that screen). The
  *                   loopback guards below are unchanged.
  *
+ *   --seed-pipeline  with LOCAL_BACKEND_JOBS=1, also seeds the admin Pipelines tab (nemar-cli ADR 0134
+ *                   phase 4b, website#586) with the backend's own pipeline fixture helpers, the real
+ *                   dispatch, stamp sync, reconciliation and progress write: eight eligible datasets
+ *                   in a band no live dataset uses, one per row status (not started, waiting, running,
+ *                   stalled, finished with failures, finished clean, failed with no table, running on a
+ *                   runner), and the same SQL the backend's grid test uses for a silent report and a
+ *                   runner job. Open http://localhost:4321/admin/pipelines as `owner`.
+ *
  *   --seed-compute-jobs  with --seed-compute and LOCAL_BACKEND_JOBS=1, also makes the job page's
  *                   (website phase E3, #496) jobs for `localjobs` through the REAL services and the
  *                   Tapis stand-in: a finished job (three outputs, a log), a running one, a second
@@ -124,6 +132,7 @@ const { default: dailyDoc } = await import(
 // Job rows need the backend's lifecycle fixture (Miniflare's R2 and the Tapis stand-in).
 const WITH_JOBS = process.env.LOCAL_BACKEND_JOBS === "1";
 const SEED_COMPUTE_JOBS = process.argv.includes("--seed-compute-jobs");
+const SEED_PIPELINE = process.argv.includes("--seed-pipeline");
 const lifecycle = WITH_JOBS
   ? await import(join(root, "backend/test/helpers/compute-lifecycle-fixture.ts"))
   : null;
@@ -149,9 +158,9 @@ const STAMPS = { requested: "2026-10-20 09:30:00", granted: "2026-10-24 14:05:00
 const db = fx ? fx.harness.db : freshDb();
 const env = {
   ...(fx ? fx.env() : { DB: realD1(db) }),
-  // Compute runs only in `production` or `development` (the backend's switch), so the job page's seed
-  // needs `development`; both are non-production and fenced from real mail.
-  ENVIRONMENT: SEED_COMPUTE_JOBS ? "development" : "test",
+  // Compute runs only in `production` or `development` (the backend's switch), so the job page's and the
+  // pipeline seeds need `development`; both are non-production and fenced from real mail.
+  ENVIRONMENT: SEED_COMPUTE_JOBS || SEED_PIPELINE ? "development" : "test",
   // Decisions are bookkeeping and read no switch, but minting an observer run does.
   COMPUTE_ENABLED: "1",
   API_BASE_URL: `http://localhost:${PORT}`,
@@ -710,6 +719,119 @@ async function seedComputeJobs() {
 }
 if (SEED_COMPUTE_JOBS) await seedComputeJobs();
 
+/**
+ * The admin Pipelines tab's runs (--seed-pipeline): the backend's own pipeline fixture helpers and
+ * services, as `scripts/capture-compute-pipeline-fixtures.mjs` builds its grid world.
+ */
+if (SEED_PIPELINE && !fx) refuse("--seed-pipeline needs LOCAL_BACKEND_JOBS=1.");
+async function seedPipelineRuns() {
+  const pf = await import(join(root, "backend/test/helpers/compute-pipeline-fixture.ts"));
+  const { dispatchPipelineJob, syncPipelineStamps } = await import(
+    join(root, "backend/src/services/compute-pipeline.ts")
+  );
+  const { recordProgress, stampForJob } = await import(
+    join(root, "backend/src/services/compute-pipeline-progress.ts")
+  );
+  const { findRecipe } = await import(join(root, "shared/compute-recipes.ts"));
+  const { PROGRESS_FORMAT } = await import(join(root, "shared/contract/compute-progress.ts"));
+  const sqlRun = (text, ...binds) =>
+    env.DB.prepare(text)
+      .bind(...binds)
+      .run();
+  const ownerId = db.query("SELECT id FROM users WHERE username = 'localowner'").get()?.id ?? 1;
+  await pf.seedPipelinesAccount(env);
+  await pf.fundPipelines(env);
+  const floor = findRecipe("nemar-floor");
+  const record = JSON.stringify({
+    sj_version: "0.1.0",
+    ...JSON.parse(
+      pf.recipeRecord({
+        recipe: { id: "nemar-floor", version: floor.version },
+        engine: { package: "eegprep", version: floor.engine.split("@")[1] },
+      }),
+    ),
+  });
+  const rec = (n, status, code, step) => {
+    const sub = `sub-${String(n).padStart(2, "0")}`;
+    return [`${sub}/eeg/${sub}_task-rest_eeg.edf`, status, code, step];
+  };
+  const mixed = pf.floorTable([
+    rec(1, "succeeded", null, null),
+    rec(2, "failed", "load_failed", "load"),
+    rec(3, "failed", "step_failed", "bad_channels"),
+    rec(4, "succeeded", null, null),
+  ]);
+  const clean = pf.floorTable([rec(1, "succeeded", null, null), rec(2, "succeeded", null, null)]);
+  const dispatch = async (datasetId) => {
+    const r = await dispatchPipelineJob(env, {
+      recipe: "nemar-floor",
+      datasetId,
+      actor: { kind: "admin", userId: ownerId },
+    });
+    if (!r.ok) throw new Error(`could not dispatch ${datasetId}: ${r.code}`);
+    return r;
+  };
+  const finished = async (datasetId, table) => {
+    const d = await dispatch(datasetId);
+    await pf.finishAtTapis(fx, env, d.jobId, { outputs: pf.floorOutputs(record, table) });
+    await syncPipelineStamps(env);
+    return d;
+  };
+  const reporting = async (datasetId) => {
+    const d = await dispatch(datasetId);
+    await sqlRun("UPDATE compute_jobs SET state = 'running' WHERE id = ?1", d.jobId);
+    const lookup = await stampForJob(env.DB, d.jobId);
+    if (!lookup.ok) throw new Error(lookup.reason);
+    const zero = { passed: 0, failed: 0, skipped: 0, total: 4 };
+    const outcome = await recordProgress(env.DB, {
+      jobId: d.jobId,
+      stamp: lookup.stamp,
+      progress: {
+        format: PROGRESS_FORMAT,
+        checkpoint: "import",
+        counts: { import: { ...zero, passed: 1 }, preprocess: zero, quality: zero },
+        failures: [],
+      },
+      reporter: { executor: "tapis" },
+    });
+    if (outcome !== "accepted")
+      throw new Error(`progress for ${datasetId} not accepted: ${outcome}`);
+    return d;
+  };
+  for (let i = 1; i <= 8; i++) await pf.seedEegDataset(env, `nm09910${i}`);
+  await dispatch("nm099102");
+  await reporting("nm099103");
+  const silent = await reporting("nm099104");
+  await sqlRun(
+    "UPDATE compute_pipeline_progress_runs SET reported_at = datetime('now', '-600 seconds') WHERE stamp_id = ?1",
+    silent.stampId,
+  );
+  await finished("nm099105", mixed);
+  await finished("nm099106", clean);
+  const failed = await dispatch("nm099107");
+  await sqlRun(
+    "UPDATE compute_jobs SET state = 'failed', failure_code = 'runtime_error', ended_at = datetime('now') WHERE id = ?1",
+    failed.jobId,
+  );
+  await syncPipelineStamps(env);
+  const onRunner = await reporting("nm099108");
+  const runnerId = `rnr_${"ab".repeat(12)}`;
+  await sqlRun(
+    `INSERT INTO compute_runners (id, name, pool, cores, memory_mb, gpus, scratch_gb, backend, runtimes, arch,
+       accounting, site, trust, secret_hash, registered_by)
+     VALUES (?1, 'ws_b', 'cpu', 8, 16000, 0, 100, 'local', '["docker"]', 'amd64', 'none', 'sccn', 'lab', ?2, ?3)`,
+    runnerId,
+    "c".repeat(64),
+    ownerId,
+  );
+  await sqlRun(
+    "UPDATE compute_jobs SET executor = 'runner', accounting = 'none', runner_id = ?2 WHERE id = ?1",
+    onRunner.jobId,
+    runnerId,
+  );
+}
+if (SEED_PIPELINE) await seedPipelineRuns();
+
 const cookies = {};
 for (const p of [...PERSONAS, ...ADMIN_PERSONAS])
   cookies[p.who] = await signIn(`${p.who}@nemar.test`);
@@ -811,6 +933,11 @@ console.log(
   "Admin Compute tab: sign in as `owner` or `adminself` (a non-owner administrator whose own",
 );
 console.log("request is open) and open http://localhost:4321/admin/compute.");
+if (SEED_PIPELINE) {
+  console.log(
+    "Admin Pipelines tab: sign in as `owner` and open http://localhost:4321/admin/pipelines.",
+  );
+}
 console.log(`Owner API key (grant from a terminal): ${OWNER_KEY}`);
 console.log(
   `  curl -s -X POST -H "Authorization: Bearer ${OWNER_KEY}" http://localhost:${PORT}/admin/compute/access/grant/localrequested`,
