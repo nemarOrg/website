@@ -187,15 +187,15 @@ describe("refusals and failures", () => {
 describe("required keys that may be null", () => {
   it("fails the answer when a nullable key is absent, rather than reading it as null", async () => {
     // Built inline: the captured page without `next_after`, and a run without `outcome`.
-    const page = clone(grid.all.body) as Record<string, unknown>;
-    delete page.next_after;
+    const { next_after: _gone, ...page } = clone(grid.all.body) as Record<string, unknown>;
     const err = await getPipelineGrid(
       { recipe: "nemar-floor" },
       { fetch: replay({ status: 200, body: page }).fetchImpl },
     ).catch((e: unknown) => e);
     expect(computeAdminErrorText(err)).toBe(ACCOUNT_COPY["compute_admin.error.malformed"]);
-    const detail = clone(runs.reconciled.body) as { run: Record<string, unknown> };
-    delete detail.run.outcome;
+    const full = clone(runs.reconciled.body) as { run: Record<string, unknown> };
+    const { outcome: _none, ...run } = full.run;
+    const detail = { ...full, run };
     const err2 = await getPipelineRun(1, {
       fetch: replay({ status: 200, body: detail }).fetchImpl,
     }).catch((e: unknown) => e);
@@ -205,13 +205,15 @@ describe("required keys that may be null", () => {
   it("keeps a column whose name is an Object method as a plain column", async () => {
     // Built inline: a column named `constructor`.
     const body = clone(grid.all.body) as { rows: { cells: Record<string, unknown> }[] };
-    body.rows[0].cells.constructor = body.rows[0].cells.import;
+    body.rows[0].cells = { ...body.rows[0].cells, ["constructor"]: body.rows[0].cells.import };
     const page = await getPipelineGrid(
       { recipe: "nemar-floor" },
       { fetch: replay({ status: 200, body }).fetchImpl },
     );
-    expect(page.rows[0].cells.constructor?.mark).toBe("not_started");
+    expect(page.rows[0].cells["constructor" as string]?.mark).toBe("not_started");
     expect(Object.hasOwn(page.rows[1].cells, "constructor")).toBe(false);
+    // A row without that column reads nothing for it, not an inherited Object method.
+    expect(page.rows[1].cells["constructor" as string]).toBeUndefined();
   });
 });
 
