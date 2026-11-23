@@ -33,7 +33,12 @@ import {
   RUNNER_ID_RE,
   STANDARD_CHECKPOINTS,
 } from "./compute-pipeline-contract";
-import { PIPELINE_LABELS } from "./compute-pipeline-labels";
+import {
+  PIPELINE_LABELS,
+  PIPELINE_MARK_WORDS,
+  completeLine,
+  summaryText,
+} from "./compute-pipeline-labels";
 import { displaySafeLine } from "./mail-display";
 import type { IconName } from "./status-icons";
 
@@ -74,15 +79,20 @@ export function statusPill(word: string): Pill {
 const MARK_STYLE: Readonly<
   Record<string, { code: string; tone: BadgeTone; icon: IconName; spoken: string }>
 > = {
-  passed: { code: "", tone: "success", icon: "ok", spoken: "every recording passed" },
-  failed: { code: "F", tone: "danger", icon: "error", spoken: "failed" },
-  skipped: { code: "x", tone: "neutral", icon: "neutral", spoken: "the rest skipped" },
-  running: { code: "R", tone: "info", icon: "progress", spoken: "running" },
-  stalled: { code: "S", tone: "warning", icon: "warn", spoken: "stalled" },
-  waiting: { code: "W", tone: "neutral", icon: "progress", spoken: "waiting" },
-  pending: { code: "P", tone: "neutral", icon: "progress", spoken: "pending" },
-  no_counts: { code: "?", tone: "neutral", icon: "neutral", spoken: "no counts" },
-  not_started: { code: "-", tone: "neutral", icon: "neutral", spoken: "not started" },
+  passed: { code: "", tone: "success", icon: "ok", spoken: PIPELINE_MARK_WORDS.passed },
+  failed: { code: "F", tone: "danger", icon: "error", spoken: PIPELINE_MARK_WORDS.failed },
+  skipped: { code: "x", tone: "neutral", icon: "neutral", spoken: PIPELINE_MARK_WORDS.skipped },
+  running: { code: "R", tone: "info", icon: "progress", spoken: PIPELINE_MARK_WORDS.running },
+  stalled: { code: "S", tone: "warning", icon: "warn", spoken: PIPELINE_MARK_WORDS.stalled },
+  waiting: { code: "W", tone: "neutral", icon: "progress", spoken: PIPELINE_MARK_WORDS.waiting },
+  pending: { code: "P", tone: "neutral", icon: "progress", spoken: PIPELINE_MARK_WORDS.pending },
+  no_counts: { code: "?", tone: "neutral", icon: "neutral", spoken: PIPELINE_MARK_WORDS.no_counts },
+  not_started: {
+    code: "-",
+    tone: "neutral",
+    icon: "neutral",
+    spoken: PIPELINE_MARK_WORDS.not_started,
+  },
 };
 
 export interface CellView {
@@ -339,7 +349,7 @@ function card(c: PipelineCoverageCard, days: number): PipelineCardSpec {
   const pct = percent(c.covered, c.eligible);
   if (pct !== null) {
     context.push(`${c.covered} of ${c.eligible} eligible datasets at recipe version ${version}`);
-    context.push(`complete ${c.complete}, at any recipe version ${c.covered_any_version}`);
+    context.push(completeLine(c.complete, c.covered_any_version));
   }
   const problems = (["failed", "stalled", "running"] as const)
     .map((w) => [w, c.by_status[w] ?? 0] as const)
@@ -402,5 +412,13 @@ export function summaryLine(s: {
   covered_any_version: number;
 }): string {
   const pct = s.eligible === 0 ? "0%" : (percent(s.covered, s.eligible) ?? "0%");
-  return `${displaySafeLine(s.recipe)} ${displaySafeLine(s.recipe_version)}: covered ${s.covered} of ${s.eligible} eligible (${pct}), complete ${s.complete}, at any recipe version ${s.covered_any_version}`;
+  return summaryText({
+    recipe: displaySafeLine(s.recipe),
+    recipeVersion: displaySafeLine(s.recipe_version),
+    covered: s.covered,
+    eligible: s.eligible,
+    percent: pct,
+    complete: s.complete,
+    anyVersion: s.covered_any_version,
+  });
 }

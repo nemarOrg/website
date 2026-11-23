@@ -146,3 +146,34 @@ export function countsText(c: {
 }): string {
   return `${c.passed} passed, ${c.failed} failed, ${c.skipped} skipped of ${c.total}`;
 }
+
+/** What a screen reader says for each cell mark (the CLI's code is visual only). */
+export const PIPELINE_MARK_WORDS = {
+  passed: "every recording passed",
+  failed: "failed",
+  skipped: "the rest skipped",
+  running: "running",
+  stalled: "stalled",
+  waiting: "waiting",
+  pending: "pending",
+  no_counts: "no counts",
+  not_started: "not started",
+} as const;
+
+/** A coverage card's second line. */
+export function completeLine(complete: number, anyVersion: number): string {
+  return `complete ${complete}, at any recipe version ${anyVersion}`;
+}
+
+/** The grid's first line, as the CLI prints it (the caller escapes the words). */
+export function summaryText(s: {
+  recipe: string;
+  recipeVersion: string;
+  covered: number;
+  eligible: number;
+  percent: string;
+  complete: number;
+  anyVersion: number;
+}): string {
+  return `${s.recipe} ${s.recipeVersion}: covered ${s.covered} of ${s.eligible} eligible (${s.percent}), ${completeLine(s.complete, s.anyVersion)}`;
+}
