@@ -92,16 +92,39 @@ describe("no sentence is typed in a page or component", () => {
   });
 });
 
-describe("the gate, the cache and the sync", () => {
-  it.each(Object.entries(PAGES))("%s calls adminGate before it fetches anything", (_n, page) => {
-    const gate = page.indexOf("adminGate(session");
-    const firstAwait = page.indexOf("await ");
-    expect(gate).toBeGreaterThan(-1);
-    expect(firstAwait).toBeGreaterThan(gate);
-    expect(page.indexOf("return Astro.redirect(redirectTo)")).toBeLessThan(firstAwait);
+describe("no backend word is put in a link", () => {
+  it("links a status chip or count only for a status this build knows", () => {
+    expect(code(GRID)).toMatch(/return c\.known \?/);
+    expect(code(PANEL)).toMatch(/\{s\.known \?/);
   });
 
-  it.each(Object.entries(PAGES))("%s is never cached", (_name, page) => {
+  it("builds the next page only from a dataset-id cursor", () => {
+    expect(code(VIEW)).toContain("COMPUTE_DATASET_ID_RE.test(nextAfter)");
+  });
+
+  it("offers only runners whose id is a runner id", () => {
+    expect(code(GRID)).toContain("RUNNER_ID_RE.test(r.id)");
+  });
+
+  it("reads a cell only when the row owns that column", () => {
+    expect(code(TABLE)).toContain("Object.hasOwn(row.cells, col)");
+    expect(code(VIEW)).toContain("Object.hasOwn(row.cells, checkpoint)");
+  });
+});
+
+describe("the gate, the cache and the sync", () => {
+  it.each(Object.entries({ ...PAGES, OVERVIEW }))(
+    "%s calls adminGate before it fetches anything",
+    (_n, page) => {
+      const gate = page.indexOf("adminGate(session");
+      const firstAwait = page.indexOf("await ");
+      expect(gate).toBeGreaterThan(-1);
+      expect(firstAwait).toBeGreaterThan(gate);
+      expect(page.indexOf("return Astro.redirect(redirectTo)")).toBeLessThan(firstAwait);
+    },
+  );
+
+  it.each(Object.entries({ ...PAGES, OVERVIEW }))("%s is never cached", (_name, page) => {
     expect(code(page)).toContain('Astro.response.headers.set("Cache-Control", "no-store")');
   });
 

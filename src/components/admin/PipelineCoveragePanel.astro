@@ -61,9 +61,15 @@ const HISTORY_ISSUE = "https://github.com/nemarOrg/nemar-cli/issues/2333";
               <ul class="pipeline-cov__statuses">
                 {spec.statuses.map((s) => (
                   <li>
-                    <a href={gridHref(spec.recipe, { status: s.word })}>
-                      {wordText(s.word)} {s.count}
-                    </a>
+                    {s.known ? (
+                      <a href={gridHref(spec.recipe, { status: s.word })}>
+                        {wordText(s.word)} {s.count}
+                      </a>
+                    ) : (
+                      <span>
+                        {wordText(s.word)} {s.count}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>

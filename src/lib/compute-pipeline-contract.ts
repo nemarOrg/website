@@ -92,8 +92,13 @@ export const PROGRESS_MAX_FAILURES = 10;
 /** The refusal word of a drill-down that names a stamp that does not exist. */
 export const PIPELINE_STAMP_NOT_FOUND = "stamp_not_found";
 
+/** The grid's refusal word for a recipe the registry does not have (a 422; the page answers 404). */
+export const PIPELINE_RECIPE_UNKNOWN = "recipe_unknown";
+
 /**
- * A recipe name in a path. Not a nemar-cli constant: a site-local check so a malformed segment is
- * never sent to the API; the backend still decides whether the recipe exists.
+ * A recipe name in a path. It mirrors nemar-cli's route-local `RECIPE_NAME`
+ * (backend/src/routes/admin/compute-pipeline.ts), which is not exported from a shared contract yet,
+ * so it cannot be drift-pinned; nemarOrg/nemar-cli#2338 asks to export it. A malformed segment is never sent
+ * to the API; the backend still decides whether the recipe exists.
  */
 export const PIPELINE_RECIPE_SEGMENT_RE = /^[a-z][a-z0-9-]{0,63}$/;

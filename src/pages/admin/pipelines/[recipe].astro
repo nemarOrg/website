@@ -14,7 +14,7 @@ import PipelineLegend from "../../../components/admin/PipelineLegend.astro";
 import AdminLayout from "../../../layouts/AdminLayout.astro";
 import { adminGate } from "../../../lib/admin-guard";
 import { getSession } from "../../../lib/auth";
-import { computeAdminErrorText } from "../../../lib/compute-admin-api";
+import { ComputeAdminApiError, computeAdminErrorText } from "../../../lib/compute-admin-api";
 import { COMPUTE_EXECUTORS } from "../../../lib/compute-admin-contract";
 import {
   type PipelineGridPage,
@@ -24,6 +24,8 @@ import {
 import {
   COMPUTE_DATASET_ID_RE,
   COMPUTE_PIPELINE_RECIPE_VERSION_RE,
+  PIPELINE_RECIPE_UNKNOWN,
+  RUNNER_ID_RE,
 } from "../../../lib/compute-pipeline-contract";
 import { PIPELINE_HELP, PIPELINE_LABELS } from "../../../lib/compute-pipeline-labels";
 import {
@@ -59,7 +61,7 @@ const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
 
 type Read =
   | { ok: true; value: PipelineGridPage }
-  | { ok: false; notAvailable: boolean; reason: string };
+  | { ok: false; notAvailable: boolean; unknownRecipe: boolean; reason: string };
 let read: Read | null = null;
 if (recipe && parsed) {
   read = await getPipelineGrid(parsed.query, { cookieHeader }).then(
@@ -67,11 +69,14 @@ if (recipe && parsed) {
     (err: unknown): Read => ({
       ok: false,
       notAvailable: isNotAvailable(err),
+      unknownRecipe: err instanceof ComputeAdminApiError && err.code === PIPELINE_RECIPE_UNKNOWN,
       reason: computeAdminErrorText(err),
     }),
   );
 }
-if (!recipe) Astro.response.status = 404;
+// A segment that is not a recipe name, and a recipe the registry does not have, are the same 404.
+const noSuchRecipe = !recipe || (read !== null && !read.ok && read.unknownRecipe);
+if (noSuchRecipe) Astro.response.status = 404;
 
 const page = read?.ok ? read.value : null;
 const q = parsed?.query;
@@ -81,18 +86,24 @@ const title = recipe ? displaySafeLine(recipe) : PIPELINE_LABELS.tab;
 const versions = page
   ? page.facets.recipe_versions.filter((v) => COMPUTE_PIPELINE_RECIPE_VERSION_RE.test(v))
   : [];
-const chips = page ? statusCounts(page.summary.by_status) : [];
+// With filters set, the chips count the filtered set; otherwise every eligible dataset.
+const chipCounts = page ? (filtered ? page.matched.by_status : page.summary.by_status) : {};
+const chipTotal = page ? (filtered ? page.matched.total : page.summary.eligible) : 0;
+const chips = statusCounts(chipCounts);
+const runners = page ? page.facets.runners.filter((r) => RUNNER_ID_RE.test(r.id)) : [];
 const clearHref = recipe ? gridHref(recipe) : PIPELINES_PATH;
 const datasetPattern = COMPUTE_DATASET_ID_RE.source.replace(/^\^|\$$/g, "");
 ---
 
 <AdminLayout title={title} active="pipelines" session={session}>
-  <Fragment slot="lede">{PIPELINE_HELP.grid}; {PIPELINE_HELP.columns}.</Fragment>
+  <Fragment slot="lede">
+    {PIPELINE_LABELS.gridLead} {PIPELINE_HELP.grid}: {PIPELINE_HELP.columns}.
+  </Fragment>
 
   <div class="pgrid">
     <p class="pgrid__back"><a href={PIPELINES_PATH}>{PIPELINE_LABELS.backToRecipes}</a></p>
 
-    {!recipe && <p class="pgrid__empty">{PIPELINE_LABELS.notARecipe}</p>}
+    {noSuchRecipe && <p class="pgrid__empty">{PIPELINE_LABELS.notARecipe}</p>}
 
     {
       read && !read.ok && read.notAvailable && (
@@ -103,8 +114,8 @@ const datasetPattern = COMPUTE_DATASET_ID_RE.source.replace(/^\^|\$$/g, "");
       )
     }
     {
-      read && !read.ok && !read.notAvailable && (
-        <ComputeSectionError what={PIPELINE_LABELS.gridHeading} reason={read.reason} />
+      read && !read.ok && !read.notAvailable && !read.unknownRecipe && (
+        <ComputeSectionError what={PIPELINE_LABELS.whatGrid} reason={read.reason} />
       )
     }
 
@@ -140,17 +151,20 @@ const datasetPattern = COMPUTE_DATASET_ID_RE.source.replace(/^\^|\$$/g, "");
               href={gridHref(recipe, { ...filterParams(q), status: undefined })}
               aria-current={q.status === undefined ? "page" : undefined}
             >
-              {PIPELINE_LABELS.allStatuses} {page.summary.eligible}
+              {PIPELINE_LABELS.allStatuses} {chipTotal}
             </a>
             {chips.map((c) => {
               const pill = statusPill(c.word);
-              return (
+              // Only a status this build knows becomes a link: an unknown word is the Worker's, shown as text.
+              return c.known ? (
                 <a
                   href={gridHref(recipe, { ...filterParams(q), status: c.word })}
                   aria-current={q.status === c.word ? "page" : undefined}
                 >
                   <ComputePill tone={pill.tone} icon={pill.icon} label={`${pill.label} ${c.count}`} />
                 </a>
+              ) : (
+                <ComputePill tone="neutral" icon="neutral" label={`${pill.label} ${c.count}`} />
               );
             })}
           </nav>
@@ -159,6 +173,7 @@ const datasetPattern = COMPUTE_DATASET_ID_RE.source.replace(/^\^|\$$/g, "");
             <fieldset>
               <legend>{PIPELINE_LABELS.filtersHeading}</legend>
               {q.status && <input type="hidden" name="status" value={q.status} />}
+              {q.limit !== undefined && <input type="hidden" name="limit" value={String(q.limit)} />}
               <label>
                 {PIPELINE_LABELS.recipeVersion}
                 <select name="recipe_version">
@@ -185,7 +200,7 @@ const datasetPattern = COMPUTE_DATASET_ID_RE.source.replace(/^\^|\$$/g, "");
                 {PIPELINE_LABELS.runner}
                 <select name="runner">
                   <option value="">{PIPELINE_LABELS.anyRunner}</option>
-                  {page.facets.runners.map((r) => (
+                  {runners.map((r) => (
                     <option value={r.id} selected={q.runner === r.id}>
                       {displaySafeLine(r.name)}
                     </option>

@@ -107,7 +107,7 @@ export interface CellView {
   readonly known: boolean;
 }
 
-/** One grid cell as the page draws it; an unreadable cell is `?`, labelled unreadable. */
+/** One grid cell as the page draws it; an unreadable cell is `?`, labeled unreadable. */
 export function cellView(cell: PipelineCell | null): CellView {
   if (cell === null) {
     return {
@@ -136,7 +136,9 @@ export function cellView(cell: PipelineCell | null): CellView {
   }
   const style = MARK_STYLE[cell.mark];
   const failed = c?.failed ?? 0;
-  const code = cell.mark === "failed" ? `F${failed}` : style.code;
+  // As the CLI's `cellText`: a cell with no counts and no code (passed with none) prints `-`.
+  const code =
+    cell.mark === "failed" ? `F${failed}` : counts === "" && style.code === "" ? "-" : style.code;
   let spoken: string;
   if (cell.mark === "failed") {
     spoken = `${countWords ? `${countWords}, ` : ""}${failed} failed`;
@@ -193,7 +195,7 @@ export function runHref(stampId: number, checkpoint?: string): string {
 
 /** A cell links to the run's section when the row has a run and the cell has something to show. */
 export function cellHref(row: PipelineGridRow, checkpoint: string): string | null {
-  const cell = row.cells[checkpoint];
+  const cell = Object.hasOwn(row.cells, checkpoint) ? row.cells[checkpoint] : null;
   if (!row.run || !cell) return null;
   const c = cell.counts;
   const hasFailures = cell.listed > 0 || (c !== null && c.failed + c.skipped > 0);
@@ -276,16 +278,24 @@ export function parseGridQuery(recipe: string, params: URLSearchParams): ParsedG
   };
 }
 
+/** The grid's filters, as the form and the URL name them; each is a flag of the CLI's `status`. */
+export const PIPELINE_GRID_FILTERS = [
+  "status",
+  "recipe_version",
+  "executor",
+  "runner",
+  "dataset",
+  "limit",
+] as const;
+
 /** The filters of a grid query, as URL parameters (no `after`). */
 export function filterParams(q: PipelineGridQuery): Record<string, string | undefined> {
-  return {
-    status: q.status,
-    recipe_version: q.recipe_version,
-    executor: q.executor,
-    runner: q.runner,
-    dataset: q.dataset,
-    limit: q.limit === undefined ? undefined : String(q.limit),
-  };
+  const out: Record<string, string | undefined> = {};
+  for (const name of PIPELINE_GRID_FILTERS) {
+    const value = q[name];
+    out[name] = value === undefined ? undefined : String(value);
+  }
+  return out;
 }
 
 /** Whether any filter narrows the grid (paging aside). */
@@ -305,8 +315,10 @@ export function pipelinePager(
   nextAfter: string | null,
 ): PipelinePager {
   const params = filterParams(q);
+  // The cursor is the Worker's word: it goes in a link only when it is a dataset id.
+  const cursor = nextAfter !== null && COMPUTE_DATASET_ID_RE.test(nextAfter) ? nextAfter : null;
   return {
-    next: nextAfter === null ? null : gridHref(recipe, { ...params, after: nextAfter }),
+    next: cursor === null ? null : gridHref(recipe, { ...params, after: cursor }),
     first: q.after === undefined ? null : gridHref(recipe, params),
   };
 }
@@ -338,7 +350,7 @@ export interface PipelineCardSpec extends KpiSpec {
   /** The recipe's raw name, for its links. */
   readonly recipe: string;
   /** Datasets by row status, in grid order (unknown words after). */
-  readonly statuses: { word: string; count: number }[];
+  readonly statuses: { word: string; count: number; known: boolean }[];
 }
 
 function card(c: PipelineCoverageCard, days: number): PipelineCardSpec {
@@ -391,14 +403,22 @@ export function pipelineCoverageCards(
     .map((c) => card(c, res.days));
 }
 
-/** The status counts of a summary in grid order, then any word this build does not know. */
+/**
+ * The status counts of a summary in grid order, then any word this build does not know. Only a known
+ * word may become a filter link (`known`): an unknown one is the Worker's word and is shown as text.
+ */
 export function statusCounts(
   byStatus: Readonly<Record<string, number>>,
-): { word: string; count: number }[] {
-  const known = COMPUTE_PIPELINE_GRID_STATUSES.map((w) => ({ word: w, count: byStatus[w] ?? 0 }));
-  const extra = Object.entries(byStatus)
-    .filter(([w]) => !(COMPUTE_PIPELINE_GRID_STATUSES as readonly string[]).includes(w))
-    .map(([word, count]) => ({ word, count }));
+): { word: string; count: number; known: boolean }[] {
+  const has = (w: string) => Object.hasOwn(byStatus, w);
+  const known = COMPUTE_PIPELINE_GRID_STATUSES.map((w) => ({
+    word: w as string,
+    count: has(w) ? byStatus[w] : 0,
+    known: true,
+  }));
+  const extra = Object.keys(byStatus)
+    .filter((w) => !(COMPUTE_PIPELINE_GRID_STATUSES as readonly string[]).includes(w))
+    .map((word) => ({ word, count: byStatus[word], known: false }));
   return [...known, ...extra];
 }
 

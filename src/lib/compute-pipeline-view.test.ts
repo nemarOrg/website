@@ -79,6 +79,9 @@ describe("words", () => {
     expect(cellView(finished.cells.import ?? null).spoken).toBe("3 of 4 passed, 1 failed");
     expect(cellView(row("nm099106").cells.import ?? null).spoken).toBe("2 of 2 passed");
     expect(cellView(null)).toMatchObject({ code: "?", spoken: "unreadable", known: false });
+    // As the CLI: a passed cell with no counts prints a dash, never nothing.
+    const bare = { mark: "passed", counts: null, reconciled: true, disagreement: false, listed: 0 };
+    expect(cellView(bare).code).toBe("-");
   });
 
   it("draws an unknown word neutral and escaped, never as a known one", () => {
@@ -123,6 +126,7 @@ describe("links", () => {
     expect(cellHref(finished, "import")).toBe(`/admin/pipelines/runs/${stamp}#cp-import`);
     expect(cellHref(row("nm099106"), "import")).toBeNull();
     expect(cellHref(row("nm099101"), "import")).toBeNull();
+    expect(cellHref(row("nm099105"), "constructor")).toBeNull();
   });
 
   it("pages forward and back to the first page, keeping the filters", () => {
@@ -139,6 +143,8 @@ describe("links", () => {
       next: null,
       first: "/admin/pipelines/nemar-floor?status=running&limit=2",
     });
+    // A cursor that is not a dataset id is the Worker's word: no link is built from it.
+    expect(pipelinePager("nemar-floor", q, '"><script>').next).toBeNull();
   });
 });
 
@@ -237,6 +243,10 @@ describe("cards", () => {
     expect(statusCounts(grid.summary.by_status).map((s) => s.word)).toEqual([
       ...COMPUTE_PIPELINE_GRID_STATUSES,
     ]);
+    // Built inline: a status word this build does not know is counted but never a link.
+    const odd = statusCounts({ ...grid.summary.by_status, sleeping: 2 });
+    expect(odd.at(-1)).toEqual({ word: "sleeping", count: 2, known: false });
+    expect(odd.slice(0, -1).every((s) => s.known)).toBe(true);
   });
 });
 
