@@ -81,6 +81,7 @@ src/
     compute/jobs/[id].astro           one compute job (app host, ADR 0030 E3): timeline, resources and charge, failure sentence, log and result links on request (bearer links minted only by a click), cancel; private no-store, one 404 for absent, foreign or malformed ids; the page the results-ready mail links to
     admin/publication-requests.astro  admin-only (role=admin; 404s for others)
     admin/mail.astro admin/mail/{[id],queues,away}.astro   admin Mail tab: tickets, queues, away windows (ADR 0029); email is escaped text only
+    admin/pipelines/{index,[recipe]}.astro admin/pipelines/runs/[stamp].astro   admin Pipelines tab (website#586, nemar-cli ADR 0134 phase 4b, ADR 0030 addendum): coverage cards per recipe, the grid of datasets by checkpoints with filters and paging, one run's checkpoints and failures; read only, never a sync
     admin/compute.astro               admin Compute tab (website#497, ADR 0030): Requests (grant, deny, suspend, revoke by id, each through ComputeDecisionDialog) and read-only Pools, Usage, Flagged jobs, Reconciliation; a section the backend does not serve says so and links its nemar-cli issue; nothing owner-only or cost-bearing is offered
     about.astro support.astro community.astro
     og/** robots.txt.ts 404.astro
@@ -106,6 +107,8 @@ src/
     compute-admin-contract.ts         hand copy of the closed lists the Compute tab branches on, and of the decision notice rule `computeAccessNoticeProblem` (drift-tested, the rule text for text, test/compute-admin-contract-drift.test.ts, strict via NEMAR_CLI_COMPUTE_ADMIN_CONTRACT)
     compute-admin-view.ts             pure view models for the Compute tab: request row, allowed buttons, decision and failure sentences, pool and job rows, parameters, pager
     compute-decide-flow.ts            one decision in flight page-wide; one re-read after an outcome that cannot be told
+    compute-pipeline-api.ts compute-pipeline-contract.ts   admin Pipelines client (the three read routes, open guards, no sync) and the hand copy of the grid words, bounds and patterns (drift-tested, test/compute-pipeline-contract-drift.test.ts)
+    compute-pipeline-view.ts compute-pipeline-labels.ts   the tab's pure view models (status pills, cell codes, filters, pager, coverage cards) and its website-owned words, pinned to the captured CLI help by test/compute-pipeline-cli-parity.test.ts
     mail-display.ts                   escape set for ticket text, thread order, reply draft state machine and its sessionStorage form
     device-auth-api.ts                device-authorization grant client: lookup/confirm/deny, list keys
     device-authorize.ts               pure view model for /cli/authorize (no mirrored refusal vocabulary)

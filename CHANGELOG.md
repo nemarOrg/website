@@ -15,6 +15,13 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Added
 
+- **The admin Pipelines tab** (website#586; nemar-cli epic #2324 phase 4b, nemar-cli ADR 0134; website ADR 0030 addendum of 2026-11-23).
+  `/admin/pipelines`, after Compute, shows NEMAR's own processing runs recipe by recipe: a coverage card per recipe (eligible datasets whose newest version has a succeeded run of the current recipe version, complete, and at any recipe version) with its failed runs per day, and a placeholder recipe marked as such.
+  Each recipe's grid (`/admin/pipelines/<recipe>`) is the legacy pipeline status table: datasets as rows, the recipe's checkpoints as columns, each cell `passed/total` with the CLI's code (`F<n>`, `x`, `R`, `S`, `W`, `P`, `?`, `-`) and an icon, never color alone; filters by status, recipe version, executor, runner and dataset, and paging by dataset id.
+  A run's page (`/admin/pipelines/runs/<id>`) shows each checkpoint's counts and the failed recordings it lists, with their codes and steps.
+  The admin Overview gains a "Processing recipes" panel with the same cards for the recipes that dispatch.
+  Read only: the pages never ask the API to sync, and say that ended runs and the coverage line can lag until a sync records them. Where the API predates these routes the tab says "not available on this server yet".
+
 - **The admin Compute tab** (website#497, epic website#493 phase E4; nemar-cli epic #2021, website ADR 0030 addendum).
   `/admin/compute`, after Mail, shows the compute access requests awaiting a decision: a row per account with the stated country, affiliation, city, email, ORCID iD, request date, terms version and the purpose (shown as inert text, in full on request).
   An administrator can Grant, Deny, Suspend, Revoke, Lift a suspension or Grant again, each from its own dialog with an optional reason (500 characters).

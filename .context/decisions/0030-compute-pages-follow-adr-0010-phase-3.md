@@ -140,6 +140,22 @@ A change to the shared copy or contract is therefore red on whichever side merge
 - Nothing else merges to either pre-release branch between the two; the second merge follows the first in the same sitting.
 - The old wording above is kept: "must not reach `staging` before then" still holds for anything that is not the paired merge.
 
+## Addendum: the admin Pipelines tab (2026-11-23)
+
+nemar-cli ADR 0134 decision 5 gives administrators a pipeline dashboard built like the Zarr one, and nemar-cli phase 4a (#2326, PR #2335) serves it as three read-only routes under `/admin/compute/pipeline/*`.
+Phase 4b (website#586) puts them on a new admin tab, Pipelines, after Compute, with a coverage panel on the Overview.
+The decisions that are expensive to reverse:
+
+- **A tab of its own, not a view of Compute.** The Compute tab decides access and reads the ledger; the pipelines are NEMAR's own processing runs, a different audience and cadence. No badge: a failed or stalled count would cost every admin page render one more API call.
+- **The website never syncs.** The grid route syncs open stamps first only when asked (`sync=1`), which costs the Worker hundreds of subrequests and would not fit the page's 5 second deadline. The client has no field for it and a source guard pins its absence. The page says, in the CLI's words, that a run's status is right either way and that ended runs and the coverage line can lag until a sync records them (the CLI syncs by default).
+- **Website-owned copy, pinned to the CLI's help.** The page's explanations (what a status, a cell mark and coverage mean) are not `account-copy` keys: they live in `compute-pipeline-labels.ts`, and `test/compute-pipeline-cli-parity.test.ts` checks each against the captured `nemar admin compute pipeline status|failures --help-all` text. The dependency is therefore ONE-DIRECTIONAL: nemar-cli reads nothing this tab adds, so the merge order is nemar-cli `dev` first (the epic carrying the grid contract) and website `staging` second, the reverse of the paired merge above, which still governs `account-copy` changes.
+- **The contract is copied as literals and drift-tested.** `compute-pipeline-contract.ts` transcribes the grid words, bounds and patterns; `test/compute-pipeline-contract-drift.test.ts` compares them with nemar-cli's text (strict in CI, red on the phase PR until nemar-cli `dev` carries the contract). The routes' schemas are open: a word the Worker grows is drawn neutral with the raw word, never as a known state.
+- **Production may run ahead of the API.** The tab and the panel read "not available on this server yet" when the API answers the router's own 404, so the website can be promoted before the nemar-cli release that serves these routes.
+- **Placeholders.** A recipe the registry marks as a placeholder (not dispatched automatically) is left off the Overview panel and shown on the Pipelines landing page with a pill.
+- **No coverage history yet.** The card's trend is failed runs per day from the stamps; an hourly coverage history like the Zarr card's needs the observability snapshot (nemar-cli#2333). The drill-down lists at most ten failures per checkpoint from the database; paging the whole recordings table is nemar-cli#2334.
+
+Receipts for this addendum: website#586; nemar-cli#2324 (epic), #2326 and PR #2335 (phase 4a), #2333, #2334; nemar-cli ADR 0134.
+
 ## Receipts
 
 - website#493 (epic), website#494 (phase E1), website#495 (phase E2), website#496 (phase E3), website#497 (phase E4), website#498 (phase E5); nemar-cli#2094 to #2097; nemar-cli#2021 (Epic D), #2071 (phase D1, commit 3a869903).
