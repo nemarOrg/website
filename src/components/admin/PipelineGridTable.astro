@@ -4,7 +4,7 @@
  * website#586): datasets as rows, the recipe's checkpoints as columns, each cell `passed/total`
  * with the CLI's code and an icon, never color alone, and the full phrase for a screen reader.
  *
- * The table scrolls sideways inside a focusable, labelled region with a sticky header and first
+ * The table scrolls sideways inside a focusable, labeled region with a sticky header and first
  * column. Every backend word is a text node (the view models escape it); a cell links to the run's
  * section only when it has failures or skips to show, and no backend string is ever in a link.
  */
@@ -65,7 +65,7 @@ const { page, caption } = Astro.props;
                 <ComputePill tone={pill.tone} icon={pill.icon} label={pill.label} />
               </td>
               {page.columns.map((col) => {
-                const cell = cellView(row.cells[col] ?? null);
+                const cell = cellView(Object.hasOwn(row.cells, col) ? row.cells[col] : null);
                 const href = cellHref(row, col);
                 const body = (
                   <span class="pipeline-cell" data-tone={cell.tone}>

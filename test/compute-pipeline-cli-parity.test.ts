@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PROGRESS_MAX_FAILURES } from "../src/lib/compute-pipeline-contract";
 import { PIPELINE_HELP, failuresMeaning, stalledMeaning } from "../src/lib/compute-pipeline-labels";
+import { PIPELINE_GRID_FILTERS } from "../src/lib/compute-pipeline-view";
 import gridFixture from "./fixtures/compute/admin-pipeline-grid.json";
 import index from "./fixtures/compute/cli-help-pipeline/index.json";
 
@@ -32,41 +33,31 @@ describe("the captured help", () => {
 });
 
 describe("the page says what the CLI says", () => {
-  it("contains every sentence of PIPELINE_HELP in the status help", () => {
-    const sentences = [
-      PIPELINE_HELP.grid,
-      PIPELINE_HELP.columns,
-      PIPELINE_HELP.row,
-      PIPELINE_HELP.notStarted,
-      PIPELINE_HELP.waiting,
-      ...PIPELINE_HELP.legend,
-      PIPELINE_HELP.coverage,
-      PIPELINE_HELP.lag,
-    ];
-    const missing = sentences.filter((s) => !statusText.includes(collapse(s)));
+  const both = `${statusText} ${failuresText}`;
+
+  it("contains every sentence of PIPELINE_HELP in the captured help", () => {
+    const sentences = Object.values(PIPELINE_HELP).flat();
+    expect(sentences.length).toBeGreaterThan(10);
+    const missing = sentences.filter((s) => !both.includes(collapse(s)));
     expect(missing).toEqual([]);
   });
 
   it("states stalled with the Worker's own threshold", () => {
-    const minutes = gridFixture.all.body.stalled_after_seconds / 60;
-    expect(statusText).toContain(collapse(stalledMeaning(minutes)));
+    expect(statusText).toContain(
+      collapse(stalledMeaning(gridFixture.all.body.stalled_after_seconds)),
+    );
+    // A threshold that is not whole minutes is said in seconds, never rounded.
+    expect(stalledMeaning(90)).toContain("more than 90 seconds old");
+    expect(stalledMeaning(180)).toContain("more than 3 minutes old");
   });
 
-  it("states how many failures a checkpoint lists, and which recordings it leaves out", () => {
+  it("states how many failures a checkpoint lists", () => {
     expect(failuresText).toContain(collapse(failuresMeaning(PROGRESS_MAX_FAILURES)));
-    expect(failuresText).toContain(collapse(PIPELINE_HELP.unlisted));
   });
 
   it("offers no filter the CLI does not have", () => {
-    for (const flag of [
-      "--recipe-version",
-      "--executor",
-      "--runner",
-      "--status",
-      "--dataset",
-      "--after",
-      "--limit",
-    ]) {
+    for (const name of [...PIPELINE_GRID_FILTERS, "after"]) {
+      const flag = `--${name.replace("_", "-")}`;
       expect(status, flag).toContain(flag);
     }
   });

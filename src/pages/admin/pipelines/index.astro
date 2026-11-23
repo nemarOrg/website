@@ -31,7 +31,7 @@ const result = await getPipelineCoverage(days, { cookieHeader }).then(
   (err: unknown) => ({
     ok: false as const,
     notAvailable: isNotAvailable(err),
-    what: PIPELINE_LABELS.landingHeading,
+    what: PIPELINE_LABELS.whatCoverage,
     reason: computeAdminErrorText(err),
   }),
 );
@@ -45,7 +45,7 @@ const result = await getPipelineCoverage(days, { cookieHeader }).then(
       result={result}
       landing
       heading={PIPELINE_LABELS.landingHeading}
-      lede={PIPELINE_HELP.coverage}
+      lede={`${PIPELINE_LABELS.coverageLead} ${PIPELINE_HELP.coverage}`}
       headingId="pipeline-recipes-title"
     />
     <p class="pipelines__lag">{PIPELINE_LABELS.readOnlyLead} {PIPELINE_HELP.lag}</p>

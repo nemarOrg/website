@@ -24,6 +24,12 @@ export const PIPELINE_LABELS = {
   overviewLede: "Coverage of each recipe over the eligible datasets, and failed runs per day.",
   landingHeading: "Recipes",
   gridHeading: "Datasets by checkpoint",
+  gridLead: "This page shows",
+  coverageLead: "Coverage counts",
+  failuresLead: "Each checkpoint names its failed recordings.",
+  whatGrid: "the grid",
+  whatCoverage: "the recipes' coverage",
+  whatRun: "the run",
   legendHeading: "What a cell shows",
   filtersHeading: "Filters",
   allStatuses: "All",
@@ -122,9 +128,14 @@ export const PIPELINE_HELP = {
     "how many of the recordings that stopped at that checkpoint (failed or skipped there, not earlier) are not listed",
 } as const;
 
-/** What "stalled" means, with the Worker's own threshold (`stalled_after_seconds`, in minutes). */
-export function stalledMeaning(minutes: number): string {
-  return `stalled (its last report is more than ${minutes} minutes old while the job is submitted, queued or running, or the job's state is unreported; a submitted, queued or running job that never sent a progress report is never stalled)`;
+/** A threshold in the CLI's words: whole minutes when it is, else seconds. */
+export function durationText(seconds: number): string {
+  return seconds % 60 === 0 ? `${seconds / 60} minutes` : `${seconds} seconds`;
+}
+
+/** What "stalled" means, with the Worker's own threshold (`stalled_after_seconds`). */
+export function stalledMeaning(seconds: number): string {
+  return `stalled (its last report is more than ${durationText(seconds)} old while the job is submitted, queued or running, or the job's state is unreported; a submitted, queued or running job that never sent a progress report is never stalled)`;
 }
 
 /** How many failures a checkpoint lists, and which ones. */

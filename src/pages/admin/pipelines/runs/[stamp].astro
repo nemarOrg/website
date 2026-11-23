@@ -107,7 +107,7 @@ const facts = run
 ---
 
 <AdminLayout title={title} active="pipelines" session={session}>
-  <Fragment slot="lede">{failuresMeaning()}.</Fragment>
+  <Fragment slot="lede">{PIPELINE_LABELS.failuresLead} {failuresMeaning()}.</Fragment>
 
   <div class="prun">
     <p class="prun__back">
@@ -134,7 +134,7 @@ const facts = run
     }
     {
       !read.ok && !read.notFound && !read.notAvailable && (
-        <ComputeSectionError what={PIPELINE_LABELS.runHeading} reason={read.reason} />
+        <ComputeSectionError what={PIPELINE_LABELS.whatRun} reason={read.reason} />
       )
     }
 
@@ -181,7 +181,8 @@ const facts = run
                     {wordText(cp.checkpoint)}{" "}
                     <span class="prun__mark" data-tone={view.tone}>
                       <StatusIcon name={view.icon} size={13} />
-                      <span>{view.code || wordText(cp.mark)}</span>
+                      <span aria-hidden="true">{view.code || wordText(cp.mark)}</span>
+                      <span class="visually-hidden">{view.spoken}</span>
                     </span>
                   </h3>
                   <p class="prun__counts">

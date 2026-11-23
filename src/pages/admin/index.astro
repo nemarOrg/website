@@ -33,6 +33,8 @@ if (!session) {
   // non-null for AdminLayout's required `session` prop below.
   return Astro.redirect("/login");
 }
+// The Overview now carries an admin API read (the pipeline coverage panel): no cache keeps it.
+Astro.response.headers.set("Cache-Control", "no-store");
 
 // Histories cost one subrequest each, so this is a deliberately small,
 // curated set (OVERVIEW_HISTORY_KEYS): the four headline cards' trends, plus
@@ -71,7 +73,7 @@ const [snapshot, historyResults, usageSeries, usageAudience, pipelineCoverage] =
     (err: unknown) => ({
       ok: false as const,
       notAvailable: isNotAvailable(err),
-      what: PIPELINE_LABELS.overviewHeading,
+      what: PIPELINE_LABELS.whatCoverage,
       reason: computeAdminErrorText(err),
     }),
   ),

@@ -11,8 +11,11 @@ interface Props {
 }
 
 const { stalledAfterSeconds } = Astro.props;
-const minutes = Math.round(stalledAfterSeconds / 60);
-const statuses = [PIPELINE_HELP.notStarted, PIPELINE_HELP.waiting, stalledMeaning(minutes)];
+const statuses = [
+  PIPELINE_HELP.notStarted,
+  PIPELINE_HELP.waiting,
+  stalledMeaning(stalledAfterSeconds),
+];
 const codes = PIPELINE_HELP.legend.map((line) => {
   const space = line.indexOf(" ");
   return { code: line.slice(0, space), meaning: line.slice(space + 1) };
