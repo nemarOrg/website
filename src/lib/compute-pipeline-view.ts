@@ -325,6 +325,10 @@ function percent(part: number, whole: number): string | null {
 export interface PipelineCardSpec extends KpiSpec {
   readonly href: string;
   readonly placeholder: boolean;
+  /** The recipe's raw name, for its links. */
+  readonly recipe: string;
+  /** Datasets by row status, in grid order (unknown words after). */
+  readonly statuses: { word: string; count: number }[];
 }
 
 function card(c: PipelineCoverageCard, days: number): PipelineCardSpec {
@@ -362,6 +366,8 @@ function card(c: PipelineCoverageCard, days: number): PipelineCardSpec {
     anchor: null,
     href: gridHref(c.recipe),
     placeholder: c.placeholder,
+    recipe: c.recipe,
+    statuses: statusCounts(c.by_status),
   };
 }
 

@@ -439,3 +439,11 @@ export function getPipelineRun(
 ): Promise<PipelineRunDetail> {
   return computeFetch("GET", `/pipeline/runs/${stampId}`, init, parseRunDetail);
 }
+
+/**
+ * The API predates the pipeline routes: the router's own 404 names no code (a refusal of these
+ * routes always carries one). The page says "not available on this server yet", not a failure.
+ */
+export function isNotAvailable(err: unknown): boolean {
+  return err instanceof ComputeAdminApiError && err.status === 404 && err.code === undefined;
+}

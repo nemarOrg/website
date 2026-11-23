@@ -1,0 +1,158 @@
+---
+/**
+ * The pipeline coverage cards (nemar-cli ADR 0134 decision 5; epic nemarOrg/nemar-cli#2324 phase
+ * 4b, website#586): one card per recipe, its coverage over the eligible datasets and its failed runs
+ * per day, linked to the recipe's grid. On the admin Overview it shows the recipes that dispatch
+ * (placeholders left out); the Pipelines landing page shows every recipe and marks a placeholder.
+ *
+ * The read is the page's, and fails on its own: a failure is a `ComputeSectionError`, an API that
+ * predates the routes says "not available on this server yet", and neither is drawn as zero.
+ */
+import type { PipelineCoverage } from "../../lib/compute-pipeline-api";
+import { PIPELINE_LABELS } from "../../lib/compute-pipeline-labels";
+import { gridHref, pipelineCoverageCards, wordText } from "../../lib/compute-pipeline-view";
+import ComputePill from "./ComputePill.astro";
+import ComputeSectionError from "./ComputeSectionError.astro";
+import MetricTile from "./MetricTile.astro";
+
+type Result =
+  | { ok: true; value: PipelineCoverage }
+  | { ok: false; notAvailable: boolean; what: string; reason: string };
+
+interface Props {
+  result: Result;
+  /** Show placeholder recipes, with a pill, and each card's status counts as filter links. */
+  landing?: boolean;
+  heading: string;
+  lede: string;
+  headingId: string;
+}
+
+const { result, landing = false, heading, lede, headingId } = Astro.props;
+const cards = result.ok ? pipelineCoverageCards(result.value, { placeholders: landing }) : [];
+const HISTORY_ISSUE = "https://github.com/nemarOrg/nemar-cli/issues/2333";
+---
+
+<section class="pipeline-cov" aria-labelledby={headingId}>
+  <div class="pipeline-cov__head">
+    <h2 class="pipeline-cov__title" id={headingId}>{heading}</h2>
+    <p class="pipeline-cov__lede">{lede}</p>
+  </div>
+  {
+    !result.ok && result.notAvailable && (
+      <div class="pipeline-cov__note" data-pipeline-not-available>
+        <p class="pipeline-cov__note-title">{PIPELINE_LABELS.notAvailableTitle}</p>
+        <p>{PIPELINE_LABELS.notAvailableBody}</p>
+      </div>
+    )
+  }
+  {!result.ok && !result.notAvailable && <ComputeSectionError what={result.what} reason={result.reason} />}
+  {result.ok && cards.length === 0 && <p class="pipeline-cov__empty">{PIPELINE_LABELS.noRecipes}</p>}
+  {
+    cards.length > 0 && (
+      <div class="pipeline-cov__cards">
+        {cards.map((spec) => (
+          <div class="pipeline-cov__card">
+            {spec.placeholder && (
+              <ComputePill tone="neutral" icon="neutral" label={PIPELINE_LABELS.placeholder} />
+            )}
+            <MetricTile spec={spec} />
+            {landing && (
+              <ul class="pipeline-cov__statuses">
+                {spec.statuses.map((s) => (
+                  <li>
+                    <a href={gridHref(spec.recipe, { status: s.word })}>
+                      {wordText(s.word)} {s.count}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+    )
+  }
+  {
+    result.ok && (
+      <p class="pipeline-cov__foot">
+        {PIPELINE_LABELS.coverageNoHistory}{" "}
+        <a href={HISTORY_ISSUE} target="_blank" rel="noopener noreferrer">
+          {PIPELINE_LABELS.coverageHistoryIssue}
+        </a>
+      </p>
+    )
+  }
+</section>
+
+<style>
+  .pipeline-cov {
+    display: grid;
+    gap: var(--space-4);
+    min-inline-size: 0;
+  }
+  .pipeline-cov__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.012em;
+    line-height: var(--lh-snug);
+  }
+  .pipeline-cov__lede {
+    margin: var(--space-1) 0 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .pipeline-cov__cards {
+    display: grid;
+    gap: var(--space-3);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  }
+  .pipeline-cov__card {
+    display: grid;
+    gap: var(--space-2);
+    align-content: start;
+    justify-items: start;
+  }
+  .pipeline-cov__card > :global(.kpi) {
+    justify-self: stretch;
+  }
+  .pipeline-cov__statuses {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--fs-xs);
+  }
+  .pipeline-cov__statuses a {
+    color: var(--color-link);
+  }
+  .pipeline-cov__note,
+  .pipeline-cov__empty {
+    margin: 0;
+    padding: var(--space-4) var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .pipeline-cov__note p {
+    margin: 0;
+  }
+  .pipeline-cov__note-title {
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .pipeline-cov__foot {
+    margin: 0;
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+  }
+  .pipeline-cov__foot a {
+    color: var(--color-link);
+  }
+</style>
