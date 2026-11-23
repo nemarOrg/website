@@ -783,7 +783,7 @@ async function seedPipelineRuns() {
     const lookup = await stampForJob(env.DB, d.jobId);
     if (!lookup.ok) throw new Error(lookup.reason);
     const zero = { passed: 0, failed: 0, skipped: 0, total: 4 };
-    await recordProgress(env.DB, {
+    const outcome = await recordProgress(env.DB, {
       jobId: d.jobId,
       stamp: lookup.stamp,
       progress: {
@@ -794,6 +794,8 @@ async function seedPipelineRuns() {
       },
       reporter: { executor: "tapis" },
     });
+    if (outcome !== "accepted")
+      throw new Error(`progress for ${datasetId} not accepted: ${outcome}`);
     return d;
   };
   for (let i = 1; i <= 8; i++) await pf.seedEegDataset(env, `nm09910${i}`);
