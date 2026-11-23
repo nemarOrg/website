@@ -49,13 +49,14 @@ import { COMPUTE_JOB_STATES } from "./compute-contract";
 import { COMPUTE_LABELS } from "./compute-labels";
 import { resolveSignal } from "./request-deadline";
 
-type Init = {
+export type ComputeAdminInit = {
   readonly signal?: AbortSignal;
   readonly fetch?: typeof fetch;
   readonly cookieHeader?: string;
   /** Abort the request after this many ms. Defaults to the shared 5 s deadline. */
   readonly timeoutMs?: number;
 };
+type Init = ComputeAdminInit;
 
 /** The badge sits on every admin page, so it gets less than a page read. */
 const BADGE_TIMEOUT_MS = 2000;
@@ -184,7 +185,11 @@ export function computeAdminErrorText(err: unknown): string {
 // Transport
 // ---------------------------------------------------------------------------
 
-async function computeFetch<T>(
+/**
+ * One call under `/admin/compute`: the error reader, the malformed-answer rule and the deadline every
+ * compute admin client shares. Exported for the Pipelines tab's client (`compute-pipeline-api.ts`).
+ */
+export async function computeFetch<T>(
   method: "GET" | "POST",
   path: string,
   init: Init,
