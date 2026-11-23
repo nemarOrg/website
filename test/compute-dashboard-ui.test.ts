@@ -57,6 +57,8 @@ const SENTENCE_FILES = [
   "compute-failure.ts",
   // The one backend sentence transcribed by hand (`upload_expired`), drift-tested.
   "compute-contract.ts",
+  // The admin Pipelines tab's words (website#586), pinned to the CLI's help by its parity test.
+  "compute-pipeline-labels.ts",
 ];
 
 /** Source with comments removed and runs of whitespace collapsed, so a formatter's line breaks do not matter. */
