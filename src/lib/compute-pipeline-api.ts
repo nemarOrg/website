@@ -58,9 +58,12 @@ function arr(value: unknown): unknown[] {
   if (!Array.isArray(value)) fail();
   return value;
 }
-/** A string or null; an absent key reads as null (an older Worker may not send it). */
+/**
+ * A string or null. The key itself is required: these routes always send every nullable key, so an
+ * absent one is a shape error, never read as null.
+ */
 function strOrNull(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
+  if (value === null) return null;
   return str(value);
 }
 
@@ -93,7 +96,7 @@ export type PipelineByStatus = Readonly<Record<string, number>>;
 
 function byStatus(value: unknown): PipelineByStatus {
   const d = dict(value);
-  const out: Record<string, number> = {};
+  const out: Record<string, number> = Object.create(null);
   for (const [k, v] of Object.entries(d)) out[k] = int(v);
   return out;
 }
@@ -192,7 +195,8 @@ export interface PipelineGridRow {
 
 function gridRow(value: unknown): PipelineGridRow {
   const d = dict(value);
-  const cells: Record<string, PipelineCell | null> = {};
+  // No prototype: a column named like an Object method (`constructor`) is a column, nothing else.
+  const cells: Record<string, PipelineCell | null> = Object.create(null);
   for (const [k, v] of Object.entries(dict(d.cells))) cells[k] = parsePipelineCell(v);
   return {
     dataset_id: str(d.dataset_id),

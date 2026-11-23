@@ -18,6 +18,7 @@ import {
   getPipelineCoverage,
   getPipelineGrid,
   getPipelineRun,
+  isNotAvailable,
   parsePipelineCell,
   pipelineGridSearch,
 } from "./compute-pipeline-api";
@@ -180,5 +181,76 @@ describe("refusals and failures", () => {
     expect(computeAdminErrorText(err)).toMatch(/not available/i);
     const timeout = new DOMException("timed out", "TimeoutError");
     expect(computeAdminErrorText(timeout)).toBe(ACCOUNT_COPY["compute_admin.error.timeout"]);
+  });
+});
+
+describe("required keys that may be null", () => {
+  it("fails the answer when a nullable key is absent, rather than reading it as null", async () => {
+    // Built inline: the captured page without `next_after`, and a run without `outcome`.
+    const page = clone(grid.all.body) as Record<string, unknown>;
+    delete page.next_after;
+    const err = await getPipelineGrid(
+      { recipe: "nemar-floor" },
+      { fetch: replay({ status: 200, body: page }).fetchImpl },
+    ).catch((e: unknown) => e);
+    expect(computeAdminErrorText(err)).toBe(ACCOUNT_COPY["compute_admin.error.malformed"]);
+    const detail = clone(runs.reconciled.body) as { run: Record<string, unknown> };
+    delete detail.run.outcome;
+    const err2 = await getPipelineRun(1, {
+      fetch: replay({ status: 200, body: detail }).fetchImpl,
+    }).catch((e: unknown) => e);
+    expect(computeAdminErrorText(err2)).toBe(ACCOUNT_COPY["compute_admin.error.malformed"]);
+  });
+
+  it("keeps a column whose name is an Object method as a plain column", async () => {
+    // Built inline: a column named `constructor`.
+    const body = clone(grid.all.body) as { rows: { cells: Record<string, unknown> }[] };
+    body.rows[0].cells.constructor = body.rows[0].cells.import;
+    const page = await getPipelineGrid(
+      { recipe: "nemar-floor" },
+      { fetch: replay({ status: 200, body }).fetchImpl },
+    );
+    expect(page.rows[0].cells.constructor?.mark).toBe("not_started");
+    expect(Object.hasOwn(page.rows[1].cells, "constructor")).toBe(false);
+  });
+});
+
+describe("what the pages rely on", () => {
+  it("calls only the router's code-less 404 not available", async () => {
+    // Built inline: the router's own answer to an unknown route (nemar-cli's notFound body).
+    const notFound = await getPipelineCoverage(undefined, {
+      fetch: replay({
+        status: 404,
+        body: {
+          error: "Not Found",
+          message: "Route GET /admin/compute/pipeline/coverage not found",
+        },
+      }).fetchImpl,
+    }).catch((e: unknown) => e);
+    expect(isNotAvailable(notFound)).toBe(true);
+    for (const c of [runs.stamp_not_found, grid.recipe_unknown]) {
+      const err = await getPipelineRun(1, { fetch: replay(c).fetchImpl }).catch((e: unknown) => e);
+      expect(isNotAvailable(err), c.body.code).toBe(false);
+    }
+  });
+
+  it("sends days only when asked", async () => {
+    const seven = replay(coverage.days_7);
+    await getPipelineCoverage(7, { fetch: seven.fetchImpl });
+    expect(seven.seen[0].url).toMatch(/\/pipeline\/coverage\?days=7$/);
+    const plain = replay(coverage.default);
+    await getPipelineCoverage(undefined, { fetch: plain.fetchImpl });
+    expect(plain.seen[0].url).toMatch(/\/pipeline\/coverage$/);
+  });
+
+  it("gives up at its deadline and says so", async () => {
+    const waiting = ((_url: string, init: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      })) as unknown as typeof fetch;
+    const err = await getPipelineCoverage(undefined, { fetch: waiting, timeoutMs: 1 }).catch(
+      (e: unknown) => e,
+    );
+    expect(computeAdminErrorText(err)).toBe(ACCOUNT_COPY["compute_admin.error.timeout"]);
   });
 });
