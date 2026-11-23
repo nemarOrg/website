@@ -30,12 +30,12 @@ import {
 } from "../../../../lib/compute-pipeline-labels";
 import {
   PIPELINES_PATH,
-  cellView,
   checkpointAnchor,
   d1Time,
   gridHref,
   outcomeText,
   parseStampParam,
+  runMarkView,
   statusPill,
   wordText,
 } from "../../../../lib/compute-pipeline-view";
@@ -160,7 +160,7 @@ const facts = run
           <section class="prun__checkpoints" aria-labelledby="prun-cp-title">
             <h2 id="prun-cp-title">{PIPELINE_LABELS.checkpointsHeading}</h2>
             {detail.checkpoints.map((cp) => {
-              const view = cellView({
+              const view = runMarkView({
                 mark: cp.mark,
                 counts: cp.counts,
                 reconciled: cp.reconciled,
@@ -181,7 +181,7 @@ const facts = run
                     {wordText(cp.checkpoint)}{" "}
                     <span class="prun__mark" data-tone={view.tone}>
                       <StatusIcon name={view.icon} size={13} />
-                      <span aria-hidden="true">{view.code || wordText(cp.mark)}</span>
+                      <span aria-hidden="true">{view.code}</span>
                       <span class="visually-hidden">{view.spoken}</span>
                     </span>
                   </h3>

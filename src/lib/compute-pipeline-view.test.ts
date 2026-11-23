@@ -19,12 +19,14 @@ import {
   checkpointAnchor,
   d1Time,
   executorText,
+  gridChips,
   parseDaysParam,
   parseGridQuery,
   parseRecipeParam,
   parseStampParam,
   pipelineCoverageCards,
   pipelinePager,
+  runMarkView,
   statusCounts,
   statusPill,
   summaryLine,
@@ -257,5 +259,49 @@ describe("the run", () => {
     expect([imp?.listed, imp?.unlisted]).toEqual([10, 2]);
     const unreadable = parseRunDetail(runFixture.unreadable.body);
     expect(unreadable.checkpoints[0].failures_unreadable).toBe(true);
+  });
+});
+
+describe("status chips and the matching line", () => {
+  const counts = (m: ReturnType<typeof gridChips>) =>
+    Object.fromEntries(m.chips.map((c) => [c.word, c.count]));
+
+  it("counts every eligible dataset with a status filter set, and adds the matching count", () => {
+    const failed = parseGridPage(gridFixture.status_failed.body);
+    const m = gridChips(failed, true);
+    expect(m.total).toBe(failed.summary.eligible);
+    expect(m.total).toBe(8);
+    expect(counts(m)).toEqual(counts(gridChips(grid, false)));
+    expect(counts(m).running).toBe(2);
+    expect(m.matching).toBe(1);
+  });
+
+  it("counts every eligible dataset with only other filters set", () => {
+    const runner = parseGridPage(gridFixture.runner.body);
+    const m = gridChips(runner, true);
+    expect(m.total).toBe(8);
+    expect(counts(m)).toEqual(counts(gridChips(grid, false)));
+    expect(m.matching).toBe(runner.matched.total);
+    expect(m.matching).toBe(1);
+  });
+
+  it("has no matching line without filters", () => {
+    expect(gridChips(grid, false).matching).toBeNull();
+  });
+});
+
+describe("the run page's checkpoint mark", () => {
+  const bare = { reconciled: true, disagreement: false, listed: 0, counts: null };
+
+  it("shows the mark word when the checkpoint has no counts; the grid cell keeps the dash", () => {
+    expect(runMarkView({ ...bare, mark: "passed" }).code).toBe("passed");
+    expect(cellView({ ...bare, mark: "passed" }).code).toBe("-");
+    expect(runMarkView({ ...bare, mark: "not_started" }).code).toBe("not started");
+  });
+
+  it("keeps the CLI code when the checkpoint has counts", () => {
+    const counts = { passed: 3, failed: 1, skipped: 0, total: 4 };
+    expect(runMarkView({ ...bare, mark: "failed", counts }).code).toBe("F1");
+    expect(runMarkView({ ...bare, mark: "passed", counts }).code).toBe("passed");
   });
 });

@@ -32,12 +32,12 @@ import {
   PIPELINES_PATH,
   d1Time,
   filterParams,
+  gridChips,
   gridHref,
   isFiltered,
   parseGridQuery,
   parseRecipeParam,
   pipelinePager,
-  statusCounts,
   statusPill,
   summaryLine,
 } from "../../../lib/compute-pipeline-view";
@@ -86,10 +86,9 @@ const title = recipe ? displaySafeLine(recipe) : PIPELINE_LABELS.tab;
 const versions = page
   ? page.facets.recipe_versions.filter((v) => COMPUTE_PIPELINE_RECIPE_VERSION_RE.test(v))
   : [];
-// With filters set, the chips count the filtered set; otherwise every eligible dataset.
-const chipCounts = page ? (filtered ? page.matched.by_status : page.summary.by_status) : {};
-const chipTotal = page ? (filtered ? page.matched.total : page.summary.eligible) : 0;
-const chips = statusCounts(chipCounts);
+// The chips always count every eligible dataset; a filter adds the separate "Matching N" line.
+const chipModel = page ? gridChips(page, filtered) : null;
+const chips = chipModel?.chips ?? [];
 const runners = page ? page.facets.runners.filter((r) => RUNNER_ID_RE.test(r.id)) : [];
 const clearHref = recipe ? gridHref(recipe) : PIPELINES_PATH;
 const datasetPattern = COMPUTE_DATASET_ID_RE.source.replace(/^\^|\$$/g, "");
@@ -134,9 +133,9 @@ const datasetPattern = COMPUTE_DATASET_ID_RE.source.replace(/^\^|\$$/g, "");
           <section class="pgrid__summary" aria-labelledby="pgrid-summary-title">
             <h2 class="visually-hidden" id="pgrid-summary-title">{PIPELINE_LABELS.gridHeading}</h2>
             <p class="pgrid__line">{summaryLine(page.summary)}</p>
-            {filtered && (
+            {chipModel && chipModel.matching !== null && (
               <p class="pgrid__line">
-                {PIPELINE_LABELS.matching} {page.matched.total}
+                {PIPELINE_LABELS.matching} {chipModel.matching}
               </p>
             )}
             <p class="pgrid__asof">
@@ -151,7 +150,7 @@ const datasetPattern = COMPUTE_DATASET_ID_RE.source.replace(/^\^|\$$/g, "");
               href={gridHref(recipe, { ...filterParams(q), status: undefined })}
               aria-current={q.status === undefined ? "page" : undefined}
             >
-              {PIPELINE_LABELS.allStatuses} {chipTotal}
+              {PIPELINE_LABELS.allStatuses} {chipModel?.total}
             </a>
             {chips.map((c) => {
               const pill = statusPill(c.word);

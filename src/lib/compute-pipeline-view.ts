@@ -18,6 +18,7 @@ import type {
   PipelineCell,
   PipelineCoverage,
   PipelineCoverageCard,
+  PipelineGridPage,
   PipelineGridQuery,
   PipelineGridRow,
   PipelineTrendPoint,
@@ -148,6 +149,16 @@ export function cellView(cell: PipelineCell | null): CellView {
     spoken = countWords ? `${countWords}, ${style.spoken}` : style.spoken;
   }
   return { counts, code, tone: style.tone, icon: style.icon, spoken, known: true };
+}
+
+/**
+ * One checkpoint's mark on the run page. Unlike a grid cell (where a passed cell with no counts is
+ * `-`, as the CLI prints it), a checkpoint with no counts shows its mark word.
+ */
+export function runMarkView(cell: PipelineCell): CellView {
+  const view = cellView(cell);
+  const code = cell.counts === null || view.code === "" ? wordText(cell.mark) : view.code;
+  return { ...view, code };
 }
 
 /** An outcome word, raw as the CLI prints it, or `none`. */
@@ -320,6 +331,23 @@ export function pipelinePager(
   return {
     next: cursor === null ? null : gridHref(recipe, { ...params, after: cursor }),
     first: q.after === undefined ? null : gridHref(recipe, params),
+  };
+}
+
+/**
+ * The status chips and the matching line of a grid page. The chips always count every eligible
+ * dataset (`summary`, the CLI's "all runs" line): the Worker's `matched` already applies the status
+ * filter, so it cannot drive chips. When any filter is set, `matching` is `matched.total` (the CLI's
+ * "matching:" line); otherwise null.
+ */
+export function gridChips(
+  page: Pick<PipelineGridPage, "summary" | "matched">,
+  filtered: boolean,
+): { total: number; chips: ReturnType<typeof statusCounts>; matching: number | null } {
+  return {
+    total: page.summary.eligible,
+    chips: statusCounts(page.summary.by_status),
+    matching: filtered ? page.matched.total : null,
   };
 }
 
