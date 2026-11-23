@@ -1,0 +1,83 @@
+---
+/**
+ * What the pipeline grid shows, in the CLI's own words (`PIPELINE_HELP`, pinned to the captured
+ * `nemar admin compute pipeline status --help-all` text): the row statuses, then each cell code.
+ */
+import { PIPELINE_HELP, PIPELINE_LABELS, stalledMeaning } from "../../lib/compute-pipeline-labels";
+
+interface Props {
+  /** The Worker's stalled threshold, in seconds (`stalled_after_seconds`). */
+  stalledAfterSeconds: number;
+}
+
+const { stalledAfterSeconds } = Astro.props;
+const minutes = Math.round(stalledAfterSeconds / 60);
+const statuses = [PIPELINE_HELP.notStarted, PIPELINE_HELP.waiting, stalledMeaning(minutes)];
+const codes = PIPELINE_HELP.legend.map((line) => {
+  const space = line.indexOf(" ");
+  return { code: line.slice(0, space), meaning: line.slice(space + 1) };
+});
+---
+
+<section class="pipeline-legend" aria-labelledby="pipeline-legend-title">
+  <h2 class="pipeline-legend__title" id="pipeline-legend-title">{PIPELINE_LABELS.legendHeading}</h2>
+  <p class="pipeline-legend__text">{PIPELINE_HELP.row}.</p>
+  <ul class="pipeline-legend__statuses">
+    {statuses.map((s) => <li>{s}</li>)}
+  </ul>
+  <dl class="pipeline-legend__codes">
+    {
+      codes.map((c) => (
+        <div class="pipeline-legend__code">
+          <dt>
+            <code>{c.code}</code>
+          </dt>
+          <dd>{c.meaning}</dd>
+        </div>
+      ))
+    }
+  </dl>
+</section>
+
+<style>
+  .pipeline-legend {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    font-size: var(--fs-sm);
+  }
+  .pipeline-legend__title {
+    margin: 0;
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+  }
+  .pipeline-legend__text,
+  .pipeline-legend__statuses {
+    margin: 0;
+    color: var(--color-fg-muted);
+  }
+  .pipeline-legend__statuses {
+    padding-inline-start: var(--space-5);
+  }
+  .pipeline-legend__codes {
+    display: grid;
+    gap: var(--space-1) var(--space-4);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
+    margin: 0;
+  }
+  .pipeline-legend__code {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .pipeline-legend__code dt {
+    flex: none;
+    min-inline-size: 2.5rem;
+  }
+  .pipeline-legend__code dd {
+    margin: 0;
+    color: var(--color-fg-muted);
+  }
+</style>

@@ -1,0 +1,347 @@
+---
+/**
+ * One recipe's pipeline grid (nemar-cli ADR 0134 decision 5; epic nemarOrg/nemar-cli#2324 phase 4b,
+ * website#586): the legacy pipeline status table, datasets by checkpoints, with the CLI's filters and
+ * keyset paging. READ ONLY: one API call, never a sync (the CLI syncs; the page says so).
+ *
+ * Every filter in the URL is checked against its pattern or word list before it is sent; one that is
+ * not valid is dropped and named. A recipe segment that is not a recipe name is never sent at all.
+ */
+import ComputePill from "../../../components/admin/ComputePill.astro";
+import ComputeSectionError from "../../../components/admin/ComputeSectionError.astro";
+import PipelineGridTable from "../../../components/admin/PipelineGridTable.astro";
+import PipelineLegend from "../../../components/admin/PipelineLegend.astro";
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { adminGate } from "../../../lib/admin-guard";
+import { getSession } from "../../../lib/auth";
+import { computeAdminErrorText } from "../../../lib/compute-admin-api";
+import { COMPUTE_EXECUTORS } from "../../../lib/compute-admin-contract";
+import {
+  type PipelineGridPage,
+  getPipelineGrid,
+  isNotAvailable,
+} from "../../../lib/compute-pipeline-api";
+import {
+  COMPUTE_DATASET_ID_RE,
+  COMPUTE_PIPELINE_RECIPE_VERSION_RE,
+} from "../../../lib/compute-pipeline-contract";
+import { PIPELINE_HELP, PIPELINE_LABELS } from "../../../lib/compute-pipeline-labels";
+import {
+  PIPELINES_PATH,
+  d1Time,
+  filterParams,
+  gridHref,
+  isFiltered,
+  parseGridQuery,
+  parseRecipeParam,
+  pipelinePager,
+  statusCounts,
+  statusPill,
+  summaryLine,
+} from "../../../lib/compute-pipeline-view";
+import { displaySafeLine } from "../../../lib/mail-display";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
+}
+if (!session) {
+  // adminGate(null, ...) always returns a redirect above; this only narrows `session`.
+  return Astro.redirect("/login");
+}
+Astro.response.headers.set("Cache-Control", "no-store");
+
+const recipe = parseRecipeParam(Astro.params.recipe);
+const url = new URL(Astro.request.url);
+const parsed = recipe ? parseGridQuery(recipe, url.searchParams) : null;
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+
+type Read =
+  | { ok: true; value: PipelineGridPage }
+  | { ok: false; notAvailable: boolean; reason: string };
+let read: Read | null = null;
+if (recipe && parsed) {
+  read = await getPipelineGrid(parsed.query, { cookieHeader }).then(
+    (value): Read => ({ ok: true, value }),
+    (err: unknown): Read => ({
+      ok: false,
+      notAvailable: isNotAvailable(err),
+      reason: computeAdminErrorText(err),
+    }),
+  );
+}
+if (!recipe) Astro.response.status = 404;
+
+const page = read?.ok ? read.value : null;
+const q = parsed?.query;
+const filtered = q ? isFiltered(q) : false;
+const pager = page && q && recipe ? pipelinePager(recipe, q, page.next_after) : null;
+const title = recipe ? displaySafeLine(recipe) : PIPELINE_LABELS.tab;
+const versions = page
+  ? page.facets.recipe_versions.filter((v) => COMPUTE_PIPELINE_RECIPE_VERSION_RE.test(v))
+  : [];
+const chips = page ? statusCounts(page.summary.by_status) : [];
+const clearHref = recipe ? gridHref(recipe) : PIPELINES_PATH;
+const datasetPattern = COMPUTE_DATASET_ID_RE.source.replace(/^\^|\$$/g, "");
+---
+
+<AdminLayout title={title} active="pipelines" session={session}>
+  <Fragment slot="lede">{PIPELINE_HELP.grid}; {PIPELINE_HELP.columns}.</Fragment>
+
+  <div class="pgrid">
+    <p class="pgrid__back"><a href={PIPELINES_PATH}>{PIPELINE_LABELS.backToRecipes}</a></p>
+
+    {!recipe && <p class="pgrid__empty">{PIPELINE_LABELS.notARecipe}</p>}
+
+    {
+      read && !read.ok && read.notAvailable && (
+        <div class="pgrid__note">
+          <p class="pgrid__note-title">{PIPELINE_LABELS.notAvailableTitle}</p>
+          <p>{PIPELINE_LABELS.notAvailableBody}</p>
+        </div>
+      )
+    }
+    {
+      read && !read.ok && !read.notAvailable && (
+        <ComputeSectionError what={PIPELINE_LABELS.gridHeading} reason={read.reason} />
+      )
+    }
+
+    {
+      parsed && parsed.ignored.length > 0 && (
+        <p class="pgrid__ignored" role="status">
+          {PIPELINE_LABELS.ignoredFilter} {parsed.ignored.join(", ")}.
+          {parsed.runnerWithTapis && ` ${PIPELINE_LABELS.runnerNotTapis}`}
+        </p>
+      )
+    }
+
+    {
+      page && q && recipe && (
+        <Fragment>
+          <section class="pgrid__summary" aria-labelledby="pgrid-summary-title">
+            <h2 class="visually-hidden" id="pgrid-summary-title">{PIPELINE_LABELS.gridHeading}</h2>
+            <p class="pgrid__line">{summaryLine(page.summary)}</p>
+            {filtered && (
+              <p class="pgrid__line">
+                {PIPELINE_LABELS.matching} {page.matched.total}
+              </p>
+            )}
+            <p class="pgrid__asof">
+              {PIPELINE_LABELS.asOf} {d1Time(page.as_of)}. {PIPELINE_LABELS.readOnlyLead}{" "}
+              {PIPELINE_HELP.lag}
+            </p>
+            {page.summary.placeholder && <p class="pgrid__asof">{PIPELINE_LABELS.placeholderNote}</p>}
+          </section>
+
+          <nav class="pgrid__chips" aria-label={PIPELINE_LABELS.colStatus}>
+            <a
+              href={gridHref(recipe, { ...filterParams(q), status: undefined })}
+              aria-current={q.status === undefined ? "page" : undefined}
+            >
+              {PIPELINE_LABELS.allStatuses} {page.summary.eligible}
+            </a>
+            {chips.map((c) => {
+              const pill = statusPill(c.word);
+              return (
+                <a
+                  href={gridHref(recipe, { ...filterParams(q), status: c.word })}
+                  aria-current={q.status === c.word ? "page" : undefined}
+                >
+                  <ComputePill tone={pill.tone} icon={pill.icon} label={`${pill.label} ${c.count}`} />
+                </a>
+              );
+            })}
+          </nav>
+
+          <form class="pgrid__form" method="get" action={gridHref(recipe)}>
+            <fieldset>
+              <legend>{PIPELINE_LABELS.filtersHeading}</legend>
+              {q.status && <input type="hidden" name="status" value={q.status} />}
+              <label>
+                {PIPELINE_LABELS.recipeVersion}
+                <select name="recipe_version">
+                  <option value="">{PIPELINE_LABELS.anyVersion}</option>
+                  {versions.map((v) => (
+                    <option value={v} selected={q.recipe_version === v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {PIPELINE_LABELS.executor}
+                <select name="executor">
+                  <option value="">{PIPELINE_LABELS.anyExecutor}</option>
+                  {COMPUTE_EXECUTORS.map((e) => (
+                    <option value={e} selected={q.executor === e}>
+                      {e}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {PIPELINE_LABELS.runner}
+                <select name="runner">
+                  <option value="">{PIPELINE_LABELS.anyRunner}</option>
+                  {page.facets.runners.map((r) => (
+                    <option value={r.id} selected={q.runner === r.id}>
+                      {displaySafeLine(r.name)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {PIPELINE_LABELS.dataset}
+                <input
+                  type="text"
+                  name="dataset"
+                  value={q.dataset ?? ""}
+                  pattern={datasetPattern}
+                  inputmode="text"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+              </label>
+              <button type="submit">{PIPELINE_LABELS.apply}</button>
+              {filtered && <a href={clearHref}>{PIPELINE_LABELS.clearFilters}</a>}
+            </fieldset>
+          </form>
+
+          <PipelineLegend stalledAfterSeconds={page.stalled_after_seconds} />
+
+          {page.rows.length === 0 && page.summary.eligible === 0 && (
+            <p class="pgrid__empty">{PIPELINE_LABELS.noEligible}</p>
+          )}
+          {page.rows.length === 0 && page.summary.eligible > 0 && filtered && (
+            <p class="pgrid__empty">
+              {PIPELINE_LABELS.noMatches} <a href={clearHref}>{PIPELINE_LABELS.clearFilters}</a>
+            </p>
+          )}
+          {page.rows.length === 0 && page.summary.eligible > 0 && !filtered && q.after && (
+            <p class="pgrid__empty">
+              {PIPELINE_LABELS.noMore}{" "}
+              {pager?.first && <a href={pager.first}>{PIPELINE_LABELS.firstPage}</a>}
+            </p>
+          )}
+          {page.rows.length > 0 && (
+            <PipelineGridTable page={page} caption={summaryLine(page.summary)} />
+          )}
+
+          {pager && (pager.next || pager.first) && (
+            <nav class="pgrid__pager" aria-label={PIPELINE_LABELS.pagerLabel}>
+              {pager.first && <a href={pager.first}>{PIPELINE_LABELS.firstPage}</a>}
+              {pager.next && (
+                <a href={pager.next} rel="next">
+                  {PIPELINE_LABELS.nextPage}
+                </a>
+              )}
+            </nav>
+          )}
+        </Fragment>
+      )
+    }
+  </div>
+</AdminLayout>
+
+<style>
+  .pgrid {
+    display: grid;
+    gap: var(--space-4);
+    min-inline-size: 0;
+  }
+  .pgrid a {
+    color: var(--color-link);
+  }
+  .pgrid__back,
+  .pgrid__line,
+  .pgrid__asof,
+  .pgrid__ignored,
+  .pgrid__empty {
+    margin: 0;
+  }
+  .pgrid__line {
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--fw-medium);
+  }
+  .pgrid__asof,
+  .pgrid__ignored {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .pgrid__summary {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .pgrid__note,
+  .pgrid__empty {
+    padding: var(--space-4) var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    color: var(--color-fg-muted);
+  }
+  .pgrid__note p {
+    margin: 0;
+  }
+  .pgrid__note-title {
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .pgrid__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
+  }
+  .pgrid__chips a {
+    text-decoration: none;
+    font-size: var(--fs-sm);
+  }
+  .pgrid__chips a[aria-current="page"] {
+    font-weight: var(--fw-semibold);
+    text-decoration: underline;
+  }
+  .pgrid__form fieldset {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    align-items: flex-end;
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+  }
+  .pgrid__form legend {
+    padding: 0 var(--space-1);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+  }
+  .pgrid__form label {
+    display: grid;
+    gap: 2px;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+  }
+  .pgrid__form select,
+  .pgrid__form input {
+    min-block-size: 2rem;
+    font: inherit;
+    font-size: var(--fs-sm);
+    color: var(--color-fg);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md, 6px);
+  }
+  .pgrid__form button {
+    min-block-size: 2rem;
+    padding: 0 var(--space-3);
+    font: inherit;
+    font-size: var(--fs-sm);
+  }
+  .pgrid__pager {
+    display: flex;
+    gap: var(--space-4);
+  }
+</style>

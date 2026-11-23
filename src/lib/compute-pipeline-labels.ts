@@ -51,6 +51,8 @@ export const PIPELINE_LABELS = {
   noRecipes: "The registry lists no recipes.",
   noMatches: "No datasets match these filters.",
   noMore: "No more datasets on this page.",
+  matching: "Matching",
+  notARecipe: "This address does not name a recipe.",
   placeholderNote: "This recipe is a placeholder: it is not dispatched automatically yet.",
   notAvailableTitle: "Not available on this server yet",
   notAvailableBody:
@@ -59,7 +61,7 @@ export const PIPELINE_LABELS = {
   coverageHistoryIssue: "Tracking issue",
   failedRuns: "Failed runs",
   readOnlyLead:
-    "This page reads without a sync; `nemar admin compute pipeline status` syncs first.",
+    'This page reads without a sync; "nemar admin compute pipeline status" syncs first.',
   asOf: "As of",
   ignoredFilter: "Ignored a filter that is not valid:",
   runnerNotTapis: "A runner's jobs are not Tapis jobs: drop the Tapis executor or the runner.",
