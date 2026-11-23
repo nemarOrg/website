@@ -150,6 +150,12 @@ jobs:
       # statuses, the truncated-log header, the bounds and the cancel outcomes the job page
       # (phase E3) branches on. Same `dev` pairing, strict, and red until the compute epic reaches
       # nemar-cli `dev`.
+      # test/compute-pipeline-contract-drift.test.ts is a THIRTEENTH, against contract/compute-admin.ts
+      # (the pipeline grid's words, bounds and patterns), shared/compute-recipes.ts (the checkpoint
+      # names), contract/compute-runner.ts, contract/compute.ts and contract/compute-progress.ts (the
+      # admin Pipelines tab, nemar-cli ADR 0134 phase 4b). It reuses NEMAR_CLI_COMPUTE_ADMIN_CONTRACT
+      # and reads the others beside it. Strict, and red until nemar-cli epic #2324 reaches `dev`; the
+      # dependency is one-directional, so nemar-cli `dev` merges first and website `staging` second.
       - uses: actions/checkout@v4
         with:
           repository: nemarOrg/nemar-cli
@@ -157,11 +163,14 @@ jobs:
           sparse-checkout: |
             /backend/src/services/mail-links.ts
             /shared/compute-access-state.ts
+            /shared/compute-recipes.ts
             /shared/compute-state.ts
             /shared/contract/account-copy.ts
             /shared/contract/compute-access.ts
             /shared/contract/compute-admin.ts
+            /shared/contract/compute-progress.ts
             /shared/contract/compute-responses.ts
+            /shared/contract/compute-runner.ts
             /shared/contract/compute-submit.ts
             /shared/contract/compute-terms.ts
             /shared/contract/compute-user.ts
