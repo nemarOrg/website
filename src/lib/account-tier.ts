@@ -158,7 +158,7 @@ export function showsUploadForm(state: UploadPageState): boolean {
  * an admin could review.
  *
  * - `"username"` — NULL by design on every ORCID/web signup (nemar-cli
- *   migration 0026). `nemar admin approve <username>` and the dataset repos
+ *   migration 0026). `nemar admin users approve <username>` and the dataset repos
  *   an approved account owns are both keyed on it.
  * - `"name"` — required to mint a DOI that cites a person (nemar-cli ADR
  *   0041). **Only ever a step when no verified ORCID iD is linked**: with one,
