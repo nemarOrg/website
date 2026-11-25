@@ -156,6 +156,11 @@ jobs:
       # admin Pipelines tab, nemar-cli ADR 0134 phase 4b). It reuses NEMAR_CLI_COMPUTE_ADMIN_CONTRACT
       # and reads the others beside it. Strict, and red until nemar-cli epic #2324 reaches `dev`; the
       # dependency is one-directional, so nemar-cli `dev` merges first and website `staging` second.
+      # test/quality-views-vocabulary-drift.test.ts is a FOURTEENTH, against
+      # shared/contract/neuroschema/views/SHA256SUMS.json (the neuroschema view vocabulary nemar-cli
+      # vendors; nemar-cli ADR 0137, website ADR 0035) and the registry beside it: the copies in
+      # src/lib/quality-views/vocabulary/ and test/fixtures/quality-views/vectors/ must carry the
+      # digests it lists. Same `dev` pairing, strict, and red until nemar-cli epic #2324 reaches `dev`.
       - uses: actions/checkout@v4
         with:
           repository: nemarOrg/nemar-cli
@@ -178,6 +183,8 @@ jobs:
             /shared/contract/docs-auth.ts
             /shared/contract/mail-admin.ts
             /shared/contract/mail-categories.ts
+            /shared/contract/neuroschema/views/SHA256SUMS.json
+            /shared/contract/neuroschema/views/registry.json
             /shared/contract/oidc-authorize.ts
             /shared/contract/private-site.ts
             /shared/contract/publication-review-copy.ts
@@ -203,5 +210,6 @@ jobs:
           NEMAR_CLI_MAIL_LINKS: nemar-cli-contract/backend/src/services/mail-links.ts
           NEMAR_CLI_OIDC_AUTHORIZE_CONTRACT: nemar-cli-contract/shared/contract/oidc-authorize.ts
           NEMAR_CLI_PRIVATE_SITE_CONTRACT: nemar-cli-contract/shared/contract/private-site.ts
+          NEMAR_CLI_QUALITY_VIEWS: nemar-cli-contract/shared/contract/neuroschema/views/SHA256SUMS.json
           NEMAR_CLI_REVIEW_COPY: nemar-cli-contract/shared/contract/publication-review-copy.ts
           NEMAR_CLI_VALIDATOR_PIN: nemar-cli-contract/validator-version.json
