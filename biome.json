@@ -12,7 +12,8 @@
       "node_modules",
       ".wrangler",
       "src/lib/eeg-viewer/hed-vocab.json",
-      "src/lib/quality-views/vocabulary"
+      "src/lib/quality-views/vocabulary",
+      "test/fixtures/quality-views/vectors"
     ]
   },
   "formatter": {
