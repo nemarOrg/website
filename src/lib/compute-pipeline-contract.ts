@@ -66,14 +66,17 @@ export const COMPUTE_PIPELINE_STAMP_ID_RE = /^[1-9][0-9]{0,15}$/;
 /** A recipe version, as the stamps and the registry write it. */
 export const COMPUTE_PIPELINE_RECIPE_VERSION_RE = /^[0-9A-Za-z._+-]{1,64}$/;
 
-/** The checkpoint names in their standard order (`shared/compute-recipes.ts`). */
+/**
+ * The checkpoint names in their standard order (`shared/compute-recipes.ts`). No `figures`: quality
+ * views are data drawn in the browser and are written at `quality` (nemar-cli ADR 0137, website
+ * ADR 0035).
+ */
 export const STANDARD_CHECKPOINTS = [
   "import",
   "preprocess",
   "ica",
   "iclabel",
   "quality",
-  "figures",
   "stored",
 ] as const;
 
