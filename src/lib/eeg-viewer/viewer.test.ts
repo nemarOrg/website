@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as zarr from "zarrita";
 import { RETRY_CLASS } from "./retry";
+import { type Placement, SCALP_MAP_SENTENCES } from "./scalp-map";
 import { isMissingStoreError } from "./store";
 import {
   FIT_MIN_PLOT_HEIGHT,
@@ -342,12 +343,12 @@ describe("unavailableHtml", () => {
 });
 
 /**
- * The topomap toggle's tooltip says where a store's electrode positions came
- * from: `subject` (the subject's own electrodes file) or `dataset` (one file for
- * every subject), with the file named. It never calls them measured, digitized or
- * template: a per-subject file can hold template coordinates, and the converter
- * cannot tell. A store converted before the provenance attributes existed keeps
- * the title it always had.
+ * The topomap toggle's tooltip says where a recording's sensor positions came from. The store's own
+ * positions say where the converter found them: `subject` (the subject's own electrodes file) or
+ * `dataset` (one file for every subject), with the file named, and never call them measured,
+ * digitized or template: a per-subject file can hold template coordinates, and the converter
+ * cannot tell. A store converted before the provenance attributes existed keeps the title it
+ * always had. Template positions by name say so, and which montage; a refusal gives its sentence.
  */
 describe("topoToggleTitle", () => {
   const noProvenance = {
@@ -355,10 +356,23 @@ describe("topoToggleTitle", () => {
     electrodePositionsFile: null,
     electrodeCoordsystemFile: null,
   } as const;
-  const store = { estimated: false };
-  const montage = { estimated: true };
+  const placed = (
+    source: "positions" | "names",
+    unusedPositions: "frame_unknown" | null = null,
+  ): Placement => ({
+    kind: "placed",
+    source,
+    montage: source === "names" ? "standard_1005" : null,
+    labels: ["Cz"],
+    thetaDeg: new Float64Array([0]),
+    radius: new Float64Array([0]),
+    unusedPositions,
+  });
+  const store = placed("positions");
+  const montage = placed("names");
   const BASE = "Scalp topomap (split panel)";
-  const MONTAGE = "Scalp topomap - standard 10-20 layout (dataset ships no electrodes.tsv)";
+  const MONTAGE =
+    "Scalp topomap - Template positions from the standard_1005 montage, matched by channel name.";
   const SUBJECT = "Scalp topomap - electrode positions from this subject's electrodes file";
   const DATASET =
     "Scalp topomap - electrode positions from one electrodes file shared by every subject";
@@ -400,7 +414,7 @@ describe("topoToggleTitle", () => {
     ).toBe(BASE);
   });
 
-  it("keeps the montage fallback's sentence, whatever the store says about a source", () => {
+  it("says template positions by name, and which montage, whatever the store says about a source", () => {
     expect(topoToggleTitle(montage, noProvenance)).toBe(MONTAGE);
     expect(
       topoToggleTitle(montage, {
@@ -411,7 +425,22 @@ describe("topoToggleTitle", () => {
     ).toBe(MONTAGE);
   });
 
-  it("never says measured, digitized or template", () => {
+  it("says why the recording's own positions were not used when names replaced them", () => {
+    expect(topoToggleTitle(placed("names", "frame_unknown"), noProvenance)).toBe(
+      "Scalp topomap - Template positions from the standard_1005 montage, matched by channel name; this recording's own positions were not used: its electrode positions name a coordinate system of unknown orientation.",
+    );
+  });
+
+  it("gives a refusal's sentence", () => {
+    expect(
+      topoToggleTitle(
+        { kind: "refused", word: "frame_not_scalp", detail: "", unusedPositions: null },
+        noProvenance,
+      ),
+    ).toBe(`Scalp topomap - ${SCALP_MAP_SENTENCES.frame_not_scalp}`);
+  });
+
+  it("never says measured, digitized or template of the store's own positions", () => {
     const provenances = [
       noProvenance,
       { ...noProvenance, electrodePositionsSource: "subject" as const },
@@ -423,9 +452,7 @@ describe("topoToggleTitle", () => {
       },
     ];
     for (const provenance of provenances) {
-      for (const scalp of [store, montage]) {
-        expect(topoToggleTitle(scalp, provenance)).not.toMatch(/measured|digitized|template/i);
-      }
+      expect(topoToggleTitle(store, provenance)).not.toMatch(/measured|digitized|template/i);
     }
   });
 });

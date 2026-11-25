@@ -30,14 +30,12 @@ import { MONTAGE_NAMES } from "../src/lib/quality-views/sensor-names";
 import {
   type LayoutCase,
   compareLayout,
-  loadFieldVectors,
   loadLayoutVectors,
   montageCentersFromFiles,
   numbers,
 } from "./quality-views-vectors";
 
 const vectors = await loadLayoutVectors();
-const field = await loadFieldVectors();
 const centers = await montageCentersFromFiles();
 const byName = new Map(vectors.cases.map((c) => [c.name, c]));
 

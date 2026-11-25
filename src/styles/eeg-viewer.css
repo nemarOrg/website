@@ -307,11 +307,27 @@
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+.eegv__topo-scale[hidden] {
+  display: none;
+}
 .eegv__topo-info {
+  max-inline-size: 92%;
   font-size: var(--fs-xs);
   color: var(--color-fg-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-variant-numeric: tabular-nums;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+/* Where template positions came from (scalp-map.ts templateNote); empty for a recording's own. */
+.eegv__topo-note {
+  max-inline-size: 92%;
+  font-size: var(--fs-xs);
+  color: var(--color-fg-muted);
+  text-align: center;
+}
+.eegv__topo-note:empty {
+  display: none;
 }
 .eegv__vscroll {
   flex: 0 0 auto;
