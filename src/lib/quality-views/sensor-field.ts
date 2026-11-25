@@ -436,7 +436,7 @@ function planMap(geometry: SensorFieldGeometry, values: ArrayLike<number>): MapP
   };
 }
 
-/** Fill each map's inside cells with `mean + E · w`, four maps per pass over E. */
+/** Fill each map's inside cells with `mean + E · w`, four maps and two cells per pass over E. */
 function evaluateCells(
   geometry: SensorFieldGeometry,
   plans: readonly MapPlan[],
@@ -470,7 +470,48 @@ function evaluateCells(
     const z1 = grids[b];
     const z2 = grids[c2];
     const z3 = grids[d];
-    for (let c = 0; c < cells; c++) {
+    // Two cells per pass as well: each value of E and of w is loaded once for eight sums. Each sum
+    // still runs over the sensors in order, so a map's cells are the one-map loop's to the bit.
+    let c = 0;
+    for (; c + 2 <= cells; c += 2) {
+      const base = c * k;
+      const next = base + k;
+      let s0 = 0;
+      let s1 = 0;
+      let s2 = 0;
+      let s3 = 0;
+      let t0 = 0;
+      let t1 = 0;
+      let t2 = 0;
+      let t3 = 0;
+      for (let s = 0; s < k; s++) {
+        const e = evaluation[base + s];
+        const f = evaluation[next + s];
+        const v0 = w0[s];
+        const v1 = w1[s];
+        const v2 = w2[s];
+        const v3 = w3[s];
+        s0 += e * v0;
+        s1 += e * v1;
+        s2 += e * v2;
+        s3 += e * v3;
+        t0 += f * v0;
+        t1 += f * v1;
+        t2 += f * v2;
+        t3 += f * v3;
+      }
+      const cell = inside[c];
+      const after = inside[c + 1];
+      z0[cell] = m0 + s0;
+      z1[cell] = m1 + s1;
+      z2[cell] = m2 + s2;
+      z3[cell] = m3 + s3;
+      z0[after] = m0 + t0;
+      z1[after] = m1 + t1;
+      z2[after] = m2 + t2;
+      z3[after] = m3 + t3;
+    }
+    for (; c < cells; c++) {
       const base = c * k;
       let s0 = 0;
       let s1 = 0;
