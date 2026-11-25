@@ -11,7 +11,8 @@
       ".astro",
       "node_modules",
       ".wrangler",
-      "src/lib/eeg-viewer/hed-vocab.json"
+      "src/lib/eeg-viewer/hed-vocab.json",
+      "src/lib/quality-views/vocabulary"
     ]
   },
   "formatter": {
