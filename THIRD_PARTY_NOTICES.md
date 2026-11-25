@@ -36,7 +36,8 @@ Copyright 2019 Google LLC; author Anton Mikhailov.
 Licensed under the Apache License, Version 2.0 (<https://www.apache.org/licenses/LICENSE-2.0>);
 distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
 Modified: the published 256-entry table's channels are rounded to 8 bits.
-The notice is repeated at the head of the file that holds the table.
+The notice is repeated at the head of the file that holds the table,
+and it ships with the site, with the license's full text, in `public/licenses/quality-views/NOTICE.txt` (served at `/licenses/quality-views/NOTICE.txt`).
 
 ### ColorBrewer RdBu (quality views)
 
@@ -45,6 +46,7 @@ Copyright (c) 2002 Cynthia Brewer, Mark Harrower, and The Pennsylvania State Uni
 Licensed under the Apache License, Version 2.0 (<https://www.apache.org/licenses/LICENSE-2.0>);
 distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
 This product includes color specifications and designs developed by Cynthia Brewer (<https://colorbrewer2.org/>).
+The notice ships with the site in the same file as Turbo's, `public/licenses/quality-views/NOTICE.txt`.
 
 ## Acknowledged
 

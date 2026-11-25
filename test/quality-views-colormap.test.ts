@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { viridisColor } from "../src/lib/eeg-viewer/topo";
 import {
+  COLOR_MAPS_NOTICE,
   DIVERGING_STOPS,
   LUT_SIZE,
   MIDDLE,
@@ -101,7 +102,25 @@ describe("the color maps", () => {
     const notices = fs.readFileSync(repoPath("THIRD_PARTY_NOTICES.md"), "utf8");
     expect(notices).toContain("### Turbo color map");
     expect(notices).toContain("### ColorBrewer RdBu");
+    expect(notices).toContain(`public${COLOR_MAPS_NOTICE}`);
     expect([...lookupTable("turbo").slice(0, 3)]).toEqual([48, 18, 59]);
+  });
+});
+
+describe("the color maps' notices", () => {
+  it("ship with the site: both copyrights and the full Apache License, Version 2.0", () => {
+    expect(COLOR_MAPS_NOTICE).toBe("/licenses/quality-views/NOTICE.txt");
+    const notice = fs.readFileSync(repoPath(`public${COLOR_MAPS_NOTICE}`), "utf8");
+    expect(notice).toContain("Copyright 2019 Google LLC. Author: Anton Mikhailov.");
+    expect(notice).toContain(
+      "Copyright (c) 2002 Cynthia Brewer, Mark Harrower, and The Pennsylvania State University.",
+    );
+    expect(notice).toContain("This product includes color specifications and designs developed by");
+    expect(notice).toContain("Version 2.0, January 2004");
+    expect(notice).toContain("TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION");
+    expect(notice).toContain("4. Redistribution.");
+    expect(notice.trimEnd().endsWith("END OF TERMS AND CONDITIONS")).toBe(true);
+    expect(notice).not.toContain("\r");
   });
 });
 

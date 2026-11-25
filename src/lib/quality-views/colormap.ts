@@ -13,6 +13,10 @@
  *   color change (`test/quality-views-colormap.test.ts` holds them equal);
  * - `turbo`, the optional toggle (Apache-2.0, `turbo-lut.ts`).
  *
+ * Both Apache-2.0 notices ship with the site, with the license's full text, at
+ * `COLOR_MAPS_NOTICE` (`public/licenses/quality-views/NOTICE.txt`); a legend or an export that
+ * shows these colors links it.
+ *
  * The diverging and sequential stops are design tokens (`--qv-diverging-*`, `--qv-sequential-*` in
  * `src/styles/tokens.css`) for legends drawn in CSS; a canvas needs numbers, so the stops are
  * repeated here and the test holds the two equal. The maps are data colors: the same in both
@@ -23,6 +27,10 @@ import type { Pair } from "./sensor-field";
 import { TURBO_HEX } from "./turbo-lut";
 
 export type ColorMapName = "diverging" | "sequential" | "turbo";
+
+/** Where the color maps' license notices are served: Turbo's and ColorBrewer's, with the full text of
+ *  the Apache License, Version 2.0. */
+export const COLOR_MAPS_NOTICE = "/licenses/quality-views/NOTICE.txt";
 export type Rgb = readonly [number, number, number];
 
 /** ColorBrewer RdBu, 11 classes, reversed: low (negative) blue to high (positive) red. */

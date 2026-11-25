@@ -14,7 +14,9 @@
  * Author: Anton Mikhailov (Google AI, "Turbo, An Improved Rainbow Colormap for Visualization",
  * 2019). Modified: the published table's channels, floats in [0, 1] (as matplotlib also ships
  * them), are each rounded to 8 bits, `round(v * 255)`, and written as hexadecimal RGB triples,
- * low end first. THIRD_PARTY_NOTICES.md carries this notice for the site.
+ * low end first. The site serves this notice with the license's full text at
+ * /licenses/quality-views/NOTICE.txt (`COLOR_MAPS_NOTICE` in colormap.ts), and
+ * THIRD_PARTY_NOTICES.md lists it.
  */
 
 /** 256 colors, six hexadecimal digits each (`rrggbb`), from the low end to the high end. */
