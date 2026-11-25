@@ -136,6 +136,21 @@ describe("a near-flat field is one color at its mean", () => {
     expect(map.contours).toEqual([]);
   });
 
+  it("at a range of exactly 1e-9 of the magnitude, the bound itself", () => {
+    // 976562.5 and 976562.4990234375 differ by 2^-10, which is NEAR_FLAT * 976562.5 to the bit.
+    const high = 976562.5;
+    const low = 976562.4990234375;
+    expect(high - low).toBe(NEAR_FLAT * high);
+    const map = drawn(
+      sensorField(
+        THETA,
+        RADIUS,
+        VALUES.map((v) => (v > 0 ? high : low)),
+      ),
+    );
+    expect(map.notes).toEqual(["near_flat"]);
+  });
+
   it("but drawn as any map just above it", () => {
     const r = 2 ** -19;
     expect(r).toBeGreaterThan(NEAR_FLAT * 1024);
