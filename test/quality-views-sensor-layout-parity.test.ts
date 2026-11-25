@@ -11,8 +11,9 @@
  * gives `frame_als`'s layout and every RAS name `frame_ras`'s, and the `cart2topo` entries convert
  * without a fit.
  *
- * Template positions are centered on their montage's own center, a datum of `views/montages`,
- * which this site has not copied yet: see `montageCentersFrom` for where the test takes it from.
+ * Template positions are centered on their montage's own center, a datum of `views/montages`, read
+ * here from the montage files this site copies by digest (`montageCentersFromFiles`), so the
+ * six template cases' centers are checked against data the vectors do not supply.
  */
 
 import { describe, expect, it } from "vitest";
@@ -31,13 +32,13 @@ import {
   compareLayout,
   loadFieldVectors,
   loadLayoutVectors,
-  montageCentersFrom,
+  montageCentersFromFiles,
   numbers,
 } from "./quality-views-vectors";
 
 const vectors = await loadLayoutVectors();
 const field = await loadFieldVectors();
-const centers = montageCentersFrom([...vectors.cases, ...field.cases]);
+const centers = await montageCentersFromFiles();
 const byName = new Map(vectors.cases.map((c) => [c.name, c]));
 
 function run(vectorCase: LayoutCase, frame: string = vectorCase.coordinate_system) {

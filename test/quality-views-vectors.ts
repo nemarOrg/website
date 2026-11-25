@@ -11,6 +11,7 @@
  * Not a `.test.ts` file: the parity tests, the performance test and the mutation script share it.
  */
 
+import { parseMontage } from "../src/lib/quality-views/montages";
 import {
   GRID_SIZE,
   type SensorFieldResult,
@@ -159,33 +160,25 @@ export function close(a: number, b: number, rel: number): boolean {
   return Math.abs(a - b) <= rel * Math.max(Math.abs(a), Math.abs(b));
 }
 
+/** Where the montages are copied (website ADR 0035 decision 2). */
+export const MONTAGES_DIR = "src/lib/quality-views/vocabulary/montages";
+
 /**
- * The montage centers of the template cases, right-anterior-superior meters. They are data of
- * `views/montages`, which this site has not copied yet (website ADR 0035 decision 2: it is copied
- * when the renderer places sensors by name), so the test reads each from the vector's own center:
- * a template case's center IS its montage file's center, rotated into ALS (`sensor-layout.md`,
- * step 3), and ALS `(a, b, c)` is RAS `(-b, a, c)`. For these cases the center check is therefore
- * not independent; the frame rules, the rotation and the projection about it are.
+ * The center of every montage, right-anterior-superior meters, read from the montage files this
+ * site copies by digest from nemar-cli (`views/montages`), never from a vector: the template cases'
+ * expected centers are then checked against data the vectors do not supply.
  */
-export function montageCentersFrom(
-  cases: readonly {
-    readonly montage?: string;
-    readonly expected?: { readonly layout?: LayoutExpected } | LayoutExpected;
-  }[],
-): Map<string, Vec3> {
+export async function montageCentersFromFiles(): Promise<Map<string, Vec3>> {
+  const fs = await nodeFs();
   const centers = new Map<string, Vec3>();
-  for (const vectorCase of cases) {
-    if (!vectorCase.montage || !vectorCase.expected) continue;
-    const expected = vectorCase.expected as { layout?: LayoutExpected } & Partial<LayoutExpected>;
-    const layout = expected.layout ?? (expected.center ? (expected as LayoutExpected) : undefined);
-    if (!layout || layout.center_method !== "montage") continue;
-    const [a, b, c] = layout.center;
-    const ras: Vec3 = [-b + 0, a, c];
-    const known = centers.get(vectorCase.montage);
-    if (known?.some((v, i) => v !== ras[i])) {
-      throw new Error(`two vector cases disagree on the center of ${vectorCase.montage}`);
-    }
-    centers.set(vectorCase.montage, ras);
+  for (const file of fs.readdirSync(repoPath(MONTAGES_DIR))) {
+    if (!file.endsWith(".json") || file === "PROVENANCE.json") continue;
+    const name = file.slice(0, -".json".length);
+    const montage = parseMontage(
+      JSON.parse(fs.readFileSync(repoPath(`${MONTAGES_DIR}/${file}`), "utf8")),
+      name,
+    );
+    centers.set(name, montage.center);
   }
   return centers;
 }
