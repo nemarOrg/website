@@ -10,8 +10,11 @@
  * with its size and SHA-256 in `views/SHA256SUMS.json`. This site copies what it uses from there,
  * never from neuroschema directly, so there is one vendoring hop:
  *
- *   views/registry.json  ->  src/lib/quality-views/vocabulary/registry.json   (shipped: the kinds)
- *   views/vectors/*.json ->  test/fixtures/quality-views/vectors/            (tests only, never shipped)
+ *   views/registry.json    ->  src/lib/quality-views/vocabulary/registry.json   (shipped: the kinds)
+ *   views/montages/*.json  ->  src/lib/quality-views/vocabulary/montages/       (shipped: the montages
+ *                              that place sensors by name, and PROVENANCE.json, their sources and
+ *                              licenses)
+ *   views/vectors/*.json   ->  test/fixtures/quality-views/vectors/            (tests only, never shipped)
  *
  * Each source file is checked against nemar-cli's SHA256SUMS.json before anything is written, so a
  * checkout whose files do not match its own list is refused. The copies are listed in
@@ -41,6 +44,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "..");
 const VIEWS = join(resolve(NEMAR_CLI_DIR), "shared", "contract", "neuroschema", "views");
 const VOCABULARY_DIR = "src/lib/quality-views/vocabulary";
+const MONTAGES_DIR = `${VOCABULARY_DIR}/montages`;
 const VECTORS_DIR = "test/fixtures/quality-views/vectors";
 const PIN_PATH = `${VOCABULARY_DIR}/pin.json`;
 
@@ -56,23 +60,35 @@ if (!existsSync(sumsPath))
 const sums = JSON.parse(readFileSync(sumsPath, "utf8"));
 if (sums.format !== "nemar.vendored-files.v1") fail(`${sumsPath}: unknown format ${sums.format}`);
 
+/** The folders whose every `<name>.json` is copied, whatever its name, and where to. */
+const COPIED_FOLDERS = { "montages/": MONTAGES_DIR, "vectors/": VECTORS_DIR };
+
 /**
  * Where a nemar-cli view file goes in this repository, or null when the site does not copy it.
- * Every `vectors/<name>.json` is copied, whatever its name; any other `vectors/` entry (a
- * subfolder, a file that is not JSON) is refused below rather than skipped.
+ * Every `vectors/<name>.json` and `montages/<name>.json` is copied, whatever its name (in montages/
+ * that includes PROVENANCE.json, the montages' sources and licenses); any other entry of those
+ * folders (a subfolder, a file that is not JSON) is refused below rather than skipped.
  */
 function destination(path) {
   if (path === "registry.json") return `${VOCABULARY_DIR}/registry.json`;
-  const vector = /^vectors\/([^/]+\.json)$/.exec(path);
-  return vector ? `${VECTORS_DIR}/${vector[1]}` : null;
+  for (const [folder, dir] of Object.entries(COPIED_FOLDERS)) {
+    if (!path.startsWith(folder)) continue;
+    const name = path.slice(folder.length);
+    return /^[^/]+\.json$/.test(name) ? `${dir}/${name}` : null;
+  }
+  return null;
 }
 
 const unplaceable = sums.files
   .map((entry) => entry.path)
-  .filter((path) => path.startsWith("vectors/") && destination(path) === null);
+  .filter(
+    (path) =>
+      Object.keys(COPIED_FOLDERS).some((folder) => path.startsWith(folder)) &&
+      destination(path) === null,
+  );
 if (unplaceable.length > 0) {
   fail(
-    `nemar-cli lists vectors/ entries the copy rule cannot place (a subfolder or not .json): ${unplaceable.join(", ")}. Widen the rule here and in test/quality-views-vocabulary-drift.test.ts.`,
+    `nemar-cli lists montages/ or vectors/ entries the copy rule cannot place (a subfolder or not .json): ${unplaceable.join(", ")}. Widen the rule here and in test/quality-views-vocabulary-drift.test.ts.`,
   );
 }
 
@@ -92,6 +108,11 @@ for (const entry of sums.files) {
   outputs.set(copy, bytes);
 }
 if (!files.some((file) => file.path === "registry.json")) fail("nemar-cli lists no registry.json.");
+if (!files.some((file) => file.path === "montages/PROVENANCE.json")) {
+  fail(
+    "nemar-cli lists no montages/PROVENANCE.json: the montages' sources and licenses must travel with them.",
+  );
+}
 files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 
 const pin = {
@@ -106,12 +127,16 @@ const pin = {
 };
 outputs.set(PIN_PATH, Buffer.from(`${JSON.stringify(pin, null, 2)}\n`));
 
-/** Every file now under the two copy directories, as repository paths. */
+/** Every entry now under the copy directories, as repository paths (the montages folder itself is
+ *  not an entry: its files are). */
 function present() {
   const found = [];
-  for (const dir of [VOCABULARY_DIR, VECTORS_DIR]) {
+  for (const dir of [VOCABULARY_DIR, MONTAGES_DIR, VECTORS_DIR]) {
     if (!existsSync(join(repo, dir))) continue;
-    for (const name of readdirSync(join(repo, dir))) found.push(`${dir}/${name}`);
+    for (const name of readdirSync(join(repo, dir))) {
+      const path = `${dir}/${name}`;
+      if (path !== MONTAGES_DIR) found.push(path);
+    }
   }
   return found;
 }
@@ -133,7 +158,8 @@ if (check) {
 }
 
 rmSync(join(repo, VECTORS_DIR), { recursive: true, force: true });
-for (const path of present()) if (!outputs.has(path)) rmSync(join(repo, path));
+rmSync(join(repo, MONTAGES_DIR), { recursive: true, force: true });
+for (const path of present()) if (!outputs.has(path)) rmSync(join(repo, path), { recursive: true });
 for (const [path, bytes] of outputs) {
   mkdirSync(dirname(join(repo, path)), { recursive: true });
   writeFileSync(join(repo, path), bytes);

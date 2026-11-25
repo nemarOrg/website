@@ -8,3 +8,7 @@ public/vendor/**/SHA256SUMS diff
 # scripts/copy-quality-views-vocabulary.mjs (website ADR 0035); what a re-copy is reviewed by is
 # src/lib/quality-views/vocabulary/pin.json, which stays readable.
 test/fixtures/quality-views/vectors/** linguist-generated=true -diff
+# The montages are copied the same way, and shipped; PROVENANCE.json, which names their sources and
+# licenses, stays readable.
+src/lib/quality-views/vocabulary/montages/** linguist-generated=true -diff
+src/lib/quality-views/vocabulary/montages/PROVENANCE.json -linguist-generated diff

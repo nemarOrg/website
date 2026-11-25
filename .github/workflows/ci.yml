@@ -185,6 +185,7 @@ jobs:
             /shared/contract/mail-categories.ts
             /shared/contract/neuroschema/views/SHA256SUMS.json
             /shared/contract/neuroschema/views/registry.json
+            /shared/contract/neuroschema/views/montages/
             /shared/contract/oidc-authorize.ts
             /shared/contract/private-site.ts
             /shared/contract/publication-review-copy.ts
