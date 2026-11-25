@@ -154,6 +154,21 @@ export interface SensorLayoutOptions {
   readonly montageCenter?: (montage: string) => Vec3 | undefined;
 }
 
+/**
+ * The caller gave no center for a montage `orientation` accepted: the site has not loaded
+ * `views/montages`, which is the site's fault, not the positions'. It is thrown, not returned as a
+ * word, because no word of the specification says it; a renderer catches it by this type and leaves
+ * the map undrawn with its own sentence, so it never ends a view.
+ */
+export class MontageCenterUnavailable extends Error {
+  constructor(readonly montage: string) {
+    super(
+      `sensor layout: no center was given for the montage ${JSON.stringify(montage)}; load views/montages first`,
+    );
+    this.name = "MontageCenterUnavailable";
+  }
+}
+
 const NO_BOUNDS: LayoutBounds = {
   singularRatio: null,
   radiusRatio: null,
@@ -530,11 +545,7 @@ export function sensorLayout(
   let bounds: LayoutBounds = NO_BOUNDS;
   if (montage !== null) {
     const stored = options.montageCenter?.(montage);
-    if (!stored) {
-      throw new Error(
-        `sensor layout: no center was given for the montage ${JSON.stringify(montage)}; load views/montages first`,
-      );
-    }
+    if (!stored) throw new MontageCenterUnavailable(montage);
     center = toAls(stored, frame);
     centerMethod = "montage";
   } else {

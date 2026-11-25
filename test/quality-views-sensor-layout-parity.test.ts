@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
 import {
   ALS_FRAMES,
   FRAME_ALIASES,
+  MontageCenterUnavailable,
   RAS_FRAMES,
   cart2topo,
   orientation,
@@ -115,7 +116,7 @@ describe("frames are never assumed", () => {
     expect(orientation("n/a", "PROVENANCE")).toMatchObject({ word: "frame_unknown" });
   });
 
-  it("throws, rather than guessing, when a template montage's center was not given", () => {
+  it("throws its own type, rather than guessing, when a template montage's center was not given", () => {
     const vectorCase = byName.get("template_montage")!;
     const p = vectorCase.positions;
     expect(() =>
@@ -123,6 +124,6 @@ describe("frames are never assumed", () => {
         montage: vectorCase.montage,
         names: p.name,
       }),
-    ).toThrow(/no center was given/);
+    ).toThrow(MontageCenterUnavailable);
   });
 });
