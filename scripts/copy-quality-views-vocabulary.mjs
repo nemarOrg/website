@@ -56,11 +56,24 @@ if (!existsSync(sumsPath))
 const sums = JSON.parse(readFileSync(sumsPath, "utf8"));
 if (sums.format !== "nemar.vendored-files.v1") fail(`${sumsPath}: unknown format ${sums.format}`);
 
-/** Where a nemar-cli view file goes in this repository, or null when the site does not copy it. */
+/**
+ * Where a nemar-cli view file goes in this repository, or null when the site does not copy it.
+ * Every `vectors/<name>.json` is copied, whatever its name; any other `vectors/` entry (a
+ * subfolder, a file that is not JSON) is refused below rather than skipped.
+ */
 function destination(path) {
   if (path === "registry.json") return `${VOCABULARY_DIR}/registry.json`;
-  const vector = /^vectors\/([a-z0-9][a-z0-9.-]*\.json)$/.exec(path);
+  const vector = /^vectors\/([^/]+\.json)$/.exec(path);
   return vector ? `${VECTORS_DIR}/${vector[1]}` : null;
+}
+
+const unplaceable = sums.files
+  .map((entry) => entry.path)
+  .filter((path) => path.startsWith("vectors/") && destination(path) === null);
+if (unplaceable.length > 0) {
+  fail(
+    `nemar-cli lists vectors/ entries the copy rule cannot place (a subfolder or not .json): ${unplaceable.join(", ")}. Widen the rule here and in test/quality-views-vocabulary-drift.test.ts.`,
+  );
 }
 
 const files = [];

@@ -62,10 +62,14 @@ interface VendoredSums {
 const VOCABULARY_DIR = "src/lib/quality-views/vocabulary";
 const VECTORS_DIR = "test/fixtures/quality-views/vectors";
 
-/** Where the site keeps its copy of a nemar-cli view file, or null when it copies none. */
+/**
+ * Where the site keeps its copy of a nemar-cli view file, or null when it copies none. The same
+ * rule as `destination()` in the copy script: every `vectors/<name>.json` is copied, whatever its
+ * name, and any other `vectors/` entry is a problem `describePinDrift` reports, never a skip.
+ */
 function copyPathFor(path: string): string | null {
   if (path === "registry.json") return `${VOCABULARY_DIR}/registry.json`;
-  const vector = /^vectors\/([a-z0-9][a-z0-9.-]*\.json)$/.exec(path);
+  const vector = /^vectors\/([^/]+\.json)$/.exec(path);
   return vector ? `${VECTORS_DIR}/${vector[1]}` : null;
 }
 
@@ -90,8 +94,13 @@ function describePinDrift(ours: Pin, theirs: VendoredSums): string[] {
     }
   }
   for (const file of theirs.files) {
-    if (copyPathFor(file.path) !== null && !pinned.has(file.path)) {
-      problems.push(`${file.path}: listed by nemar-cli, not copied here`);
+    if (copyPathFor(file.path) !== null) {
+      if (!pinned.has(file.path))
+        problems.push(`${file.path}: listed by nemar-cli, not copied here`);
+    } else if (file.path.startsWith("vectors/")) {
+      problems.push(
+        `${file.path}: a vectors/ entry the copy rule cannot place (a subfolder or not .json)`,
+      );
     }
   }
   return problems;
@@ -151,6 +160,18 @@ describe("describePinDrift", () => {
     expect(describePinDrift(ours, { ...theirs, files: resized })).toHaveLength(1);
   });
 
+  it("names a vectors/ entry the copy rule cannot place, never skipping it", () => {
+    const odd = [
+      ...theirs.files,
+      { path: "vectors/nested/case.json", size: 5, sha256: sha("e") },
+      { path: "vectors/notes.txt", size: 5, sha256: sha("f") },
+    ];
+    expect(describePinDrift(ours, { ...theirs, files: odd })).toEqual([
+      "vectors/nested/case.json: a vectors/ entry the copy rule cannot place (a subfolder or not .json)",
+      "vectors/notes.txt: a vectors/ entry the copy rule cannot place (a subfolder or not .json)",
+    ]);
+  });
+
   it("names a vector added upstream and a pinned file nemar-cli dropped", () => {
     const added = [
       ...theirs.files,
@@ -158,6 +179,13 @@ describe("describePinDrift", () => {
     ];
     expect(describePinDrift(ours, { ...theirs, files: added })).toEqual([
       "vectors/new-kind.v1.json: listed by nemar-cli, not copied here",
+    ]);
+    const oddName = [
+      ...theirs.files,
+      { path: "vectors/ic_activity.v2.json", size: 5, sha256: sha("e") },
+    ];
+    expect(describePinDrift(ours, { ...theirs, files: oddName })).toEqual([
+      "vectors/ic_activity.v2.json: listed by nemar-cli, not copied here",
     ]);
     const dropped = theirs.files.filter((file) => file.path !== "vectors/sensor-field.v1.json");
     expect(describePinDrift(ours, { ...theirs, files: dropped })).toEqual([
