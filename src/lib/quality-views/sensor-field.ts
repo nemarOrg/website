@@ -419,7 +419,9 @@ function planMap(geometry: SensorFieldGeometry, values: ArrayLike<number>): MapP
   const k = geometry.interpolated.length;
   const merged = new Float64Array(k);
   for (let s = 0; s < k; s++) {
-    merged[s] = center(geometry.groups[s].map((row) => values[row]));
+    const group = geometry.groups[s];
+    // A group of one is its value: center([v]) is v + 0 / 1 + 0, written without the array.
+    merged[s] = group.length === 1 ? values[group[0]] + 0 : center(group.map((row) => values[row]));
   }
   const mean = center(merged);
   if (nearFlat) return { mean, flat, nearFlat, valueRange, weights: null };
