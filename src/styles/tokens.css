@@ -244,6 +244,40 @@
   --ai-panel-badge: #0e5a70;
   --ai-panel-action-bg: #0e7490;
   --ai-panel-action-fg: #ffffff;
+
+  /* --- QUALITY VIEWS (website ADR 0035 decision 7) ---
+     The scalp maps' color maps are data colors, the same in both themes: the diverging map for
+     absmax limits (ColorBrewer RdBu reversed, negative blue to positive red, colorblind-safe by
+     ColorBrewer's rating, Apache-2.0) and the sequential map for minmax limits (viridis, CC0, the
+     signal viewer's stops). src/lib/quality-views/colormap.ts repeats the stops for the canvas and
+     test/quality-views-colormap.test.ts holds the two equal. Contours and sensor markers sit on the
+     map, so they keep one color too; only the head outline, which also crosses the page ground
+     beyond the mask (nose and ears), follows the theme. */
+  --qv-diverging-0: #053061;
+  --qv-diverging-1: #2166ac;
+  --qv-diverging-2: #4393c3;
+  --qv-diverging-3: #92c5de;
+  --qv-diverging-4: #d1e5f0;
+  --qv-diverging-5: #f7f7f7;
+  --qv-diverging-6: #fddbc7;
+  --qv-diverging-7: #f4a582;
+  --qv-diverging-8: #d6604d;
+  --qv-diverging-9: #b2182b;
+  --qv-diverging-10: #67001f;
+  --qv-sequential-0: #440154;
+  --qv-sequential-1: #482878;
+  --qv-sequential-2: #3e4a89;
+  --qv-sequential-3: #31688e;
+  --qv-sequential-4: #26828e;
+  --qv-sequential-5: #1f9e89;
+  --qv-sequential-6: #35b779;
+  --qv-sequential-7: #6ece58;
+  --qv-sequential-8: #b5de2b;
+  --qv-sequential-9: #fde725;
+  --qv-contour-line: rgb(15 23 42 / 45%);
+  --qv-sensor-marker: #0f172a;
+  --qv-sensor-ring: #ffffff;
+  --qv-head-line: #334155;
 }
 
 /* Dark theme: auto via prefers-color-scheme, overridden by explicit [data-theme]. */
@@ -358,6 +392,9 @@
     --ai-panel-badge: #9fd6e6;
     --ai-panel-action-bg: #5bbad5;
     --ai-panel-action-fg: #04121f;
+
+    /* Quality views, dark (see :root): the head outline on the navy ground. */
+    --qv-head-line: #cbd5e1;
   }
 }
 
@@ -473,4 +510,7 @@
   --ai-panel-badge: #9fd6e6;
   --ai-panel-action-bg: #5bbad5;
   --ai-panel-action-fg: #04121f;
+
+  /* Quality views, dark (see :root): the head outline on the navy ground. */
+  --qv-head-line: #cbd5e1;
 }

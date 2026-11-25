@@ -213,3 +213,24 @@ jobs:
           NEMAR_CLI_QUALITY_VIEWS: nemar-cli-contract/shared/contract/neuroschema/views/SHA256SUMS.json
           NEMAR_CLI_REVIEW_COPY: nemar-cli-contract/shared/contract/publication-review-copy.ts
           NEMAR_CLI_VALIDATOR_PIN: nemar-cli-contract/validator-version.json
+      # The quality views' budgets (nemar-cli ADR 0137, website ADR 0035 decision 1), each a step of
+      # its own after Vitest. `!cancelled()` runs them even when Vitest failed: on the epic's PRs
+      # the drift tests are red until nemar-cli `dev` catches up, and the budgets must still be
+      # checked.
+      # The drawing budget runs alone on this runner, which stands in for the mid-range laptop:
+      # the first maps of a view within 50 ms, a 128-sensor view of 128 maps within 100 ms and a
+      # 256-sensor one within 300 ms (test/quality-views-perf.test.ts).
+      - name: Quality-view drawing budget
+        if: ${{ !cancelled() }}
+        run: bun run test:quality-views-perf
+      # The size budget is checked after a real build: the sensor-field worker at most 12 KB gzipped
+      # and the main-thread code at most 30 KB, measured in dist/ once a page imports the client and,
+      # until then, on the site's own Vite building the client as an entry
+      # (scripts/check-quality-views-size.mjs). `astro build` alone takes seconds; the OG images
+      # of `bun run build` are not needed for it.
+      - name: Site build
+        if: ${{ !cancelled() }}
+        run: bunx astro build
+      - name: Quality-view bundle sizes
+        if: ${{ !cancelled() }}
+        run: bun scripts/check-quality-views-size.mjs --require-build

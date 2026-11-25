@@ -133,6 +133,9 @@ src/
     eeg-viewer/                       WebGL EEG viewer (traces, topo, montages, recording nav, background preload, HED/SCORE annotation authoring)
     eeg-viewer/viewer-session.ts      live instance + recording nav + ?view= + share controls, shared by dialog and embed
     quality-views/                    quality views drawn in the browser (nemar-cli ADR 0137, ADR 0035); vocabulary/ holds registry.json and pin.json, copied by digest from nemar-cli's vendored neuroschema by `bun scripts/copy-quality-views-vocabulary.mjs`, never hand-edited (test/quality-views-vocabulary-drift.test.ts)
+    quality-views/sensor-field.ts sensor-layout.ts sensor-names.ts linalg.ts   `nemar.sensor-field.v1` (EEGLAB's v4 scalp map) and `nemar.sensor-layout.v1` (3D positions to layout), held to neuroschema's vectors by the test/quality-views-*-parity tests; sensor-names.ts is the part of `nemar.sensor-labels.v1` the layout reads
+    quality-views/worker.ts worker-protocol.ts worker-client.ts   the module worker that draws a view's maps (geometry cached by layout SHA-256, maps on screen first, the algorithm's Float64 grids transferred, contours for maps on screen); the client imports no interpolation; budgets gated in CI by `bun run test:quality-views-perf` (alone on the runner) and `scripts/check-quality-views-size.mjs` (after `astro build`), and timed in a browser by e2e/quality-views-perf.spec.ts
+    quality-views/contours.ts colormap.ts turbo-lut.ts   marching-squares contour lines; the diverging, sequential and Turbo maps (`--qv-*` tokens; their Apache-2.0 notices ship in public/licenses/quality-views/NOTICE.txt)
   styles/
     tokens.css                        CSS variables; light + dark themes
     reset.css global.css

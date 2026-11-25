@@ -24,7 +24,9 @@
     "bump": "./scripts/bump-version.sh",
     "lint": "biome check src e2e playwright.config.ts",
     "format": "biome format --write src",
-    "typecheck": "astro check"
+    "typecheck": "astro check",
+    "check:quality-views-size": "bun scripts/check-quality-views-size.mjs",
+    "test:quality-views-perf": "QUALITY_VIEWS_PERF=gate vitest run test/quality-views-perf.test.ts"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^12.6.7",
