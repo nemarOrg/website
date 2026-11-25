@@ -132,6 +132,7 @@ src/
     markdown.ts                       zero-dep CommonMark subset
     eeg-viewer/                       WebGL EEG viewer (traces, topo, montages, recording nav, background preload, HED/SCORE annotation authoring)
     eeg-viewer/viewer-session.ts      live instance + recording nav + ?view= + share controls, shared by dialog and embed
+    quality-views/                    quality views drawn in the browser (nemar-cli ADR 0137, ADR 0035); vocabulary/ holds registry.json and pin.json, copied by digest from nemar-cli's vendored neuroschema by `bun scripts/copy-quality-views-vocabulary.mjs`, never hand-edited (test/quality-views-vocabulary-drift.test.ts)
   styles/
     tokens.css                        CSS variables; light + dark themes
     reset.css global.css
@@ -139,6 +140,7 @@ src/
 test/
   fixtures/                           qa-aggregates, qa-file-dataqual, qa-hed-summary (Phase 3)
   fixtures/compute/                   captured from the real nemar-cli routes, never hand-written: `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-fixtures.mjs` (access, E1), `bun scripts/capture-compute-read-fixtures.mjs` (me, usage, jobs, errors; E2) and `bun scripts/capture-compute-job-fixtures.mjs` (job, log, results, cancel, refusals; E3, on the backend's lifecycle fixture and Tapis stand-in); `fixtures/compute/cli-help/` is the real `nemar ... --help-all` text the dialog's commands are checked against: `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-cli-help.mjs` (E5)
+  fixtures/quality-views/vectors/     neuroschema's parity vectors, copied with the vocabulary above and pinned in its pin.json; tests only, never shipped
 public/                               static logos + brain hero assets (og/ cards are generated, gitignored)
 public/brand/                         GENERATED press logo kit (SVG, PDF, transparent PNG; color, reverse, black, white); rebuild with `bun scripts/generate-brand-kit.mjs`, never hand-edit
 public/vendor/bids-validator/<ver>/   GENERATED worker bundle of the BIDS validator + SHA256SUMS + provenance + licenses (ADR 0028); never hand-edited
