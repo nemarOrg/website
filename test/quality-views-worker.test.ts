@@ -3,8 +3,10 @@
  *
  * The client drives the real worker handler on this thread through `inThreadWorker()`: a real
  * `MessageChannel`, so every request and answer is structured-cloned and every grid transferred, as
- * between a page and a module worker. Nothing is stubbed but the one malformed answer below, which
- * tests the client's guard as an HTTP fixture tests a client's error path.
+ * between a page and a module worker. The grid a page receives is held to the parity vectors after
+ * that transfer. The client's error paths are driven by stub transports (a worker that fails to
+ * start, errors, answers a failure or an unreadable message), as an HTTP fixture drives a client's
+ * error path; nothing in the drawing is stubbed.
  */
 
 import { describe, expect, it } from "vitest";
@@ -12,19 +14,35 @@ import { GRID_SIZE, type SensorFieldMap, sensorField } from "../src/lib/quality-
 import {
   type WorkerLike,
   createSensorFieldHandler,
-  drawOrder,
+  drawBatches,
   inThreadWorker,
 } from "../src/lib/quality-views/worker";
-import { type DrawInput, SensorFieldClient } from "../src/lib/quality-views/worker-client";
+import {
+  type DrawInput,
+  type DrawnMap,
+  type MapResult,
+  SensorFieldClient,
+  UNREADABLE_ANSWER,
+  contoursOf,
+} from "../src/lib/quality-views/worker-client";
 import {
   type DrawRequest,
   GRID_CELLS,
-  type MapMessage,
+  type WorkerRequest,
   type WorkerResponse,
 } from "../src/lib/quality-views/worker-protocol";
-import { loadFieldVectors, numbers } from "./quality-views-vectors";
+import {
+  caseLayout,
+  compareCells,
+  loadFieldVectors,
+  loadLayoutVectors,
+  montageCentersFrom,
+  numbers,
+} from "./quality-views-vectors";
 
 const field = await loadFieldVectors();
+const layoutVectors = await loadLayoutVectors();
+const centers = montageCentersFrom([...field.cases, ...layoutVectors.cases]);
 const cap = field.cases.find((c) => c.name === "montage_64")!;
 const THETA = numbers(cap.sensors.theta_deg!);
 const RADIUS = numbers(cap.sensors.radius!);
@@ -48,15 +66,19 @@ function core(values: ArrayLike<number>, theta = THETA, radius = RADIUS): Sensor
   return result.map;
 }
 
-function expectSameMap(message: MapMessage, map: SensorFieldMap): void {
-  if (message.kind !== "map") throw new Error(`refused: ${message.word}`);
-  expect(Array.from(message.grid)).toEqual(Array.from(Float32Array.from(map.z)));
-  expect(message.limits).toEqual({
-    absmax: [...map.limits.absmax],
-    minmax: [...map.limits.minmax],
-  });
+function drawn(result: MapResult): DrawnMap {
+  if (result.kind !== "map") throw new Error(`refused: ${result.word}`);
+  return result;
+}
+
+function expectSameMap(result: MapResult, map: SensorFieldMap): void {
+  const message = drawn(result);
+  expect(message.grid).toBeInstanceOf(Float64Array);
+  expect(Array.from(message.grid)).toEqual(Array.from(map.z));
+  expect(message.limits).toEqual(map.limits);
   expect(message.contourLevels).toEqual(map.contours);
   expect(message.notes).toEqual(map.notes);
+  expect(message.mean).toBe(map.mean);
   expect(message.geometry.plotted).toEqual(map.geometry.plotted);
   expect(message.geometry.interpolated).toEqual(map.geometry.interpolated);
   expect(Array.from(message.geometry.x)).toEqual(Array.from(map.geometry.x));
@@ -67,42 +89,137 @@ describe("the protocol", () => {
     expect(GRID_CELLS).toBe(GRID_SIZE * GRID_SIZE);
   });
 
-  it("draws the maps asked for first, then the rest by index, each once", () => {
-    expect(drawOrder(6, [5, 2, 5])).toEqual([5, 2, 0, 1, 3, 4]);
-    expect(drawOrder(3, [])).toEqual([0, 1, 2]);
+  it("batches the maps on screen first, then the rest in larger batches, each map once", () => {
+    expect(drawBatches(6, [5, 2, 5], 1, 4)).toEqual([[5], [2], [0, 1, 3, 4]]);
+    expect(drawBatches(5, [], 2, 3)).toEqual([
+      [0, 1, 2],
+      [3, 4],
+    ]);
+    expect(drawBatches(0, [], 8, 64)).toEqual([]);
+  });
+});
+
+describe("the grid a page receives, after transfer, holds to every drawn vector", () => {
+  const drawable = field.cases.filter((c) => c.expected !== undefined);
+
+  it("covers every drawn case of the vectors", () => {
+    expect(drawable.length).toBe(33);
+  });
+
+  it.each(drawable.map((c) => [c.name, c] as const))("%s", async (_name, vectorCase) => {
+    const layout = caseLayout(vectorCase, centers);
+    if (layout === null) throw new Error("the projection refused a drawn case");
+    const client = new SensorFieldClient(inThreadWorker);
+    const outcome = await client.draw({
+      layoutKey: vectorCase.name,
+      thetaDeg: layout.thetaDeg,
+      radius: layout.radius,
+      maps: [numbers(vectorCase.sensors.value)],
+    });
+    client.terminate();
+    if (outcome.kind !== "done") throw new Error(outcome.kind);
+    const map = drawn(outcome.maps[0]);
+    const expected = vectorCase.expected!;
+    const cells = compareCells(field, expected, map.grid)!;
+    expect(cells.maskDiffers).toBe(false);
+    expect(cells.worst).toBeLessThanOrEqual(cells.bound);
+    for (const rule of ["absmax", "minmax"] as const) {
+      for (let i = 0; i < 2; i++) {
+        expect(Math.abs(map.limits[rule][i] - expected.limits[rule][i])).toBeLessThanOrEqual(
+          cells.bound,
+        );
+        expect(Math.abs(map.colorAxis[rule][i] - expected.color_axis[rule][i])).toBeLessThanOrEqual(
+          cells.bound,
+        );
+      }
+    }
+    expect(map.notes).toEqual(expected.notes);
+    expect(map.contourLevels).toHaveLength(expected.contours.length);
   });
 });
 
 describe("drawing through the worker", () => {
-  it("draws every map as the core does, the grids as Float32 with the same mask", async () => {
+  it("draws every map as the core does, its grid the core's own numbers", async () => {
     const client = new SensorFieldClient(inThreadWorker);
     const maps = mapsOf(6);
-    const outcome = await client.draw(input(maps));
+    const outcome = await client.draw(input(maps), { contours: "all" });
     client.terminate();
     if (outcome.kind !== "done") throw new Error(outcome.kind);
     expect(outcome.maps).toHaveLength(6);
     maps.forEach((values, m) => expectSameMap(outcome.maps[m], core(values)));
-    const first = outcome.maps[0];
-    if (first.kind !== "map") throw new Error("refused");
-    expect(first.contourLines).toHaveLength(6);
-    expect(first.contourLines![0].length % 4).toBe(0);
+    const lines = drawn(outcome.maps[0]).contourLines!;
+    expect(lines).toHaveLength(6);
+    expect(lines[0].length % 4).toBe(0);
   });
 
-  it("sends the maps on screen in the first batch, then the rest in batches", async () => {
+  it("sends the maps on screen in the first batches, then the rest in larger ones", async () => {
     const client = new SensorFieldClient(inThreadWorker);
     const batches: number[][] = [];
-    const outcome = await client.draw(input(mapsOf(6)), {
+    const outcome = await client.draw(input(mapsOf(7)), {
       first: [5, 2],
       batchSize: 2,
+      laterBatchSize: 3,
       onBatch: (maps) => batches.push(maps.map((m) => m.index)),
     });
     client.terminate();
-    expect(outcome.kind).toBe("done");
+    if (outcome.kind !== "done") throw new Error(outcome.kind);
     expect(batches).toEqual([
       [5, 2],
-      [0, 1],
-      [3, 4],
+      [0, 1, 3],
+      [4, 6],
     ]);
+    expect(outcome.stats.batches).toBe(3);
+  });
+
+  it("traces contour lines only for the maps on screen, and the page traces the rest the same", async () => {
+    const client = new SensorFieldClient(inThreadWorker);
+    const outcome = await client.draw(input(mapsOf(4)), { first: [2] });
+    client.terminate();
+    if (outcome.kind !== "done") throw new Error(outcome.kind);
+    expect(outcome.maps.map((m) => drawn(m).contourLines !== null)).toEqual([
+      false,
+      false,
+      true,
+      false,
+    ]);
+    const traced = drawn(outcome.maps[2]).contourLines!;
+    const byPage = contoursOf({ ...drawn(outcome.maps[2]), contourLines: null });
+    expect(byPage.map((l) => Array.from(l))).toEqual(traced.map((l) => Array.from(l)));
+    expect(contoursOf(drawn(outcome.maps[0]))).toHaveLength(6);
+  });
+
+  it("sends each geometry once per draw, and every map of that geometry names it", async () => {
+    const sent: WorkerResponse[] = [];
+    const channel = new MessageChannel();
+    const handle = createSensorFieldHandler((message, transfer) => {
+      sent.push(message);
+      channel.port2.postMessage(message, transfer);
+    });
+    channel.port2.onmessage = (event) => handle(event.data);
+    const port: WorkerLike = {
+      postMessage: (message, transfer = []) => channel.port1.postMessage(message, transfer),
+      onmessage: null,
+      terminate: () => {
+        channel.port1.close();
+        channel.port2.close();
+      },
+    };
+    channel.port1.onmessage = (event) => port.onmessage?.(event);
+    const client = new SensorFieldClient(() => port);
+    const [a, b, c] = mapsOf(3);
+    const holed = Float64Array.from(c);
+    holed[5] = Number.NaN;
+    const outcome = await client.draw(input([a, b, holed, c]), {
+      batchSize: 1,
+      laterBatchSize: 1,
+    });
+    client.terminate();
+    if (outcome.kind !== "done") throw new Error(outcome.kind);
+    const geometries = sent.flatMap((m) => (m.type === "batch" ? m.geometries : []));
+    expect(geometries.map((g) => g.key)).toEqual([0, 1]);
+    expect(sent.filter((m) => m.type === "batch")).toHaveLength(4);
+    expect(outcome.maps.map((m) => drawn(m).geometry.plotted.length)).toEqual([64, 64, 63, 64]);
+    expect(drawn(outcome.maps[0]).geometry).toBe(drawn(outcome.maps[3]).geometry);
   });
 
   it("keeps a layout's geometry for the next view of the same layout file", async () => {
@@ -175,7 +292,7 @@ describe("drawing through the worker", () => {
     console.error = (...args: unknown[]) => errors.push(args);
     try {
       const outcome = await client.draw(input(mapsOf(3)), {
-        batchSize: 1,
+        laterBatchSize: 1,
         onBatch: () => {
           throw new Error("the panel is gone");
         },
@@ -188,16 +305,15 @@ describe("drawing through the worker", () => {
     }
   });
 
-  it("settles a draw aborted by the page as cancelled", async () => {
+  it("settles a draw aborted by the page as cancelled, and the worker serves the next view", async () => {
     const client = new SensorFieldClient(inThreadWorker);
     const controller = new AbortController();
     const outcome = await client.draw(input(mapsOf(6)), {
-      batchSize: 1,
+      laterBatchSize: 1,
       signal: controller.signal,
       onBatch: () => controller.abort(),
     });
     expect(outcome).toEqual({ kind: "cancelled" });
-    // The worker is still usable for the next view.
     const next = await client.draw(input(mapsOf(1)));
     client.terminate();
     expect(next.kind).toBe("done");
@@ -221,7 +337,7 @@ describe("drawing through the worker", () => {
 });
 
 describe("the worker handler", () => {
-  function request(id: number, mapCount: number, batchSize: number): DrawRequest {
+  function request(id: number, mapCount: number, laterBatchSize: number): DrawRequest {
     const values = new Float64Array(THETA.length * mapCount);
     mapsOf(mapCount).forEach((map, m) => values.set(map, m * THETA.length));
     return {
@@ -233,8 +349,9 @@ describe("the worker handler", () => {
       values,
       mapCount,
       first: [],
-      batchSize,
-      contours: false,
+      batchSize: 1,
+      laterBatchSize,
+      contours: [],
     };
   }
 
@@ -255,39 +372,161 @@ describe("the worker handler", () => {
     handle({ type: "draw", id: 3, layoutKey: LAYOUT_KEY });
     handle("not a request");
     handle({ ...request(4, 2, 1), values: new Float64Array(5) });
+    handle({ ...request(5, 2, 1), contours: [2] });
+    handle({ ...request(6, 2, 1), laterBatchSize: 0 });
     expect(posted).toEqual([
       { type: "failure", id: 3, message: "thetaDeg and radius are not Float64Arrays" },
       { type: "failure", id: null, message: "the message is not an object" },
       { type: "failure", id: 4, message: "values does not hold one value per sensor per map" },
+      { type: "failure", id: 5, message: "contours is not a list of map indices" },
+      { type: "failure", id: 6, message: "batchSize and laterBatchSize are not positive" },
     ]);
   });
 });
 
-describe("the client's guard", () => {
-  it("settles as unavailable when the worker answers in a shape it cannot read", async () => {
-    // A worker end that answers every request with a batch whose grid is the wrong size.
-    const channel = new MessageChannel();
-    channel.port2.onmessage = (event) =>
-      channel.port2.postMessage({
-        type: "batch",
-        id: (event.data as { id: number }).id,
-        maps: [{ kind: "map", index: 0, grid: new Float32Array(3) }],
-      });
-    const port: WorkerLike = {
-      postMessage: (message, transfer = []) => channel.port1.postMessage(message, transfer),
-      onmessage: null,
-      terminate: () => {
-        channel.port1.close();
-        channel.port2.close();
-      },
-    };
-    channel.port1.onmessage = (event) => port.onmessage?.(event);
-    const client = new SensorFieldClient(() => port);
-    const outcome = await client.draw(input(mapsOf(1)));
-    client.terminate();
-    expect(outcome).toEqual({
-      kind: "unavailable",
-      reason: "the map worker sent an answer this page cannot read",
+interface StubWorker extends WorkerLike {
+  readonly requests: WorkerRequest[];
+  terminated: boolean;
+  answer(data: unknown): void;
+}
+
+/**
+ * A stub transport: a worker-shaped object whose answers the test writes. `respond` is called with
+ * each request, after the client has finished sending it; it may post an answer, raise an error
+ * event, or do nothing.
+ */
+function stubWorker(respond: (request: WorkerRequest, stub: StubWorker) => void): StubWorker {
+  const stub: StubWorker = {
+    requests: [],
+    terminated: false,
+    onmessage: null,
+    onerror: null,
+    onmessageerror: null,
+    postMessage(message) {
+      stub.requests.push(message);
+      queueMicrotask(() => respond(message, stub));
+    },
+    terminate() {
+      stub.terminated = true;
+    },
+    answer(data) {
+      stub.onmessage?.(new MessageEvent("message", { data }));
+    },
+  };
+  return stub;
+}
+
+describe("the client's error paths", () => {
+  it("settles as unavailable when the worker cannot be created, and tries a new one next time", async () => {
+    let attempts = 0;
+    const client = new SensorFieldClient(() => {
+      attempts++;
+      if (attempts === 1) throw new Error("module workers are off");
+      return inThreadWorker();
     });
+    expect(await client.draw(input(mapsOf(1)))).toEqual({
+      kind: "unavailable",
+      reason: "the map worker could not start: Error: module workers are off",
+    });
+    const next = await client.draw(input(mapsOf(1)));
+    client.terminate();
+    expect(next.kind).toBe("done");
+    expect(attempts).toBe(2);
+  });
+
+  it("settles as unavailable when the worker's script fails to load or throws, and drops it", async () => {
+    const stubs: StubWorker[] = [];
+    const client = new SensorFieldClient(() => {
+      const message = stubs.length === 0 ? "" : "boom";
+      const stub = stubWorker((_request, self) =>
+        self.onerror?.(new ErrorEvent("error", { message })),
+      );
+      stubs.push(stub);
+      return stub;
+    });
+    expect(await client.draw(input(mapsOf(1)))).toEqual({
+      kind: "unavailable",
+      reason: "the map worker could not be loaded",
+    });
+    // The failed worker is terminated as soon as its promise settles, one turn later.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(stubs[0].terminated).toBe(true);
+    expect(await client.draw(input(mapsOf(1)))).toEqual({
+      kind: "unavailable",
+      reason: "the map worker failed: boom",
+    });
+    expect(stubs).toHaveLength(2);
+    client.terminate();
+  });
+
+  it("settles one draw on its failure message, and every draw on an unaddressed one", async () => {
+    const client = new SensorFieldClient(() =>
+      stubWorker((request, self) => {
+        if (request.type !== "draw") return;
+        self.answer({
+          type: "failure",
+          id: request.id === 1 ? 1 : null,
+          message: "RangeError: out of memory",
+        });
+      }),
+    );
+    const reason = "the map worker failed: RangeError: out of memory";
+    expect(await client.draw(input(mapsOf(1)))).toEqual({ kind: "unavailable", reason });
+    expect(await client.draw(input(mapsOf(1)))).toEqual({ kind: "unavailable", reason });
+    client.terminate();
+  });
+
+  it("settles as unavailable on a message that could not be read (messageerror)", async () => {
+    const client = new SensorFieldClient(() =>
+      stubWorker((_request, self) => self.onmessageerror?.(new MessageEvent("messageerror"))),
+    );
+    expect(await client.draw(input(mapsOf(1)))).toEqual({
+      kind: "unavailable",
+      reason: UNREADABLE_ANSWER,
+    });
+    client.terminate();
+  });
+
+  it("settles as unavailable on an answer in a shape it cannot read", async () => {
+    const client = new SensorFieldClient(() =>
+      stubWorker((request, self) => {
+        if (request.type !== "draw") return;
+        self.answer({
+          type: "batch",
+          id: request.id,
+          geometries: [],
+          maps: [{ kind: "map", index: 0, grid: new Float64Array(3) }],
+        });
+      }),
+    );
+    expect(await client.draw(input(mapsOf(1)))).toEqual({
+      kind: "unavailable",
+      reason: UNREADABLE_ANSWER,
+    });
+    client.terminate();
+  });
+
+  it("settles a running draw as cancelled on terminate, and ignores the dropped worker after", async () => {
+    const stubs: StubWorker[] = [];
+    const client = new SensorFieldClient(() => {
+      if (stubs.length > 0) return inThreadWorker();
+      // The first worker never answers.
+      const stub = stubWorker(() => {});
+      stubs.push(stub);
+      return stub;
+    });
+    const running = client.draw(input(mapsOf(1)));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(stubs[0].requests).toHaveLength(1);
+    client.terminate();
+    expect(await running).toEqual({ kind: "cancelled" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(stubs[0].terminated).toBe(true);
+    const next = client.draw(input(mapsOf(1)));
+    // A late error from the dropped worker settles nothing of the new one's.
+    stubs[0].onerror?.(new ErrorEvent("error", { message: "late" }));
+    const outcome = await next;
+    client.terminate();
+    expect(outcome.kind).toBe("done");
   });
 });

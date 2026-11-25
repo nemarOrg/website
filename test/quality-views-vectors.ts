@@ -220,6 +220,79 @@ export function runFieldCase(
   };
 }
 
+/**
+ * A grid against a case's expected cells: whether the masks differ, the worst unmasked cell error,
+ * and the bound `1e-6 * range + 1e-12 * magnitude` of the reference cells. Null when the vector's
+ * grid is not 67 by 67.
+ */
+export function compareCells(
+  vectors: FieldVectors,
+  expected: FieldExpected,
+  grid: ArrayLike<number>,
+): { readonly maskDiffers: boolean; readonly worst: number; readonly bound: number } | null {
+  const size = vectors.grid_size;
+  if (
+    size !== GRID_SIZE ||
+    grid.length !== size * size ||
+    expected.z.length !== size ||
+    expected.z.some((row) => row.length !== size)
+  ) {
+    return null;
+  }
+  let low = Number.POSITIVE_INFINITY;
+  let high = Number.NEGATIVE_INFINITY;
+  let magnitude = 0;
+  for (const row of expected.z) {
+    for (const cell of row) {
+      if (cell === null) continue;
+      low = Math.min(low, cell);
+      high = Math.max(high, cell);
+      magnitude = Math.max(magnitude, Math.abs(cell));
+    }
+  }
+  const bound =
+    vectors.tolerance.cells_relative_to_range * (high - low) +
+    vectors.tolerance.cells_relative_to_magnitude * magnitude;
+  let maskDiffers = false;
+  let worst = 0;
+  for (let i = 0; i < size; i++) {
+    for (let j = 0; j < size; j++) {
+      const want = expected.z[i][j];
+      const got = grid[i * size + j];
+      if ((want === null) !== Number.isNaN(got)) {
+        maskDiffers = true;
+        continue;
+      }
+      if (want !== null) worst = Math.max(worst, Math.abs(got - want));
+    }
+  }
+  return { maskDiffers, worst, bound };
+}
+
+/** The layout a case draws on: its own theta and radius, or its positions projected by
+ *  `nemar.sensor-layout.v1`; null when the projection refuses. */
+export function caseLayout(
+  vectorCase: FieldCase,
+  montageCenters: ReadonlyMap<string, Vec3>,
+): { readonly thetaDeg: Float64Array; readonly radius: Float64Array } | null {
+  const sensors = vectorCase.sensors;
+  if (!sensors.x) {
+    return { thetaDeg: numbers(sensors.theta_deg!), radius: numbers(sensors.radius!) };
+  }
+  const layout = sensorLayout(
+    { x: numbers(sensors.x), y: numbers(sensors.y!), z: numbers(sensors.z!) },
+    vectorCase.coordinate_system!,
+    {
+      montage: vectorCase.montage ?? null,
+      names: sensors.name,
+      montageCenter: (name) => montageCenters.get(name),
+    },
+  );
+  return layout.kind === "layout"
+    ? { thetaDeg: layout.layout.thetaDeg, radius: layout.layout.radius }
+    : null;
+}
+
 /** How far one drawn case is from its vector: the worst cell error as a share of the bound, and
  *  every rule it misses (empty when it matches). */
 export interface FieldComparison {
@@ -275,41 +348,9 @@ export function compareFieldCase(
     );
   }
   const tolerance = vectors.tolerance;
-  const size = vectors.grid_size;
-  if (
-    expected.z.length !== size ||
-    expected.z.some((row) => row.length !== size) ||
-    size !== GRID_SIZE
-  ) {
-    return { problems: ["grid size"], maxCellError: 0, cellBound: 0 };
-  }
-  let low = Number.POSITIVE_INFINITY;
-  let high = Number.NEGATIVE_INFINITY;
-  let magnitude = 0;
-  for (const row of expected.z) {
-    for (const cell of row) {
-      if (cell === null) continue;
-      low = Math.min(low, cell);
-      high = Math.max(high, cell);
-      magnitude = Math.max(magnitude, Math.abs(cell));
-    }
-  }
-  const bound =
-    tolerance.cells_relative_to_range * (high - low) +
-    tolerance.cells_relative_to_magnitude * magnitude;
-  let maskDiffers = false;
-  let worst = 0;
-  for (let i = 0; i < size; i++) {
-    for (let j = 0; j < size; j++) {
-      const want = expected.z[i][j];
-      const got = map.z[i * size + j];
-      if ((want === null) !== Number.isNaN(got)) {
-        maskDiffers = true;
-        continue;
-      }
-      if (want !== null) worst = Math.max(worst, Math.abs(got - want));
-    }
-  }
+  const cells = compareCells(vectors, expected, map.z);
+  if (cells === null) return { problems: ["grid size"], maxCellError: 0, cellBound: 0 };
+  const { maskDiffers, worst, bound } = cells;
   if (maskDiffers) problems.push("mask");
   if (!(worst <= bound)) problems.push("cells");
   const geometry = tolerance.geometry_relative;

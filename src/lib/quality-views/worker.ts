@@ -5,13 +5,15 @@
  * Every map of a view shares its layout, so the expensive part, the geometry (the merge, the grid,
  * the factorized interpolation matrix and the evaluation matrix), is built once per layout and
  * per set of usable sensors and kept in a small cache keyed by the layout file's SHA-256. The
- * maps the page shows go first; the rest follow in batches, with a pause between batches so a
- * `cancel` is read between them. Grids leave as `Float32Array`s, transferred.
+ * maps the page shows go first, in small batches, and the rest follow in larger ones, with a pause
+ * between batches so a `cancel` is read between them. Each grid leaves as the `Float64Array` the
+ * algorithm filled, transferred; each geometry is sent once per draw; contour lines are traced
+ * only for the maps the request names (those on screen).
  *
  * Run as a module worker (`worker-client.ts` creates it), this file binds itself to the worker's
- * scope. Imported anywhere else (the client's fallback for a browser without workers, and the
- * tests), it binds nothing: `createSensorFieldHandler` and `inThreadWorker` run the same code over
- * a `MessageChannel`.
+ * scope. Imported anywhere else (the client's fallback for a browser with no `Worker` at all, and
+ * the tests), it binds nothing: `createSensorFieldHandler` and `inThreadWorker` run the same code
+ * over a `MessageChannel`.
  */
 
 import { contourLines } from "./contours";
@@ -24,6 +26,7 @@ import {
 } from "./sensor-field";
 import {
   type DrawRequest,
+  type GeometryEntry,
   type MapGeometryMessage,
   type MapMessage,
   type WorkerRequest,
@@ -48,6 +51,7 @@ export interface WorkerLike {
   postMessage(message: WorkerRequest, transfer?: Transferable[]): void;
   onmessage: ((event: MessageEvent) => void) | null;
   onerror?: ((event: ErrorEvent) => void) | null;
+  onmessageerror?: ((event: MessageEvent) => void) | null;
   terminate(): void;
 }
 
@@ -101,17 +105,34 @@ function geometryMessage(geometry: SensorFieldGeometry): MapGeometryMessage {
   };
 }
 
-/** The order maps are drawn in: `first` (without repeats), then every other map by index. */
-export function drawOrder(mapCount: number, first: readonly number[]): number[] {
+/**
+ * The batches maps are drawn in: `first` (without repeats) in batches of `batchSize`, then every
+ * other map by index in batches of `laterBatchSize`.
+ */
+export function drawBatches(
+  mapCount: number,
+  first: readonly number[],
+  batchSize: number,
+  laterBatchSize: number,
+): number[][] {
   const seen = new Set<number>();
-  const order: number[] = [];
-  for (const index of [...first, ...Array.from({ length: mapCount }, (_, i) => i)]) {
+  const leading: number[] = [];
+  for (const index of first) {
     if (!seen.has(index)) {
       seen.add(index);
-      order.push(index);
+      leading.push(index);
     }
   }
-  return order;
+  const rest: number[] = [];
+  for (let index = 0; index < mapCount; index++) if (!seen.has(index)) rest.push(index);
+  const batches: number[][] = [];
+  for (let at = 0; at < leading.length; at += batchSize) {
+    batches.push(leading.slice(at, at + batchSize));
+  }
+  for (let at = 0; at < rest.length; at += laterBatchSize) {
+    batches.push(rest.slice(at, at + laterBatchSize));
+  }
+  return batches;
 }
 
 /**
@@ -159,14 +180,22 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
     const start = now();
     const sensors = request.thetaDeg.length;
     const tally = { hits: 0, misses: 0, geometryMs: 0 };
+    const traced = new Set(request.contours);
+    // The geometries this draw has sent, by cache entry, with the number maps name them by.
+    const sent = new Map<CacheEntry, number>();
     let mapsMs = 0;
-    const order = drawOrder(request.mapCount, request.first);
-    for (let at = 0; at < order.length; at += request.batchSize) {
+    const batches = drawBatches(
+      request.mapCount,
+      request.first,
+      request.batchSize,
+      request.laterBatchSize,
+    );
+    for (let b = 0; b < batches.length; b++) {
       if (cancelled.delete(request.id)) {
         post({ type: "cancelled", id: request.id }, []);
         return;
       }
-      const batch = order.slice(at, at + request.batchSize);
+      const batch = batches[b];
       // Maps with the same usable sensors share a geometry; group them, keeping batch order.
       const groups = new Map<string, { usable: Uint8Array; indices: number[] }>();
       for (const index of batch) {
@@ -178,6 +207,7 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
         groups.set(key, group);
       }
       const maps = new Map<number, MapMessage>();
+      const geometries: GeometryEntry[] = [];
       const transfer: Transferable[] = [];
       for (const { usable, indices } of groups.values()) {
         const entry = geometryFor(request, usable, tally);
@@ -192,45 +222,58 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
           }
           continue;
         }
+        let key = sent.get(entry);
+        if (key === undefined) {
+          key = sent.size;
+          sent.set(entry, key);
+          geometries.push({ key, geometry: entry.message! });
+        }
         const geometry = entry.result.geometry;
         const drawStart = now();
         const results = drawSensorFields(
           geometry,
           indices.map((index) => request.values.subarray(index * sensors, (index + 1) * sensors)),
         );
-        indices.forEach((index, k) => {
+        for (let k = 0; k < indices.length; k++) {
+          const index = indices[k];
           const result = results[k];
           if (result.kind === "refused") {
             maps.set(index, { kind: "refused", index, word: result.word, detail: result.detail });
-            return;
+            continue;
           }
           const map = result.map;
-          const grid = Float32Array.from(map.z);
-          const lines = request.contours
+          const lines = traced.has(index)
             ? contourLines(map.z, geometry.x, geometry.y, map.contours)
             : null;
-          transfer.push(grid.buffer, ...(lines ?? []).map((line) => line.buffer));
+          // The grid is this map's own array: sent as it is, with no copy and no narrowing.
+          transfer.push(map.z.buffer);
+          if (lines) for (const line of lines) transfer.push(line.buffer);
           maps.set(index, {
             kind: "map",
             index,
-            grid,
+            grid: map.z,
             mean: map.mean,
-            limits: { absmax: [...map.limits.absmax], minmax: [...map.limits.minmax] },
-            colorAxis: { absmax: [...map.colorAxis.absmax], minmax: [...map.colorAxis.minmax] },
-            contourLevels: [...map.contours],
+            limits: { absmax: map.limits.absmax, minmax: map.limits.minmax },
+            colorAxis: { absmax: map.colorAxis.absmax, minmax: map.colorAxis.minmax },
+            contourLevels: map.contours,
             contourLines: lines,
-            notes: [...map.notes],
+            notes: map.notes,
             valueRange: map.valueRange,
-            geometry: entry.message!,
+            geometry: key,
           });
-        });
+        }
         mapsMs += now() - drawStart;
       }
       post(
-        { type: "batch", id: request.id, maps: batch.map((index) => maps.get(index)!) },
+        {
+          type: "batch",
+          id: request.id,
+          geometries,
+          maps: batch.map((index) => maps.get(index)!),
+        },
         transfer,
       );
-      if (at + request.batchSize < order.length) await yieldToEvents();
+      if (b + 1 < batches.length) await yieldToEvents();
     }
     cancelled.delete(request.id);
     post(
@@ -244,6 +287,7 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
           totalMs: now() - start,
           cacheHits: tally.hits,
           cacheMisses: tally.misses,
+          batches: batches.length,
         },
       },
       [],
@@ -280,7 +324,9 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
 
 /**
  * The worker's code on this thread, behind a `MessageChannel`: the same handler and the same
- * structured clone a real worker gives, for a browser without module workers and for the tests.
+ * structured clone a real worker gives. `worker-client.ts` uses it only where the browser has no
+ * `Worker` at all; a browser that has workers but cannot start this module worker gets
+ * `unavailable`, not this. The tests use it too.
  */
 export function inThreadWorker(): WorkerLike {
   const channel = new MessageChannel();
@@ -292,12 +338,14 @@ export function inThreadWorker(): WorkerLike {
     postMessage: (message, transfer = []) => channel.port1.postMessage(message, transfer),
     onmessage: null,
     onerror: null,
+    onmessageerror: null,
     terminate: () => {
       channel.port1.close();
       channel.port2.close();
     },
   };
   channel.port1.onmessage = (event) => port.onmessage?.(event);
+  channel.port1.onmessageerror = (event) => port.onmessageerror?.(event);
   return port;
 }
 
