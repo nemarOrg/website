@@ -6,7 +6,6 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { viridisColor } from "../src/lib/eeg-viewer/topo";
 import {
   COLOR_MAPS_NOTICE,
   DIVERGING_STOPS,
@@ -79,13 +78,14 @@ describe("the color maps", () => {
     expect(Math.min(...middle)).toBeGreaterThan(240);
   });
 
-  it("make the sequential map the signal viewer's viridis, color for color", () => {
-    for (let k = 0; k <= 200; k++) {
-      const t = -1 + k / 100;
-      expect(colorAt(SEQUENTIAL_STOPS, (Math.max(-1, Math.min(1, t)) + 1) / 2)).toEqual(
-        viridisColor(t),
-      );
-    }
+  it("make the sequential map the signal viewer's former viridis, color for color", async () => {
+    // The digest of the 256-entry table the viewer's `viridisColor` gave (removed in phase W3),
+    // the same one the iEEG activity overlay's table is pinned to (src/lib/ieeg-spatial).
+    expect(await sha256Hex(JSON.stringify([...lookupTable("sequential")]))).toBe(
+      "81b0cc4ed9099f6720f202189ad366431f29baebcb153e7bda6bdf19497294cb",
+    );
+    expect([...colorAt(SEQUENTIAL_STOPS, 0)]).toEqual([68, 1, 84]);
+    expect([...colorAt(SEQUENTIAL_STOPS, 1)]).toEqual([253, 231, 37]);
   });
 
   it("hold Google's Turbo table, rounded to 8 bits, with its Apache-2.0 notice", async () => {
