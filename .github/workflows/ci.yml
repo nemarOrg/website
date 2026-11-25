@@ -213,3 +213,8 @@ jobs:
           NEMAR_CLI_QUALITY_VIEWS: nemar-cli-contract/shared/contract/neuroschema/views/SHA256SUMS.json
           NEMAR_CLI_REVIEW_COPY: nemar-cli-contract/shared/contract/publication-review-copy.ts
           NEMAR_CLI_VALIDATOR_PIN: nemar-cli-contract/validator-version.json
+      # The quality views' size budgets (website ADR 0035 decision 1): the sensor-field worker at
+      # most 12 KB gzipped and the views' lazy chunk at most 30 KB, each bundled alone with Bun's
+      # bundler (no site build needed; the script also measures dist/ when a build is present).
+      - name: Quality-view bundle sizes
+        run: bun run check:quality-views-size
