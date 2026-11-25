@@ -43,6 +43,7 @@ Four of them are expensive to undo once panels, exports and the signal viewer re
 5. **The signal viewer's live scalp map moves onto the same code, and guesses no frame.**
    The viewer's map is drawn by `nemar.sensor-field.v1`, held to neuroschema's vectors, and its positions come from `nemar.sensor-layout.v1` for a known coordinate system or from `nemar.sensor-labels.v1` by electrode name otherwise;
    when neither places the sensors, no map is drawn and the reason is shown.
+   The precedence and refusal words of ADR 0137's amendment of 2026-11-24 decide which source is used and what a refusal does: `frame_not_scalp` has no fallback to names, names replace refused positions only when every drawn row is typed electroencephalography (EEG), and `unused_positions` keeps the reason the positions were not used.
    The thin-plate spline and the viewer's assumed frame are removed, and the intracranial contact view's colors (ADR 0033) are unchanged.
 6. **`figures` leaves the site's copy of the standard checkpoints.**
    `STANDARD_CHECKPOINTS` in `src/lib/compute-pipeline-contract.ts` is `import`, `preprocess`, `ica`, `iclabel`, `quality`, `stored`, as nemar-cli's is; an old run that reports `figures` shows the word raw, with no anchor.
