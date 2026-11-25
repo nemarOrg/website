@@ -4,3 +4,7 @@ public/vendor/** linguist-generated=true -diff
 # What a re-vendor is reviewed by stays readable: the versions and hashes it records.
 public/vendor/**/provenance.json diff
 public/vendor/**/SHA256SUMS diff
+# The quality-view parity vectors are copied byte for byte from nemar-cli by
+# scripts/copy-quality-views-vocabulary.mjs (website ADR 0035); what a re-copy is reviewed by is
+# src/lib/quality-views/vocabulary/pin.json, which stays readable.
+test/fixtures/quality-views/vectors/** linguist-generated=true -diff

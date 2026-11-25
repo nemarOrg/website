@@ -1,0 +1,70 @@
+{
+  "format": "nemar.website-vendored-views.v1",
+  "description": "The neuroschema view files this site copies from nemar-cli's shared/contract/neuroschema/views/, byte for byte: each file's path there, its copy here, its size and its SHA-256, with the neuroschema release they come from.",
+  "generated_by": "scripts/copy-quality-views-vocabulary.mjs",
+  "note": "Do not hand-edit; rerun the script against nemar-cli.",
+  "neuroschema_version": "0.6.0",
+  "source_commit": "e09ed40791b68c35d9698f3b663bfc4a998f3986",
+  "files": [
+    {
+      "path": "registry.json",
+      "copy": "src/lib/quality-views/vocabulary/registry.json",
+      "size": 7872,
+      "sha256": "039bc17fc2d88d3c5f99f5037c916821082535e7ef554aa0355f88c991066974"
+    },
+    {
+      "path": "vectors/ic-activity.v1.json",
+      "copy": "test/fixtures/quality-views/vectors/ic-activity.v1.json",
+      "size": 1247782,
+      "sha256": "05a8a4cea72def73ab7c2891a451f6669877d47aad7d3cd95f763c9b1e564e3e"
+    },
+    {
+      "path": "vectors/kinds-models.v1.json",
+      "copy": "test/fixtures/quality-views/vectors/kinds-models.v1.json",
+      "size": 1519411,
+      "sha256": "93e7646c9964dd7b5f49fa8aa9b28decb5ada59014629663894272684d63d9c2"
+    },
+    {
+      "path": "vectors/kinds-verdicts.v1.json",
+      "copy": "test/fixtures/quality-views/vectors/kinds-verdicts.v1.json",
+      "size": 771435,
+      "sha256": "456bed1287ef76bea291b71ce19698085949463b574e76c90ba09723d15b33d5"
+    },
+    {
+      "path": "vectors/preset-checks.v1.json",
+      "copy": "test/fixtures/quality-views/vectors/preset-checks.v1.json",
+      "size": 311507,
+      "sha256": "a4517dda1546f7213823ada152a4284ae7e9d5df57604ad1f9df147a4301d67e"
+    },
+    {
+      "path": "vectors/record-checks.v1.json",
+      "copy": "test/fixtures/quality-views/vectors/record-checks.v1.json",
+      "size": 196899,
+      "sha256": "4d9e641606037d351a93621c8eeef588f3862cf4981187fc366c504c15c28905"
+    },
+    {
+      "path": "vectors/sensor-field.v1.json",
+      "copy": "test/fixtures/quality-views/vectors/sensor-field.v1.json",
+      "size": 2338544,
+      "sha256": "4b17295f7671b672cc0b7501aba22449568f47e0d680d2b4292b6d9ad6a73daf"
+    },
+    {
+      "path": "vectors/sensor-labels.v1.json",
+      "copy": "test/fixtures/quality-views/vectors/sensor-labels.v1.json",
+      "size": 599931,
+      "sha256": "513585425329f948c76b36c79abffc06be0ab95efe8ebce267695fc3898d4ebf"
+    },
+    {
+      "path": "vectors/sensor-layout.v1.json",
+      "copy": "test/fixtures/quality-views/vectors/sensor-layout.v1.json",
+      "size": 273484,
+      "sha256": "93afc886806cfdbdac51ec9fd989d90ac69944d57f1eb275ec3e8b91e5d804e0"
+    },
+    {
+      "path": "vectors/view-digest.v1.json",
+      "copy": "test/fixtures/quality-views/vectors/view-digest.v1.json",
+      "size": 22145,
+      "sha256": "ddc048c896b098302300eabaedfd289f596df2df3a03a3e40450cbc87ac07b70"
+    }
+  ]
+}

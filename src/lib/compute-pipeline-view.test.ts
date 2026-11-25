@@ -119,6 +119,9 @@ describe("links", () => {
   it("anchors only standard checkpoints", () => {
     expect(checkpointAnchor("import")).toBe("cp-import");
     expect(checkpointAnchor("stored")).toBe("cp-stored");
+    // `figures` left the standard checkpoints (nemar-cli ADR 0137): an old run that reports it is
+    // shown raw, with no anchor.
+    expect(checkpointAnchor("figures")).toBeNull();
     expect(checkpointAnchor('x"onload')).toBeNull();
   });
 

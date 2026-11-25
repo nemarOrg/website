@@ -66,3 +66,4 @@ Add new entries here as you create ADRs:
 - ADR 0032 - [The search overview is a build-time setting, called from the browser](0032-the-search-overview-is-a-build-time-setting-called-from-the-browser.md) (accepted)
 - ADR 0033 - [iEEG contacts use the site's own renderer, template anatomy only where the frame allows, and a credit to RAVE](0033-ieeg-contacts-use-the-sites-own-renderer-and-credit-rave.md) (accepted)
 - ADR 0034 - [Subject anatomy comes from NEMAR's geometry index, in the contacts' own frame, never mixed with the template](0034-subject-anatomy-from-the-geometry-index-in-the-contacts-own-frame.md) (accepted)
+- ADR 0035 - [Quality views are drawn in the browser from vendored view data](0035-quality-views-are-drawn-in-the-browser-from-vendored-view-data.md) (proposed)
