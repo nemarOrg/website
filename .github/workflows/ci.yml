@@ -223,8 +223,14 @@ jobs:
       - name: Quality-view drawing budget
         if: ${{ !cancelled() }}
         run: bun run test:quality-views-perf
-      # The size budgets: the sensor-field worker at most 12 KB gzipped and the views' lazy chunk at
-      # most 30 KB, each bundled alone with Bun's bundler.
+      # The size budget is checked after a real build: the sensor-field worker at most 12 KB gzipped
+      # and the main-thread code at most 30 KB, measured in dist/ once a page imports the client and,
+      # until then, on the site's own Vite building the client as an entry
+      # (scripts/check-quality-views-size.mjs). `astro build` alone takes seconds; the OG images
+      # of `bun run build` are not needed for it.
+      - name: Site build
+        if: ${{ !cancelled() }}
+        run: bunx astro build
       - name: Quality-view bundle sizes
         if: ${{ !cancelled() }}
-        run: bun run check:quality-views-size
+        run: bun scripts/check-quality-views-size.mjs --require-build
