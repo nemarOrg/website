@@ -416,6 +416,14 @@ function stubWorker(respond: (request: WorkerRequest, stub: StubWorker) => void)
   return stub;
 }
 
+/**
+ * An `error` event with a message, as a worker raises one. Node has no global `ErrorEvent` before
+ * version 23 (CI's runner has none), so it is an `Event` carrying the one field the client reads.
+ */
+function errorEvent(message: string): ErrorEvent {
+  return Object.assign(new Event("error"), { message }) as ErrorEvent;
+}
+
 describe("the client's error paths", () => {
   it("settles as unavailable when the worker cannot be created, and tries a new one next time", async () => {
     let attempts = 0;
@@ -438,9 +446,7 @@ describe("the client's error paths", () => {
     const stubs: StubWorker[] = [];
     const client = new SensorFieldClient(() => {
       const message = stubs.length === 0 ? "" : "boom";
-      const stub = stubWorker((_request, self) =>
-        self.onerror?.(new ErrorEvent("error", { message })),
-      );
+      const stub = stubWorker((_request, self) => self.onerror?.(errorEvent(message)));
       stubs.push(stub);
       return stub;
     });
@@ -524,7 +530,7 @@ describe("the client's error paths", () => {
     expect(stubs[0].terminated).toBe(true);
     const next = client.draw(input(mapsOf(1)));
     // A late error from the dropped worker settles nothing of the new one's.
-    stubs[0].onerror?.(new ErrorEvent("error", { message: "late" }));
+    stubs[0].onerror?.(errorEvent("late"));
     const outcome = await next;
     client.terminate();
     expect(outcome.kind).toBe("done");
