@@ -18,10 +18,13 @@ import {
   lookupTable,
   paintGrid,
 } from "../src/lib/quality-views/colormap";
+import { sensorField } from "../src/lib/quality-views/sensor-field";
 import { TURBO_HEX } from "../src/lib/quality-views/turbo-lut";
 import { nodeFs, repoPath, sha256Hex } from "./node";
+import { loadFieldVectors, numbers } from "./quality-views-vectors";
 
 const fs = await nodeFs();
+const field = await loadFieldVectors();
 const TOKENS = fs.readFileSync(repoPath("src/styles/tokens.css"), "utf8");
 
 function block(startMarker: string): string {
@@ -109,6 +112,43 @@ describe("painting a grid", () => {
     expect(entryFor(0, [-1, 1])).toBe(128);
     expect(entryFor(3, [3, 3])).toBe(MIDDLE);
     expect(entryFor(0, [0, 0])).toBe(MIDDLE);
+  });
+
+  it("places a value on an axis wider than the largest double, and never leaves a cell black", () => {
+    // flat_huge_duplicate_pair: a flat field at 1.5e308, whose absmax axis is +-1.575e308.
+    const vectorCase = field.cases.find((c) => c.name === "flat_huge_duplicate_pair")!;
+    const result = sensorField(
+      numbers(vectorCase.sensors.theta_deg!),
+      numbers(vectorCase.sensors.radius!),
+      numbers(vectorCase.sensors.value),
+    );
+    if (result.kind !== "map") throw new Error(result.word);
+    const axis = result.map.colorAxis.absmax;
+    expect(axis[1] - axis[0]).toBe(Number.POSITIVE_INFINITY);
+    // (1.5e308 + 1.575e308) / (2 * 1.575e308) of the way up: entry 249 of 255.
+    expect(entryFor(1.5e308, axis)).toBe(249);
+    const table = lookupTable("diverging");
+    const pixels = paintGrid(result.map.z, axis, table);
+    let painted = 0;
+    for (let p = 0; p < pixels.length; p += 4) {
+      if (pixels[p + 3] === 0) continue;
+      painted++;
+      expect([pixels[p], pixels[p + 1], pixels[p + 2]]).toEqual([
+        table[249 * 3],
+        table[249 * 3 + 1],
+        table[249 * 3 + 2],
+      ]);
+    }
+    expect(painted).toBe(result.map.geometry.inside.length);
+    // Its minmax axis is one point: the middle.
+    expect(entryFor(1.5e308, result.map.colorAxis.minmax)).toBe(MIDDLE);
+  });
+
+  it("gives the middle, not an empty entry, to a value or axis that is not finite", () => {
+    expect(entryFor(Number.NaN, [0, 1])).toBe(MIDDLE);
+    expect(entryFor(1, [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY])).toBe(MIDDLE);
+    expect(entryFor(Number.POSITIVE_INFINITY, [0, 1])).toBe(LUT_SIZE - 1);
+    expect(entryFor(-1.7e308, [1.7e308, 1.79e308])).toBe(0);
   });
 
   it("puts the nose up and leaves masked cells transparent", () => {

@@ -111,12 +111,19 @@ export function lookupTable(name: ColorMapName): Uint8Array {
 /**
  * The table entry for `value` on the color axis `axis`: a value beyond the axis takes the color at
  * its end, and an axis that is one point gives the middle.
+ *
+ * The position is computed on halved operands, `(value / 2 − low / 2) / (high / 2 − low / 2)`: an
+ * axis of finite limits can still span more than the largest double (a flat field at 1.5e308 has
+ * the `absmax` axis ±1.575e308), and the plain difference would overflow to a position that is not a
+ * number. Anything that still is not one (a value or limit that is not finite) takes the middle,
+ * never an empty entry, so no cell is ever painted black.
  */
 export function entryFor(value: number, axis: Pair): number {
   const [low, high] = axis;
   if (!(high > low)) return MIDDLE;
-  const t = (value - low) / (high - low);
-  return Math.max(0, Math.min(LUT_SIZE - 1, Math.round(t * (LUT_SIZE - 1))));
+  const t = (value / 2 - low / 2) / (high / 2 - low / 2);
+  const entry = Math.max(0, Math.min(LUT_SIZE - 1, Math.round(t * (LUT_SIZE - 1))));
+  return Number.isFinite(entry) ? entry : MIDDLE;
 }
 
 /**
