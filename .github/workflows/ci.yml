@@ -213,8 +213,18 @@ jobs:
           NEMAR_CLI_QUALITY_VIEWS: nemar-cli-contract/shared/contract/neuroschema/views/SHA256SUMS.json
           NEMAR_CLI_REVIEW_COPY: nemar-cli-contract/shared/contract/publication-review-copy.ts
           NEMAR_CLI_VALIDATOR_PIN: nemar-cli-contract/validator-version.json
-      # The quality views' size budgets (website ADR 0035 decision 1): the sensor-field worker at
-      # most 12 KB gzipped and the views' lazy chunk at most 30 KB, each bundled alone with Bun's
-      # bundler (no site build needed; the script also measures dist/ when a build is present).
+      # The quality views' budgets (nemar-cli ADR 0137, website ADR 0035 decision 1), each a step of
+      # its own after Vitest. `!cancelled()` runs them even when Vitest failed: on the epic's PRs
+      # the drift tests are red until nemar-cli `dev` catches up, and the budgets must still be
+      # checked.
+      # The drawing budget runs alone on this runner, which stands in for the mid-range laptop:
+      # the first maps of a view within 50 ms, a 128-sensor view of 128 maps within 100 ms and a
+      # 256-sensor one within 300 ms (test/quality-views-perf.test.ts).
+      - name: Quality-view drawing budget
+        if: ${{ !cancelled() }}
+        run: bun run test:quality-views-perf
+      # The size budgets: the sensor-field worker at most 12 KB gzipped and the views' lazy chunk at
+      # most 30 KB, each bundled alone with Bun's bundler.
       - name: Quality-view bundle sizes
+        if: ${{ !cancelled() }}
         run: bun run check:quality-views-size

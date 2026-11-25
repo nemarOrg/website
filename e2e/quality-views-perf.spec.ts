@@ -58,7 +58,13 @@ for (const [name, viewBudget] of [
           Float64Array.from(base, (v, s) => v * Math.cos(m + 1) + Math.sin(s * (m + 1))),
         );
         const client = new SensorFieldClient();
-        const runs: { firstMaps: number; view: number; drawn: number; kind: string }[] = [];
+        const runs: {
+          firstMaps: number;
+          view: number;
+          drawn: number;
+          kind: string;
+          worker: number;
+        }[] = [];
         for (let run = 0; run <= 5; run++) {
           let firstMaps = Number.NaN;
           const start = performance.now();
@@ -66,7 +72,6 @@ for (const [name, viewBudget] of [
             { layoutKey: `${name}-${run}`, thetaDeg, radius, maps },
             {
               first: [0, 1, 2, 3, 4, 5, 6, 7],
-              batchSize: 8,
               onBatch: () => {
                 if (Number.isNaN(firstMaps)) firstMaps = performance.now() - start;
               },
@@ -77,6 +82,8 @@ for (const [name, viewBudget] of [
             firstMaps,
             view,
             kind: outcome.kind,
+            // The worker's own time, from the request's arrival to its last batch.
+            worker: outcome.kind === "done" ? outcome.stats.totalMs : Number.NaN,
             drawn:
               outcome.kind === "done"
                 ? outcome.maps.filter((m: { kind: string }) => m.kind === "map").length
@@ -96,7 +103,8 @@ for (const [name, viewBudget] of [
     const median = (values: number[]) => [...values].sort((a, b) => a - b)[values.length >> 1];
     const firstMaps = median(later.map((r) => r.firstMaps));
     const view = median(later.map((r) => r.view));
-    const line = `${name} in ${timings.userAgent} (${timings.cores} cores): first view (worker start) first maps ${first.firstMaps.toFixed(1)} ms, view ${first.view.toFixed(1)} ms; median of 5: first maps ${firstMaps.toFixed(1)} ms, view ${view.toFixed(1)} ms`;
+    const worker = median(later.map((r) => r.worker));
+    const line = `${name} in ${timings.userAgent} (${timings.cores} cores): first view (worker start) first maps ${first.firstMaps.toFixed(1)} ms, view ${first.view.toFixed(1)} ms; median of 5: first maps ${firstMaps.toFixed(1)} ms, view ${view.toFixed(1)} ms (in the worker ${worker.toFixed(1)} ms)`;
     info.annotations.push({ type: "quality-views perf", description: line });
     console.info(`[quality-views perf] ${line}`);
     expect(firstMaps).toBeLessThanOrEqual(BUDGET.firstMaps);
