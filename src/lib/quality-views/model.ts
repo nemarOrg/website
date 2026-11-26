@@ -557,15 +557,26 @@ async function histogramModel(reader: Reader): Promise<HistogramModel> {
   if (!(await reader.checks.content(HISTOGRAM_CONTENT, content))) {
     throw new KindRefused("content_invalid");
   }
-  const c = content as {
-    counts: number[];
-    categories?: string[];
-    edges?: number[];
-    underflow?: number;
-    overflow?: number;
-    unit?: string;
-    missing?: number;
-  };
+  return histogramOf(content as HistogramContent);
+}
+
+/** A histogram's content (`content.nemar.histogram.v1`), as its schema admits it. */
+export interface HistogramContent {
+  readonly counts: readonly number[];
+  readonly categories?: readonly string[];
+  readonly edges?: readonly number[];
+  readonly underflow?: number;
+  readonly overflow?: number;
+  readonly unit?: string;
+  readonly missing?: number;
+}
+
+/**
+ * The model of a histogram's content, which its schema admits (the caller checks it): the bins by
+ * edges or by category, the ends, the missing count and the totals. The dataset summary builds
+ * its histograms here too, from a `dataQuality` distribution's histogram and unit.
+ */
+export function histogramOf(c: HistogramContent): HistogramModel {
   const counts = c.counts.map((n) => n + 0);
   const missing = c.missing === undefined ? null : { label: "missing", count: c.missing + 0 };
   const lacking = missing?.count ?? 0;
