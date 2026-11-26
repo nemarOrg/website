@@ -428,6 +428,9 @@ describe("the review's fixes (#601)", () => {
     const ten = heatmapPart.heatmapScale(model as HeatmapModel, legend, { rows: 10, columns: 1 });
     expect(ten.rows.map(([i]) => i)).toEqual([0, 10, 20, 30, 40, 50, 60, 70, 80, 90]);
     expect(ten.columns.map(([i]) => i)).toEqual([0]);
+    // Room for 9.5 labels holds 9, never 10.
+    const nine = heatmapPart.heatmapScale(model as HeatmapModel, legend, { rows: 9.5, columns: 1 });
+    expect(nine.rows.length).toBeLessThanOrEqual(9);
     expect(
       heatmapPart.heatmapScale(model as HeatmapModel, legend, { rows: 0, columns: 0 }).rows,
     ).toEqual([[0, "r0"]]);
