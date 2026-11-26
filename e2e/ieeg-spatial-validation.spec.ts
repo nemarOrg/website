@@ -775,7 +775,7 @@ async function leaveSubjectAnatomy(
 ): Promise<void> {
   await expect(
     page.locator(PANEL),
-    "the subject surface from the live geometry index did not load (the index may have been regenerated, removed or regraded)",
+    "the subject surface from the live geometry index did not load: a geometry file fetch failed (for example a server error from the data host), or the index was regenerated, removed or regraded",
   ).toHaveAttribute("data-template-state", "ready", { timeout: 60_000 });
   await expect(page.locator("[data-spatial-frame] option:checked")).toHaveText(subjectOption);
   await expect(page.locator(TEMPLATE_LABEL)).toHaveText(SUBJECT_LABEL);
