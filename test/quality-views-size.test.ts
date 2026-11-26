@@ -17,7 +17,11 @@ import { describe, expect, it } from "vitest";
 import {
   BUDGET,
   CLIENT_MARKER,
+  CHUNK_MARKERS,
+  ISLAND_PREFIX,
   KB,
+  lookupIsland,
+  lookupStem,
   measureChunks,
   measurementRoots,
   namedChunk,
@@ -169,8 +173,9 @@ describe("the signal viewer's layout", () => {
 
 // The panel's chunk is found by its module's name and its loading sentence together, and exactly one
 // chunk must match: the admin drill-down's chunk holds the same sentence, another component's chunk
-// is also named `panel`, and which of two matches a directory lists first is its file system's
-// choice, so a first match measured the admin's chunk on macOS and the panel on Linux (website#608).
+// is also named `panel`, and which of two matches a directory lists first depends on its file system
+// and on the chunks' content hashes, so a first match measured one chunk on one machine and the
+// other on the next (website#608).
 describe("the chunk a first screen is measured from", () => {
   const LOADING = "Loading the recording's quality views";
   const chunks: Record<string, string> = {
@@ -233,5 +238,57 @@ describe("the chunk a first screen is measured from", () => {
         "2 chunks named lines.* (lines.BhwKn-pD.js, lines.Zz9.js); which one is measured would depend on the directory's order",
     });
     expect(namedChunk(files(chunks), "spectrum.").error).toBe("no chunk named spectrum.*");
+  });
+});
+
+// What the gate asks for each name (`lookupStem`, `lookupIsland`), on the chunks Vite emits beside the
+// panel's: its own sentences, model and bridge, the island, another component's `panel`, the admin's.
+describe("the names the gate looks up", () => {
+  const LOADING = CHUNK_MARKERS.panel;
+  const site: Record<string, string> = {
+    "panel.D2DfCQhV.js": `const s="${LOADING}…";export{s};`,
+    "panel.WHQJUugx.js": "const other=1;export{other};",
+    // The panel's sentences could hold its loading sentence too: only the name tells them apart.
+    "panel-words.WkOU3RDH.js": `const w={loading:"${LOADING}…"};export{w};`,
+    "panel-model.DSJ9qExU.js": "export const TABS=[];",
+    "panel-bridge.BvMZlB84.js": "export const bridge=1;",
+    "admin-drill.Cd-pzLlA.js": `const s="${LOADING}…";export{s};`,
+    [`${ISLAND_PREFIX}_index_0_lang.B1LCM-O8.js`]: 'import"./panel-model.DSJ9qExU.js";',
+  };
+
+  it("finds the panel by its name and its sentence, never panel-words, panel-model or panel-bridge", () => {
+    expect(lookupStem(files(site), "panel")).toEqual({ name: "panel.D2DfCQhV.js", error: null });
+    expect(lookupStem(files(site), "panel-model").name).toBe("panel-model.DSJ9qExU.js");
+    expect(lookupStem(files(site), "panel-bridge").name).toBe("panel-bridge.BvMZlB84.js");
+  });
+
+  it("fails when the panel's chunk has lost its sentence", () => {
+    const lost = { ...site, "panel.D2DfCQhV.js": "const s=1;export{s};" };
+    expect(lookupStem(files(lost), "panel")).toEqual({
+      name: null,
+      error: `no chunk named panel.* holds "${LOADING}"`,
+    });
+  });
+
+  it("finds the export's chunks by their sentences, and a chunk with none by its name", () => {
+    const withExport = {
+      ...site,
+      "controls.B-Dv6hg7.js": `const b="${CHUNK_MARKERS.controls}";export{b};`,
+      "picture.BrzeZOZT.js": `const e="${CHUNK_MARKERS.picture}";export{e};`,
+      "maps-part.CjLS3rLr.js": "export const m=1;",
+    };
+    expect(lookupStem(files(withExport), "controls").name).toBe("controls.B-Dv6hg7.js");
+    expect(lookupStem(files(withExport), "picture").name).toBe("picture.BrzeZOZT.js");
+    expect(lookupStem(files(withExport), "maps-part").name).toBe("maps-part.CjLS3rLr.js");
+    expect(lookupStem(files(site), "controls").error).toBe(
+      `no chunk named controls.* holds "${CHUNK_MARKERS.controls}"`,
+    );
+  });
+
+  it("finds the island script, and fails on two", () => {
+    const island = `${ISLAND_PREFIX}_index_0_lang.B1LCM-O8.js`;
+    expect(lookupIsland(files(site))).toEqual({ name: island, error: null });
+    const two = { ...site, [`${ISLAND_PREFIX}_index_1_lang.Q.js`]: "export{};" };
+    expect(lookupIsland(files(two)).error).toContain(`2 chunks named ${ISLAND_PREFIX}*`);
   });
 });

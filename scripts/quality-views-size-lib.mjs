@@ -88,6 +88,38 @@ export function namedChunk(files, prefix, marker) {
   };
 }
 
+/**
+ * The sentences that tell a chunk from others whose module has the same name: the quality panel's
+ * (another component's chunk is also named `panel`, and the admin drill-down's holds the same loading
+ * sentence) and the export's controls and images (W8).
+ */
+export const CHUNK_MARKERS = {
+  panel: "Loading the recording's quality views",
+  controls: "Save image (PNG)",
+  picture: "the canvas gave no PNG",
+};
+
+/** The start of the panel's island script's name: the page's own, loaded with it. */
+export const ISLAND_PREFIX = "QualityPanel.astro_astro_type_script";
+
+/**
+ * The chunk the site build measures for the module `stem` (`namedChunk`): named `<stem>.<hash>.js`,
+ * the dot keeping `panel` from `panel-words`, `panel-model` and `panel-bridge`, and holding its
+ * sentence from `CHUNK_MARKERS` when it has one.
+ */
+export function lookupStem(files, stem) {
+  return namedChunk(
+    files,
+    `${stem}.`,
+    Object.hasOwn(CHUNK_MARKERS, stem) ? CHUNK_MARKERS[stem] : undefined,
+  );
+}
+
+/** The panel's island script (`namedChunk` on `ISLAND_PREFIX`). */
+export function lookupIsland(files) {
+  return namedChunk(files, ISLAND_PREFIX);
+}
+
 /** `roots` and every chunk they import statically, transitively. */
 export function staticClosure(roots, files) {
   const text = (name) => files.get(name).toString("utf8");

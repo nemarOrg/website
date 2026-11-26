@@ -36,8 +36,9 @@ import {
   dynamicImports,
   gzipped,
   kb,
+  lookupIsland,
+  lookupStem,
   measureChunks,
-  namedChunk,
   staticClosure,
 } from "./quality-views-size-lib.mjs";
 
@@ -70,7 +71,7 @@ function measure(label, dir) {
  * panel's chunk, each tab's lazy chunks, and every chunk they import statically, gzipped together.
  * Chunks are found by the name Vite gives them from their module (`lines.<hash>.js`, ...), the
  * panel's and the export's by a sentence of their own too, and each lookup must find exactly one
- * chunk (`namedChunk`), so every machine measures the same files. The
+ * chunk (`lookupStem`, `lookupIsland`), so every machine measures the same files. The
  * idle preload's chunk is left out (it is parsed in idle time before the panel opens), and so are
  * the island script and Vite's preload helper, which load with the page itself.
  */
@@ -100,26 +101,19 @@ function siteUnions(dir) {
       budget: BUDGET.worker,
     });
   }
-  // Each chunk by its module's name, and the quality panel's (another component's chunk is also named
-  // `panel`, and the admin drill-down's holds the same loading sentence) and the export's controls
-  // and images (W8) by a sentence of their own as well. A lookup that finds none, or several, fails
-  // the gate and says which, once per name: never the first in the directory's order (website#608).
-  const MARKERS = {
-    panel: "Loading the recording's quality views",
-    controls: "Save image (PNG)",
-    picture: "the canvas gave no PNG",
-  };
+  // Each chunk by its module's name, and the panel's and the export's by a sentence of their own as
+  // well (`lookupStem`). A lookup that finds none, or several, fails the gate and says which, once
+  // per name: never the first in the directory's order (website#608).
   const found = new Map();
-  const lookup = (prefix, marker) => {
-    if (!found.has(prefix)) {
-      const { name, error } = namedChunk(files, prefix, marker);
-      found.set(prefix, name ?? undefined);
+  const lookup = (key, find) => {
+    if (!found.has(key)) {
+      const { name, error } = find(files);
+      found.set(key, name ?? undefined);
       if (error) results.push({ label: `site build: ${error}`, size: 1, raw: 0, budget: 0 });
     }
-    return found.get(prefix);
+    return found.get(key);
   };
-  const named = (stem) =>
-    lookup(`${stem}.`, Object.hasOwn(MARKERS, stem) ? MARKERS[stem] : undefined);
+  const named = (stem) => lookup(stem, (all) => lookupStem(all, stem));
   // The export (W8): its controls, and the images chunk (PNG and SVG) and the picture's map and
   // heatmap parts they load as they open. Each is a
   // lazy root, gated with what it imports statically like every other (`measure` below); none may
@@ -139,7 +133,7 @@ function siteUnions(dir) {
   const exportNames = new Set(exportChunks.map(([, name]) => name).filter(Boolean));
   // The page's own island script (and Vite's preload helper it imports) loads with the page,
   // before any panel opens, as the idle preload's chunk does: not the panel's first screen.
-  const island = lookup("QualityPanel.astro_astro_type_script");
+  const island = lookup("island", lookupIsland);
   const page = island ? staticClosure([island], files) : new Set();
   for (const [tab, stems] of [
     ["Spectrum tab", ["panel", "lines", "sensor-field-view", "spectrum"]],
