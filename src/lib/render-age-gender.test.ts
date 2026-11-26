@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { renderAgeGenderStackedSvg } from "./render-age-gender";
 
-const rects = (svg: string) => [
-  ...svg.matchAll(/<rect [^>]*height="([\d.]+)"[^>]*><title>([^<]*)<\/title><\/rect>/g),
-];
+/** Each stacked segment as [title, y, height]. */
+const rects = (svg: string) =>
+  [
+    ...svg.matchAll(
+      /<rect [^>]*y="([\d.]+)"[^>]*height="([\d.]+)"[^>]*><title>([^<]*)<\/title><\/rect>/g,
+    ),
+  ].map((m) => [m[3], m[1], m[2]]);
 const labels = (svg: string) =>
   [...svg.matchAll(/<text [^>]*font-family="var\(--font-mono\)"[^>]*>([^<]*)<\/text>/g)].map(
     (m) => m[1],
@@ -36,21 +40,29 @@ describe("renderAgeGenderStackedSvg", () => {
     expect(svg).toContain('viewBox="0 0 456 ');
   });
 
-  it("stacks one segment per non-empty sex, scaled to the tallest bucket", () => {
-    const segs = rects(svg).map((m) => [m[2], m[1]]);
-    expect(segs).toEqual([
-      ["20-24: 1 M", "65.00"],
-      ["20-24: 1 F", "65.00"],
-      ["25-29: 1 M", "65.00"],
-      ["30-34: 1 F", "65.00"],
-      ["30-34: 1 other", "65.00"],
-      ["65-69: 1 M", "65.00"],
+  it("stacks M on the baseline, F above it and other on top, scaled to the tallest bucket", () => {
+    expect(rects(svg)).toEqual([
+      ["20-24: 1 M", "65.00", "65.00"],
+      ["20-24: 1 F", "0.00", "65.00"],
+      ["25-29: 1 M", "65.00", "65.00"],
+      ["30-34: 1 F", "65.00", "65.00"],
+      ["30-34: 1 other", "0.00", "65.00"],
+      ["65-69: 1 M", "65.00", "65.00"],
+    ]);
+  });
+
+  it("scales to a bucket that is tallest only by its other count", () => {
+    // Width-1 bins from 30 to 40: two participants with no sex at 30, one M at 40.
+    const other = renderAgeGenderStackedSvg([30, 30, 40], [null, null, "M"]);
+    expect(rects(other)).toEqual([
+      ["30: 2 other", "0.00", "130.00"],
+      ["40: 1 M", "65.00", "65.00"],
     ]);
   });
 
   it("draws a full-height bar for the tallest bucket", () => {
     const single = renderAgeGenderStackedSvg([30, 30, 31], ["F", "F", "F"]);
-    expect(rects(single).map((m) => m[1])).toContain("130.00");
+    expect(rects(single).map((m) => m[2])).toContain("130.00");
   });
 
   it("says there is no age data for an empty cohort", () => {
@@ -68,6 +80,6 @@ describe("renderAgeGenderStackedSvg", () => {
 
   it("ignores ages that are not finite numbers beside real ones", () => {
     const mixed = renderAgeGenderStackedSvg([Number.NaN, 30, 31], ["M", "F", "F"]);
-    expect(rects(mixed).map((m) => m[2])).toEqual(["30: 1 F", "31: 1 F"]);
+    expect(rects(mixed).map((m) => m[0])).toEqual(["30: 1 F", "31: 1 F"]);
   });
 });
