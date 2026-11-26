@@ -68,6 +68,16 @@ test.describe("as an administrator", () => {
       );
     }
     await expect(page.locator("[data-quality-public]")).toHaveCount(1);
+    // Each region has a name of its own.
+    const names = await page
+      .locator("main section[aria-labelledby]")
+      .evaluateAll((els) =>
+        els.map(
+          (el) => document.getElementById(el.getAttribute("aria-labelledby") ?? "")?.textContent,
+        ),
+      );
+    expect(names.length).toBeGreaterThan(1);
+    expect(new Set(names).size).toBe(names.length);
   });
 
   test("a canary of a public dataset is drawn and gets no public link", async ({ page }) => {

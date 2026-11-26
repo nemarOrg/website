@@ -49,6 +49,7 @@ export const ADMIN_VIEW_SENTENCES: Readonly<Record<string, string>> = {
 
 export const PIPELINE_QUALITY_LABELS = {
   heading: "Quality views",
+  stateHeading: "Where the derivative stands",
   drillHeading: "Quality views of the run",
   open: "Open the run's quality views",
   backToRun: "Back to the run",
