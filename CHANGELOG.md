@@ -15,6 +15,11 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Added
 
+- **A run's quality views on the admin Pipelines tab** (website#588 phase W9; nemar-cli epic #2324, nemar-cli ADR 0137 decision 7).
+  A run's page says where its quality derivative stands, one sentence per state (a run in progress, a canary, current, expired with its date, and the rest), whether the dataset is public now, and a run deferred for its serving index.
+  `/admin/pipelines/runs/<id>/quality` lists the run's succeeded recordings and draws one recording's stored views (the spectrum, the component maps and the class histogram), read through a same-origin, administrator-only, never-cached proxy; computed views are listed as drawn on the dataset page once promoted.
+  The dataset's public page is linked only for a current derivative of a dataset that is public now.
+
 - **The admin Pipelines tab** (website#586; nemar-cli epic #2324 phase 4b, nemar-cli ADR 0134; website ADR 0030 addendum of 2026-11-23).
   `/admin/pipelines`, after Compute, shows NEMAR's own processing runs recipe by recipe: a coverage card per recipe (eligible datasets whose newest version has a succeeded run of the current recipe version, complete, and at any recipe version) with its failed runs per day, and a placeholder recipe marked as such.
   Each recipe's grid (`/admin/pipelines/<recipe>`) is the legacy pipeline status table: datasets as rows, the recipe's checkpoints as columns, each cell `passed/total` with the CLI's code (`F<n>`, `x`, `R`, `S`, `W`, `P`, `?`, `-`) and an icon, never color alone; filters by status, recipe version, executor, runner and dataset, and paging by dataset id.
