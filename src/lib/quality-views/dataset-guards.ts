@@ -228,6 +228,15 @@ function distributionHolds(d: Distribution): boolean {
   );
 }
 
+/** A metric's observed range, an own member only (a metric named `constructor` must not find
+ *  Object.prototype's), or null. Past `writerRuleBroken`, every distribution has one. */
+export function ownRange(
+  entry: DatasetRecipeSummary,
+  name: string,
+): { min: number | null; max: number | null } | null {
+  return Object.hasOwn(entry.observed_range, name) ? entry.observed_range[name] : null;
+}
+
 /** The first writer rule an entry breaks, or null, in the backend's order. */
 export function writerRuleBroken(entry: DatasetRecipeSummary): WriterRuleWord | null {
   const c = entry.counts;
@@ -241,11 +250,9 @@ export function writerRuleBroken(entry: DatasetRecipeSummary): WriterRuleWord | 
   const names = Object.keys(entry.distributions);
   if (names.length !== Object.keys(entry.observed_range).length) return "observed_range_mismatch";
   for (const name of names) {
-    // Own members only: a metric named `constructor` must not find Object.prototype's.
-    if (!Object.hasOwn(entry.observed_range, name)) return "observed_range_mismatch";
-    const range = entry.observed_range[name];
+    const range = ownRange(entry, name);
     const d = entry.distributions[name];
-    if (range.min !== d.min || range.max !== d.max) {
+    if (range === null || range.min !== d.min || range.max !== d.max) {
       return "observed_range_mismatch";
     }
   }

@@ -29,6 +29,7 @@ import {
   type WriterRuleWord,
   datasetQualityValid,
   documentHeadValid,
+  ownRange,
   writerRuleBroken,
 } from "./dataset-guards";
 import { type HistogramModel, histogramOf } from "./model";
@@ -128,9 +129,7 @@ export function readQualitySummary(document: unknown, datasetId: string): Qualit
         throw error;
       }
       // The writer's rules gave every distribution its own observed range.
-      const range = Object.hasOwn(entry.observed_range, name) ? entry.observed_range[name] : null;
-      if (range === null) return refuse("observed_range_mismatch");
-      metrics.push({ name, distribution, range, model });
+      metrics.push({ name, distribution, range: ownRange(entry, name)!, model });
     }
     shown.push({ recipe, entry, metrics });
   }
