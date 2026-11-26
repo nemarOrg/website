@@ -399,7 +399,7 @@ describe("the refusal sentences", () => {
     expect(await mapSentences("frame_not_scalp")).toBe(MAP_SENTENCES);
     expect(Object.keys(MAP_SENTENCES)).not.toContain("labels_pending");
     const { MONTAGE_UNAVAILABLE, MONTAGE_UNAVAILABLE_SENTENCE } = await import(
-      "../src/lib/quality-views/sensor-labels-copy"
+      "../src/lib/quality-views/montage-unavailable-copy"
     );
     expect(MAP_SENTENCES[MONTAGE_UNAVAILABLE]).toBe(MONTAGE_UNAVAILABLE_SENTENCE);
     expect(SCALP_MAP_SENTENCES.montage_unavailable).toBe(

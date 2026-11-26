@@ -934,8 +934,8 @@ export async function placeSensors(
   } catch (error) {
     if (!(error instanceof MontageUnavailable)) throw error;
     console.error("[quality-views] a montage could not be loaded:", error.failure);
-    // The word of `MONTAGE_UNAVAILABLE` (sensor-labels-copy.ts), written out so the model does not
-    // import the sentences.
+    // The word of `MONTAGE_UNAVAILABLE` (montage-unavailable-copy.ts), written out so the model
+    // imports no copy module.
     placement.word = "montage_unavailable";
     layout = null;
   }

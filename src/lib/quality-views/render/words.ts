@@ -6,8 +6,9 @@
  * The digest words say the file does not match "the digest NEMAR recorded" and claim nothing more:
  * the same backend serves the files and their digests (nemar-cli ADR 0137 decision 6).
  *
- * `nemar.sensor-labels.v1`'s refusals are not in these tables: they load with the scalp map that
- * needs them (`mapSentences`), so a panel's first screen carries none of them.
+ * `nemar.sensor-labels.v1`'s refusals are not in these tables: their copy is a lazy chunk
+ * (`sensor-labels-copy.ts`) that a panel's first screen never loads, and `mapSentences` adds them for
+ * a scalp map that needs them.
  */
 
 import { MONTAGE_UNAVAILABLE, MONTAGE_UNAVAILABLE_SENTENCE } from "../montage-unavailable-copy";
@@ -68,8 +69,9 @@ export const MAP_SENTENCES: Readonly<Record<string, string>> = {
 /**
  * The sentences for a scalp map whose placement word is `word`: `MAP_SENTENCES`, with
  * `nemar.sensor-labels.v1`'s refusals (`sensor-labels-copy.ts`) when `word` is one it does not hold.
- * Those load only for a map placed by name and refused; if they cannot be loaded, the word is shown
- * as itself, as for any word a table does not hold. Never rejects.
+ * The model loads that copy before it reports such a word (`place-by-name.ts`, under the guard that
+ * turns a failed load into `montage_unavailable`), so here it comes from the module cache; should
+ * it still fail, the word is shown as itself, as for any word a table does not hold. Never rejects.
  */
 export async function mapSentences(word: string | null): Promise<Readonly<Record<string, string>>> {
   if (word === null || Object.hasOwn(MAP_SENTENCES, word)) return MAP_SENTENCES;

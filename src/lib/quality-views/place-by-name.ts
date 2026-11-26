@@ -38,7 +38,8 @@ export interface ByName {
 }
 
 /**
- * Place the sensors by name. Null when the algorithm refuses (its word is in `placement.word`);
+ * Place the sensors by name. Null when the algorithm refuses (its word is in `placement.word`, and
+ * its sentence is loaded);
  * otherwise the rows drawn and the layout, which is null when the projection refuses (its word is
  * in `placement.word`).
  */
@@ -53,11 +54,16 @@ export async function placeByName(x: ByName): Promise<[boolean[], Layout | null]
     countCandidates(given) < MIN_CHANNELS
       ? inferPositions(given, [], sidecar)
       : inferPositions(given, await x.loaded(() => loadNameMontages(x.montage)), sidecar);
-  placement.montage = inference.montage;
   if (inference.outcome !== "placed") {
+    // The refusal's sentence (`sensor-labels-copy.ts`) loads here, under the same guard: a copy that
+    // cannot be fetched leaves the maps `montage_unavailable`, which says to reload, never a bare
+    // word; once loaded, the renderer's `mapSentences` reads it from the module cache.
+    await x.loaded(() => import("./sensor-labels-copy"));
+    placement.montage = inference.montage;
     placement.word = inference.reason;
     return null;
   }
+  placement.montage = inference.montage;
   const electrodes = new Array<string | null>(count).fill(null);
   const xyz = new Array<readonly [number, number, number] | null>(count).fill(null);
   let reference: number | null = null;

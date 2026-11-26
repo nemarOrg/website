@@ -22,9 +22,9 @@ import {
   snapRow,
 } from "../src/lib/quality-views/model";
 import { MONTAGE_NOT_FOUND, loadMontage } from "../src/lib/quality-views/montage-loader";
+import { MONTAGE_UNAVAILABLE } from "../src/lib/quality-views/montage-unavailable-copy";
 import { type Montage, parseMontage } from "../src/lib/quality-views/montages";
 import { MAP_SENTENCES } from "../src/lib/quality-views/render/words";
-import { MONTAGE_UNAVAILABLE } from "../src/lib/quality-views/sensor-labels-copy";
 import { nodeFs, repoPath } from "./node";
 import { MONTAGES_DIR, mapOutcome, same } from "./quality-views-vectors";
 
