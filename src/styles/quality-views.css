@@ -202,3 +202,34 @@
 .qv-notice {
   font-size: 0.85rem;
 }
+/* A view's Export toggle (phase W8), filled by the export's own chunk when it first opens. */
+.qv-export {
+  margin: 0 0 1.5rem;
+  font-size: 0.85rem;
+}
+.qv-export summary {
+  cursor: pointer;
+}
+.qv-export summary:focus-visible,
+.qv-export button:focus-visible,
+.qv-export select:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.qv-export-images,
+.qv-export-files {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+.qv-export-permalink {
+  overflow-wrap: anywhere;
+}
+.qv-export-status {
+  min-height: 1.4em;
+  color: var(--color-fg-muted);
+}
