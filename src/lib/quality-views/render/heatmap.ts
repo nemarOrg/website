@@ -150,6 +150,8 @@ export function renderHeatmap(
     drawing: heatmapDrawing(model),
     label: heatmapLabel(model, ctx.caption),
     readout: true,
+    roleDescription: "heatmap",
+    keys: "Keys: the arrows move between cells.",
     notes: [legend(model)],
     table: () => heatmapTable(model, ctx.caption),
     downloads,

@@ -37,7 +37,12 @@ import {
   histogramSvg,
   markedIndex,
 } from "../src/lib/quality-views/render/histogram";
-import { renderRefusal, renderView, viewContext } from "../src/lib/quality-views/render/index";
+import {
+  mountView,
+  renderRefusal,
+  renderView,
+  viewContext,
+} from "../src/lib/quality-views/render/index";
 import { readoutWriter } from "../src/lib/quality-views/render/interact";
 import {
   linesPlot,
@@ -580,5 +585,95 @@ describe("the review's fixes (#594)", () => {
       const hex = `#${[0, 1, 2].map((i) => lut[entry * 3 + i].toString(16).padStart(2, "0")).join("")}`;
       expect(tokens).toContain(`--qv-turbo-${k}: ${hex};`);
     });
+  });
+});
+
+describe("the review's repros (#594, round 2): mounting and the keys", () => {
+  /** Just enough of a document for `toDom` and `mountView`: elements record their children. */
+  function fakeDocument() {
+    const element = (tag: string) => ({
+      tag,
+      attrs: {} as Record<string, string>,
+      children: [] as unknown[],
+      setAttribute(name: string, value: string) {
+        this.attrs[name] = value;
+      },
+      appendChild(child: unknown) {
+        this.children.push(child);
+        return child;
+      },
+      querySelector: () => null,
+      querySelectorAll: () => [],
+    });
+    return {
+      createElement: element,
+      createElementNS: (_ns: string, tag: string) => element(tag),
+      createTextNode: (text: string) => ({ text }),
+    };
+  }
+
+  it("a fast remount wins: the slower, older mount never replaces it", async () => {
+    const doc = fakeDocument();
+    const shown: string[] = [];
+    const container = {
+      ownerDocument: doc,
+      replaceChildren(child: { attrs: Record<string, string> }) {
+        shown.push(child.attrs.id);
+      },
+    } as unknown as HTMLElement;
+    const c = byName("table_channels");
+    const table = await built(c);
+    const fallback = { ...table, model: { type: "fallback", tables: [] } } as BuiltModel;
+    const deps = {
+      client: () => new SensorFieldClient(inThreadWorker),
+      layoutKey: "k",
+      colors: { foreground: "#000", background: "#fff", contour: "#000" },
+    };
+    // The first mount loads the table renderer's chunk; the second needs none and finishes first.
+    const older = mountView(container, table, viewContext(c.view as never, "older"), deps);
+    const newer = mountView(container, fallback, viewContext(c.view as never, "newer"), deps);
+    const [a, b] = await Promise.all([older, newer]);
+    expect(shown).toEqual(["newer"]);
+    expect(a.element).toBeNull();
+    expect(b.element).not.toBeNull();
+  });
+
+  it("an aborted mount changes nothing", async () => {
+    const shown: unknown[] = [];
+    const container = {
+      ownerDocument: fakeDocument(),
+      replaceChildren: (child: unknown) => shown.push(child),
+    } as unknown as HTMLElement;
+    const b = await built(byName("table_channels"));
+    const stop = new AbortController();
+    const mounting = mountView(
+      container,
+      b,
+      viewContext(b as never, "x"),
+      {} as never,
+      stop.signal,
+    );
+    stop.abort();
+    expect((await mounting).element).toBeNull();
+    expect(shown).toEqual([]);
+  });
+
+  it("lines, heatmaps and histograms say what they are and the keys they answer", async () => {
+    const names = {
+      "nemar.lines": "line chart",
+      "nemar.heatmap": "heatmap",
+      "nemar.histogram": "histogram",
+    } as const;
+    for (const [kind, roleDescription] of Object.entries(names)) {
+      const c = vectors.cases.find(
+        (x) =>
+          x.view.kind === kind &&
+          (x as unknown as { model: { drawing: { via: string } } }).model.drawing.via === "kind",
+      )!;
+      const { tree } = await renderView(await built(c), ctxOf(c));
+      const drawing = elements(tree, "qv-drawing")[0];
+      expect(drawing.attrs["aria-roledescription"], kind).toBe(roleDescription);
+      expect(textOf(elements(tree, "qv-keys")[0]), kind).toMatch(/^Keys: /);
+    }
   });
 });

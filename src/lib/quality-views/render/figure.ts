@@ -106,6 +106,10 @@ export interface FigureParts {
   readonly role?: "img" | "group";
   /** The drawing takes focus and arrow keys itself (false for scalp maps, whose maps do). */
   readonly focusable?: boolean;
+  /** What the drawing is, for a screen reader (`aria-roledescription`): "line chart", ... */
+  readonly roleDescription?: string;
+  /** The keys the drawing answers, said under it. */
+  readonly keys?: string;
   /** The data table, built when its toggle first opens (or now, with `ctx.eagerTables`). */
   readonly table?: () => Element;
   readonly notes?: readonly Child[];
@@ -132,6 +136,7 @@ export function figure(parts: FigureParts): Element {
           {
             class: "qv-drawing",
             role: parts.role ?? "img",
+            "aria-roledescription": parts.roleDescription ?? null,
             "aria-label": parts.label,
             tabindex: parts.readout && parts.focusable !== false ? 0 : null,
             "aria-describedby": parts.readout ? `${ctx.id}-readout` : null,
@@ -139,6 +144,7 @@ export function figure(parts: FigureParts): Element {
           parts.drawing,
         )
       : null,
+    parts.keys ? h("p", { class: "qv-keys" }, parts.keys) : null,
     parts.readout
       ? h("output", { class: "qv-readout", id: `${ctx.id}-readout`, "aria-live": "polite" })
       : null,

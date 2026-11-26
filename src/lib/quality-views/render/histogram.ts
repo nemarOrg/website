@@ -317,6 +317,8 @@ export function renderHistogram(
     drawing: histogramSvg(model, mark),
     label: histogramLabel(model, ctx.caption, mark),
     readout: true,
+    roleDescription: "histogram",
+    keys: "Keys: left and right arrows move between bars.",
     notes: model.missing
       ? [h("p", { class: "qv-note" }, `${model.missing.label}: ${model.missing.count}, in no bin`)]
       : [],

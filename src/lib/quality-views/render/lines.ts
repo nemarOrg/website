@@ -188,6 +188,8 @@ export function renderLines(
     drawing: linesSvg(model),
     label: linesLabel(model, ctx.caption),
     readout: true,
+    roleDescription: "line chart",
+    keys: "Keys: left and right arrows move between stored rows, up and down between series.",
     table: () => linesTable(model, ctx.caption),
     downloads,
   });

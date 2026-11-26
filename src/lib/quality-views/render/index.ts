@@ -149,19 +149,31 @@ export function renderRefusal(
 }
 
 export interface MountedView {
-  readonly element: HTMLElement;
+  /** The figure drawn, or null when a newer mount of the same container (or an abort) came first. */
+  readonly element: HTMLElement | null;
   /** For a scalp map: its maps, their readouts and the export hook. */
   readonly field?: SensorFieldHandle;
 }
 
-/** Draw a built view into `container`, replacing what it held, and attach its behavior. */
+/** Each container's latest mount: a mount that finishes after a newer one has started is stale. */
+const mounts = new WeakMap<object, number>();
+
+/**
+ * Draw a built view into `container`, replacing what it held, and attach its behavior. A mount
+ * that resolves after a newer mount of the same container started, or after `signal` aborted,
+ * changes nothing: a slow render never replaces a newer one.
+ */
 export async function mountView(
   container: HTMLElement,
   built: BuiltModel,
   ctx: ViewContext,
   deps: PageDeps,
+  signal?: AbortSignal,
 ): Promise<MountedView> {
+  const token = (mounts.get(container) ?? 0) + 1;
+  mounts.set(container, token);
   const { tree, table, renderer } = await renderView(built, ctx);
+  if (mounts.get(container) !== token || signal?.aborted) return { element: null };
   const element = toDom(tree, container.ownerDocument) as HTMLElement;
   container.replaceChildren(element);
   attachLazyTable(element, table);

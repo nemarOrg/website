@@ -206,6 +206,8 @@ export function renderSensorField(
     ctx,
     role: "group",
     focusable: false,
+    roleDescription: "scalp maps",
+    keys: "Keys: left and right arrows move between maps, up and down between sensors.",
     drawing: h("ol", { class: "qv-maps" }, ...maps),
     label: `${ctx.caption} ${model.maps.items.length} scalp maps of ${model.sensors.labels.length} sensors.`,
     readout: true,
@@ -228,11 +230,7 @@ export function renderSensorField(
         h("span", { class: "qv-legend-note" }, LEGEND_NOTE),
         h("button", { type: "button", class: "qv-turbo", "aria-pressed": "false" }, "Turbo colors"),
       ),
-      h(
-        "p",
-        { class: "qv-keys" },
-        "Keys: left and right arrows move between maps, up and down between sensors.",
-      ),
+
       h(
         "ul",
         { class: "qv-map-rows" },
