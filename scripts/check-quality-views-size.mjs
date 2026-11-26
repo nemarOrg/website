@@ -29,7 +29,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { kb, measureChunks } from "./quality-views-size-lib.mjs";
+import { BUDGET, gzipped, kb, measureChunks } from "./quality-views-size-lib.mjs";
 
 const requireBuild = process.argv.includes("--require-build");
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -83,17 +83,18 @@ try {
     [
       "worker-client.ts",
       "colormap.ts",
-      // The renderers and the model a panel draws views with (phase W4), so the floor holds the
-      // panel's drawing code before a panel imports it.
+      // The model and the renderers' dispatch a panel draws views with (phase W4), so the floor
+      // holds the panel's drawing code before a panel imports it. The guards and the renderer rule
+      // (kinds.ts) run in the worker, and each renderer is a lazy chunk, measured below.
       "model.ts",
-      "kinds.ts",
+      "checks.ts",
       "render/index.ts",
     ]
       .map((file) => `export * from ${JSON.stringify(join(lib, file))};\n`)
       .join(""),
   );
   const outDir = join(scratch, "out");
-  await vite.build({
+  const output = await vite.build({
     configFile: false,
     root: repo,
     logLevel: "warn",
@@ -114,8 +115,70 @@ try {
   const entries = readdirSync(outDir).filter((name) => /^measured-entry-[\w-]+\.js$/.test(name));
   if (entries.length !== 1) throw new Error(`the entry build wrote ${entries.length} entry chunks`);
   measure(`Vite ${vite.version} entry build`, outDir);
+  lazyRenderers(`Vite ${vite.version} entry build`, Array.isArray(output) ? output[0] : output, outDir);
 } finally {
   rmSync(scratch, { recursive: true, force: true });
+}
+
+/**
+ * Each renderer is a chunk of its own, loaded when its kind is drawn (the owner's ruling on #594):
+ * each is measured with the entry's static set, which is what a page holds once it draws that
+ * kind, against the main-thread budget. Activations (W7, `transforms/`, `activations.ts`) and
+ * exports (W8, `export/`) must be lazy chunks of their own too: none may sit in the entry's static
+ * set, and each such chunk is measured the same way.
+ */
+function lazyRenderers(label, rollup, dir) {
+  const chunks = new Map(rollup.output.filter((o) => o.type === "chunk").map((c) => [c.fileName, c]));
+  const entry = [...chunks.values()].find((c) => c.isEntry);
+  const closure = (start) => {
+    const seen = new Set();
+    const queue = [start];
+    while (queue.length > 0) {
+      const name = queue.pop();
+      if (seen.has(name) || !chunks.has(name)) continue;
+      seen.add(name);
+      queue.push(...chunks.get(name).imports);
+    }
+    return seen;
+  };
+  const base = closure(entry.fileName);
+  const lazyKind = /\/quality-views\/(render\/|export\/|transforms\/|activations\.ts)/;
+  const mustBeLazy = /\/quality-views\/(export\/|transforms\/|activations\.ts)/;
+  for (const name of base) {
+    const held = chunks.get(name).moduleIds.filter((id) => mustBeLazy.test(id));
+    if (held.length > 0) {
+      results.push({
+        label: `${label}: ${held.join(", ")} must load lazily, not with the entry (${name})`,
+        size: 1,
+        raw: 0,
+        budget: 0,
+      });
+    }
+  }
+  const lazy = new Set();
+  for (const name of base) for (const d of chunks.get(name).dynamicImports) lazy.add(d);
+  let measured = 0;
+  for (const name of [...lazy].sort()) {
+    const chunk = chunks.get(name);
+    if (!chunk || !chunk.moduleIds.some((id) => lazyKind.test(id))) continue;
+    const set = new Set([...base, ...closure(name)]);
+    let size = 0;
+    let raw = 0;
+    for (const member of set) {
+      const bytes = readFileSync(join(dir, member));
+      size += gzipped(bytes);
+      raw += bytes.length;
+    }
+    const own = chunk.moduleIds.filter((id) => lazyKind.test(id)).map((id) => id.replace(/^.*\/quality-views\//, ""));
+    results.push({
+      label: `${label}: main thread with the lazy ${own.join(", ")} (${name})`,
+      size,
+      raw,
+      budget: BUDGET.mainThread,
+    });
+    measured++;
+  }
+  if (measured === 0) throw new Error(`${label}: no lazy renderer chunk was found`);
 }
 
 for (const note of notes) console.log(note);
