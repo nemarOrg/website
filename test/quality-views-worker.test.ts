@@ -33,8 +33,8 @@ import {
   type WorkerRequest,
   type WorkerResponse,
   isWorkerResponse,
-  requestProblem,
 } from "../src/lib/quality-views/worker-protocol";
+import { requestProblem } from "../src/lib/quality-views/worker-requests";
 import {
   caseLayout,
   compareCells,

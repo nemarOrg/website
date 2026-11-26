@@ -79,9 +79,48 @@ export const PANEL_SENTENCES: Readonly<Record<string, string>> = {
   http_5xx: "The server could not answer for this recording's quality views. Try again later.",
 };
 
+/** The Activations tab's sentences (website W7; neuroschema `docs/views/ic-activity.md`, Words and
+ *  Drawing): its captions, and its refusals where the panel's or a view's sentence would speak of
+ *  another view. Asked for as `activity:<word>`; any other word falls back to `sentenceOf`. */
+export const ACTIVITY_SENTENCES: Readonly<Record<string, string>> = {
+  computed:
+    "Computed in your browser from the serving copy with no preprocessing, so the activations approximate what the decomposition was given (its filters, line-noise removal and artifact subspace reconstruction are not redone); the axis is in arbitrary units.",
+  archive:
+    "The decomposition read the dataset's own files, which no digest ties to the serving copy.",
+  filter: "Each trace is drawn through a {hz} Hz high-pass for display only.",
+  no_shaded_rows: "The bad-segment table has no span ASR repaired, so nothing is shaded.",
+  no_store: "The serving copy of this recording cannot be read here, so no activations are drawn.",
+  kind_unsupported: "This page does not draw this kind of activation view.",
+  table_location_mismatch:
+    "A table the activations read is not this recording's, so no activations are drawn.",
+  store_mismatch:
+    "The view names another store than the one the decomposition read, so no activations are drawn.",
+  store_digest_mismatch:
+    "The serving copy does not match the digest NEMAR recorded, so no activations are drawn.",
+  rate_invalid: "The recording's sampling rate cannot be read, so no activations are drawn.",
+  window_outside_store: "The window lies outside the recording, so no activations are drawn.",
+  window_too_long: "The window is longer than the view allows, so no activations are drawn.",
+  duration_not_positive:
+    "A bad segment in the floor's table has no length, so no activations are drawn.",
+  label_unmatched:
+    "The record says ASR repaired spans, and the bad-segment table marks none, so no activations are drawn.",
+  channel_set_mismatch:
+    "The serving copy does not hold each of the decomposition's channels exactly once, so no activations are drawn.",
+  unit_unknown:
+    "A channel's unit in the serving copy is not one the view converts, so no activations are drawn.",
+  filter_out_of_range:
+    "The display filter's cutoff is not below half the sampling rate, so no activations are drawn.",
+  signal_recording_mismatch:
+    "The view's store is not this recording's, so no activations are drawn.",
+};
+
 /** A word's sentence: the panel's, else a view's; an HTTP status by its class; any other word
  *  the generic failure sentence, so no raw word is ever shown. */
 export function sentenceOf(word: string, fallback = "failed"): string {
+  if (word.startsWith("activity:")) {
+    const own = word.slice(9);
+    return ACTIVITY_SENTENCES[own] ?? sentenceOf(own, fallback);
+  }
   const known = PANEL_SENTENCES[word] ?? VIEW_SENTENCES[word] ?? MAP_SENTENCES[word];
   if (known) return known;
   const status = /^http_([1-5])\d\d$/.exec(word);

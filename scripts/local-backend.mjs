@@ -55,6 +55,11 @@
  *                   (the record and every declared file). The record URL is printed. The site's dataset
  *                   page reads the data plane, so `e2e/quality-panel.spec.ts` (captured answers) is the
  *                   browser check; this is for looking at the route's answers by hand.
+ *                   For the admin run drill-down (website phase W9) it also seeds, with the same
+ *                   helpers, a later canary run of `on007823` (drawn, and still no public link), an
+ *                   expired canary of a dataset that is not public (`on007825`), a run in progress (`on007826`) and a run deferred for its serving index
+ *                   (`on007827`, a `refused` stamp with `serving_index_deferred`); the stamp ids are
+ *                   printed and written to `.local-backend/quality.json` for `e2e/admin-quality.spec.ts`.
  *
  *   --seed-compute-jobs  with --seed-compute and LOCAL_BACKEND_JOBS=1, also makes the job page's
  *                   (website phase E3, #496) jobs for `localjobs` through the REAL services and the
@@ -881,7 +886,65 @@ async function seedQuality() {
   });
   for (const [path, bytes] of qf.productFiles()) await bucket.put(`d/${key}/${path}`, bytes);
   qualityRecordUrl = `http://localhost:${PORT}/data${qualityRecordPath(datasetId, "nemar-ica", "sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_eeg.edf")}`;
+  qualityStamps.current = stampId;
+
+  // The admin drill-down's runs (website phase W9): a later canary run of the same dataset, an
+  // expired canary of a dataset that is not public, a run in progress and a run deferred for its
+  // serving index, each with the backend's own helpers (the deferral as `servingIndexForRun` records one: a
+  // `refused` stamp with the word). Their ids go to `.local-backend/quality.json`.
+  const privateDataset = (id) =>
+    db
+      .query(
+        `INSERT OR IGNORE INTO datasets (dataset_id, name, owner_user_id, status, visibility, is_sandbox, anonymous,
+                                         modalities, first_published_at)
+         VALUES (?, ?, -1, 'active', 'private', 0, 0, 'eeg', NULL)`,
+      )
+      .run(id, id);
+  // nemar-ica's product names its dataset, so the canary is a later run of the same one: a canary
+  // of a public dataset, which still gets no public link.
+  const canaryJob = qf.newJobId();
+  qualityStamps.canary = await qf.seedIcaStamp(env.DB, {
+    datasetId,
+    jobId: canaryJob,
+    version: "v1.0.1",
+  });
+  const canaryKey = await qf.seedDerivative(env.DB, {
+    datasetId,
+    stampId: qualityStamps.canary,
+    jobId: canaryJob,
+    retention: "canary",
+  });
+  for (const [path, bytes] of qf.productFiles()) await bucket.put(`d/${canaryKey}/${path}`, bytes);
+  privateDataset("on007825");
+  const expiredJob = qf.newJobId();
+  qualityStamps.expired = await qf.seedIcaStamp(env.DB, {
+    datasetId: "on007825",
+    jobId: expiredJob,
+  });
+  await qf.seedDerivative(env.DB, {
+    datasetId: "on007825",
+    stampId: qualityStamps.expired,
+    jobId: expiredJob,
+    retention: "canary",
+    expiresAt: "2026-01-01 00:00:00",
+  });
+  privateDataset("on007826");
+  qualityStamps.in_progress = await qf.seedIcaStamp(env.DB, {
+    datasetId: "on007826",
+    jobId: qf.newJobId(),
+    state: "dispatched",
+  });
+  privateDataset("on007827");
+  qualityStamps.deferred = await qf.seedIcaStamp(env.DB, {
+    datasetId: "on007827",
+    jobId: qf.newJobId(),
+    state: "failed",
+  });
+  db.query(
+    "UPDATE compute_pipeline_stamps SET state = 'refused', refusal_code = 'serving_index_deferred', job_id = NULL WHERE id = ?",
+  ).run(qualityStamps.deferred);
 }
+const qualityStamps = {};
 if (SEED_QUALITY) await seedQuality();
 
 const cookies = {};
@@ -963,6 +1026,9 @@ await writeFile(join(outDir, "cookies.json"), `${JSON.stringify(cookies, null, 2
 if (SEED_COMPUTE_JOBS) {
   await writeFile(join(outDir, "jobs.json"), `${JSON.stringify(seededJobs, null, 2)}\n`);
 }
+if (SEED_QUALITY) {
+  await writeFile(join(outDir, "quality.json"), `${JSON.stringify(qualityStamps, null, 2)}\n`);
+}
 
 console.log(`nemar-cli backend on http://localhost:${PORT} (in-memory database; restart resets)`);
 console.log("");
@@ -992,6 +1058,13 @@ if (SEED_PIPELINE) {
 }
 if (qualityRecordUrl) {
   console.log(`Quality route (real, seeded): curl -s ${qualityRecordUrl}`);
+}
+if (SEED_QUALITY) {
+  console.log(
+    "Run quality drill-down (also in .local-backend/quality.json), open /admin/pipelines/runs/<id>/quality as `owner`:",
+  );
+  for (const [label, id] of Object.entries(qualityStamps))
+    console.log(`  ${label.padEnd(14)} ${id}`);
 }
 console.log(`Owner API key (grant from a terminal): ${OWNER_KEY}`);
 console.log(

@@ -25,6 +25,7 @@ import type { ViewChecks } from "./checks";
 import { contourLines } from "./contours";
 import type { WorkerLike } from "./worker";
 import {
+  type ActivityRequest,
   type DrawStats,
   type DrawnMapMessage,
   type MapGeometryMessage,
@@ -38,6 +39,8 @@ import {
 export const DEFAULT_BATCH_SIZE = 8;
 /** Maps per batch after them. */
 export const DEFAULT_LATER_BATCH_SIZE = 64;
+
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 export interface DrawInput {
   /** The SHA-256 of the layout file the places came from; the worker caches by it. */
@@ -108,7 +111,7 @@ export interface LayoutInput {
   readonly radius: ArrayLike<number>;
 }
 
-interface Unavailable {
+export interface Unavailable {
   readonly type: "unavailable";
   readonly reason: string;
 }
@@ -202,7 +205,10 @@ export class SensorFieldClient {
   }
 
   /** Send a request answered once, and settle with its answer or why there is none. */
-  private ask(request: WorkerRequest): Promise<WorkerResponse | Unavailable> {
+  private ask(
+    request: WorkerRequest,
+    transfer: Transferable[] = [],
+  ): Promise<WorkerResponse | Unavailable> {
     return new Promise((resolve) => {
       this.asks.set(request.id, (answer) => {
         this.asks.delete(request.id);
@@ -211,7 +217,7 @@ export class SensorFieldClient {
       this.ensureWorker().then(
         (worker) => {
           try {
-            worker.postMessage(request);
+            worker.postMessage(request, transfer);
           } catch (error) {
             this.asks.get(request.id)?.({ type: "unavailable", reason: describeError(error) });
           }
@@ -268,6 +274,33 @@ export class SensorFieldClient {
         return (await local()).content(schema, content);
       },
     };
+  }
+
+  /**
+   * A step of `nemar.ic-activity.v1` in the worker (W7), its buffers transferred: the worker's own
+   * answer (`activity-done`, or a `failure` with its message), `unavailable` when the worker cannot
+   * start, or `cancelled` once `signal` aborts, which also tells the worker to stop.
+   */
+  activity(
+    request: DistributiveOmit<ActivityRequest, "id" | "type">,
+    transfer: Transferable[],
+    signal?: AbortSignal,
+  ): Promise<WorkerResponse | Unavailable> {
+    const id = this.nextId++;
+    const answer = this.ask({ ...request, type: "activity", id } as ActivityRequest, transfer);
+    // Only a step still waiting for its answer is cancelled: once it settles, a later abort says
+    // nothing to the worker.
+    const onAbort = (): void => {
+      const settle = this.asks.get(id);
+      if (!settle) return;
+      settle({ type: "cancelled", id });
+      this.worker?.then(
+        (worker) => worker.postMessage({ type: "cancel", id }),
+        () => {},
+      );
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    return answer.finally(() => signal?.removeEventListener("abort", onAbort));
   }
 
   /**
@@ -448,7 +481,12 @@ export class SensorFieldClient {
       }
       return;
     }
-    if (data.type === "prepared" || data.type === "checked" || data.type === "content-checked") {
+    if (
+      data.type === "prepared" ||
+      data.type === "checked" ||
+      data.type === "content-checked" ||
+      data.type === "activity-done"
+    ) {
       this.asks.get(data.id)?.(data);
       return;
     }

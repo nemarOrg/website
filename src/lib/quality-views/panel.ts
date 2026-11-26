@@ -55,7 +55,11 @@ const EXTRAS: Readonly<Record<string, () => Promise<{ draw(x: ExtraContext): Pro
   "nemar.ic-maps": () => import("./extras/components"),
   "nemar.ic-classes": () => import("./extras/components"),
   "nemar.signal-window": () => import("./extras/signal"),
+  "nemar.ic-activity": () => import("./extras/activity"),
 };
+
+/** The computed presets: no stored data for a base to draw, their extras draw them whole. */
+const COMPUTED = ["nemar.signal-window", "nemar.ic-activity"];
 
 /** A word's sentence, from the panel's words, loaded the first time one is needed. */
 const sentence = (word: string): Promise<string> =>
@@ -243,7 +247,7 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
     const loading = extras?.();
     let built: BuiltModel | null = null;
     let figure: HTMLElement | null = null;
-    if (view.kind !== "nemar.signal-window") {
+    if (!COMPUTED.includes(view.kind)) {
       try {
         built = await buildModel(view, files, {
           ...opts,
@@ -279,6 +283,7 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
         ctx,
         signal,
         mount: async (target, b, c) => void (await mountInto(target, b, c, layoutKey, signal)),
+        client: client(),
         sentence,
       });
       return { built, files };

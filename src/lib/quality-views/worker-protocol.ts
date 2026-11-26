@@ -19,6 +19,13 @@
 
 import type { ViewCheck } from "./checks";
 import type { SensorFieldNote, SensorFieldWord } from "./sensor-field";
+import type {
+  ActivityPlan,
+  ActivityResult,
+  PlanInput,
+  PlanOutcome,
+  PrepareInput,
+} from "./transforms/ic-activity";
 
 /** The grid's points per axis (`nemar.sensor-field.v1` step 7), repeated here so this file needs no
  *  runtime import; `test/quality-views-worker.test.ts` checks it against the algorithm's. */
@@ -100,12 +107,43 @@ export interface CheckContentRequest {
   readonly content: unknown;
 }
 
+/**
+ * A step of `nemar.ic-activity.v1` (website phase W7), run by the worker's lazy transform chunk:
+ * `prepare` checks the view's locations, its decomposition's store and its files (checks 2 to 4)
+ * before the page opens the store, and keeps the checked tables; `plan` checks the view against
+ * the store's description (5 to 13); `compute` multiplies and filters the samples the page read
+ * for the plan, one component at a time, and stops on a `cancel` naming it.
+ */
+export type ActivityRequest =
+  | {
+      readonly type: "activity";
+      readonly id: number;
+      readonly step: "prepare";
+      readonly input: PrepareInput;
+    }
+  | {
+      readonly type: "activity";
+      readonly id: number;
+      readonly step: "plan";
+      readonly input: PlanInput;
+    }
+  | {
+      readonly type: "activity";
+      readonly id: number;
+      readonly step: "compute";
+      readonly plan: ActivityPlan;
+      readonly digital: ArrayLike<number>;
+      readonly scale: readonly number[];
+      readonly offset: readonly number[];
+    };
+
 export type WorkerRequest =
   | DrawRequest
   | CancelRequest
   | PrepareRequest
   | CheckRequest
-  | CheckContentRequest;
+  | CheckContentRequest
+  | ActivityRequest;
 
 /** Everything about a map that its layout and usable sensors decide, shared by maps alike. */
 export interface MapGeometryMessage {
@@ -199,61 +237,21 @@ export type WorkerResponse =
     }
   | ({ readonly type: "checked"; readonly id: number } & ViewCheck)
   | { readonly type: "content-checked"; readonly id: number; readonly valid: boolean }
+  | {
+      readonly type: "activity-done";
+      readonly id: number;
+      readonly outcome: { readonly word: string | null } | PlanOutcome | ActivityResult;
+    }
   | { readonly type: "failure"; readonly id: number | null; readonly message: string };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const isIndexList = (value: unknown): value is number[] =>
+export const isIndexList = (value: unknown): value is number[] =>
   Array.isArray(value) && value.every((v) => Number.isInteger(v) && v >= 0);
 
 const isPair = (value: unknown): boolean =>
   Array.isArray(value) && value.length === 2 && value.every((v) => typeof v === "number");
-
-const isCount = (value: unknown, least: number): boolean =>
-  Number.isInteger(value) && (value as number) >= least;
-
-/**
- * Why `value` is not a request the worker can run, or null when it is one. A
- * message crosses from another script, so the type says what it should be and this says what it
- * is.
- */
-export function requestProblem(value: unknown): string | null {
-  if (!isRecord(value)) return "the message is not an object";
-  if (!Number.isInteger(value.id)) return "the message has no integer id";
-  if (value.type === "cancel") return null;
-  if (value.type === "check") return "view" in value ? null : "the check has no view";
-  if (value.type === "check-content") {
-    return typeof value.schema === "string" && "content" in value
-      ? null
-      : "the content check has no schema or no content";
-  }
-  if (value.type !== "draw" && value.type !== "prepare") {
-    return `the message type ${JSON.stringify(value.type)} is unknown`;
-  }
-  const { layoutKey, thetaDeg, radius, values, mapCount, first, contours } = value;
-  if (typeof layoutKey !== "string" || layoutKey === "") return "layoutKey is not a string";
-  if (!(thetaDeg instanceof Float64Array) || !(radius instanceof Float64Array)) {
-    return "thetaDeg and radius are not Float64Arrays";
-  }
-  if (thetaDeg.length !== radius.length) return "thetaDeg and radius differ in length";
-  if (value.type === "prepare") return null;
-  if (!isCount(mapCount, 0)) return "mapCount is not a count";
-  const maps = mapCount as number;
-  if (!(values instanceof Float64Array) || values.length !== thetaDeg.length * maps) {
-    return "values does not hold one value per sensor per map";
-  }
-  if (!isIndexList(first) || first.some((index) => index >= maps)) {
-    return "first is not a list of map indices";
-  }
-  if (!isCount(value.batchSize, 1) || !isCount(value.laterBatchSize, 1)) {
-    return "batchSize and laterBatchSize are not positive";
-  }
-  if (!isIndexList(contours) || contours.some((index) => index >= maps)) {
-    return "contours is not a list of map indices";
-  }
-  return null;
-}
 
 function isGeometry(value: unknown): value is MapGeometryMessage {
   if (!isRecord(value)) return false;
@@ -346,6 +344,8 @@ export function isWorkerResponse(value: unknown): value is WorkerResponse {
       );
     case "content-checked":
       return Number.isInteger(value.id) && typeof value.valid === "boolean";
+    case "activity-done":
+      return Number.isInteger(value.id) && isRecord(value.outcome);
     case "prepared":
       return (
         Number.isInteger(value.id) &&
