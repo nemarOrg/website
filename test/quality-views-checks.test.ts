@@ -30,7 +30,7 @@ import {
 } from "../src/lib/quality-views/prepare-ahead";
 import { readTsv } from "../src/lib/quality-views/read";
 import { fieldDrawInput } from "../src/lib/quality-views/render/sensor-field-view";
-import { inThreadWorker } from "../src/lib/quality-views/worker";
+import { createSensorFieldHandler, inThreadWorker } from "../src/lib/quality-views/worker";
 import { SensorFieldClient } from "../src/lib/quality-views/worker-client";
 import { nodeFs, repoPath } from "./node";
 import { MONTAGES_DIR, loadFieldVectors, mapOutcome } from "./quality-views-vectors";
@@ -114,6 +114,29 @@ describe("the checks run in the worker", () => {
       expect(a, c.name).toEqual(b);
     }
     client.terminate();
+  });
+});
+
+describe("the worker checks the computed presets itself", () => {
+  it("answers a check of every computed preset's case, with the corpus's verdict", async () => {
+    const posted: { type: string; id: number; valid?: boolean }[] = [];
+    const handle = createSensorFieldHandler((message) => posted.push(message as never));
+    const computed = verdicts.cases.filter(
+      (c) =>
+        c.schema === "view" &&
+        /^nemar\.(ic-activity|signal-window)$/.test(
+          String((c.instance as { kind?: unknown }).kind),
+        ),
+    );
+    computed.forEach((c, id) => handle({ type: "check", id, view: c.instance }));
+    for (let i = 0; i < 50 && posted.length < computed.length; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    expect(posted).toHaveLength(computed.length);
+    for (const answer of posted) {
+      expect(answer.type).toBe("checked");
+      expect(answer.valid, computed[answer.id].name).toBe(computed[answer.id].valid);
+    }
   });
 });
 

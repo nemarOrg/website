@@ -22,17 +22,33 @@ import {
   needsComputedSchemas,
 } from "./guards";
 import type { ViewDecl } from "./model";
-// A named import, so the build keeps only this part of the registry (no descriptions).
-import { kinds } from "./vocabulary/registry.json";
 
-interface KindEntry {
+export interface KindEntry {
   readonly kind: string;
   readonly kind_version: number;
   readonly base: string | null;
   readonly base_version: number | null;
 }
+/**
+ * The registry's kinds (`vocabulary/registry.json`), with only what the renderer rule reads: each
+ * kind, its version and its base. Written out so the map worker does not carry the registry's
+ * schema paths, roles and dimensions; `test/quality-views-kinds.test.ts` holds this table equal to
+ * the vendored registry, which the vocabulary drift test holds to nemar-cli's.
+ */
+export const KIND_TABLE: readonly KindEntry[] = [
+  { kind: "nemar.table", kind_version: 1, base: null, base_version: null },
+  { kind: "nemar.lines", kind_version: 1, base: null, base_version: null },
+  { kind: "nemar.heatmap", kind_version: 1, base: null, base_version: null },
+  { kind: "nemar.histogram", kind_version: 1, base: null, base_version: null },
+  { kind: "nemar.sensor-field", kind_version: 1, base: null, base_version: null },
+  { kind: "nemar.spectrum", kind_version: 1, base: "nemar.lines", base_version: 1 },
+  { kind: "nemar.ic-maps", kind_version: 1, base: "nemar.sensor-field", base_version: 1 },
+  { kind: "nemar.ic-classes", kind_version: 1, base: "nemar.histogram", base_version: 1 },
+  { kind: "nemar.ic-activity", kind_version: 1, base: "nemar.lines", base_version: 1 },
+  { kind: "nemar.signal-window", kind_version: 1, base: "nemar.lines", base_version: 1 },
+];
 const KINDS: ReadonlyMap<string, KindEntry> = new Map(
-  (kinds as KindEntry[]).map((entry) => [`${entry.kind}@${entry.kind_version}`, entry]),
+  KIND_TABLE.map((entry) => [`${entry.kind}@${entry.kind_version}`, entry]),
 );
 
 /** A kind or base version as a version: an integer, never a boolean. */

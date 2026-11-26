@@ -29,7 +29,14 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { BUDGET, gzipped, kb, measureChunks } from "./quality-views-size-lib.mjs";
+import {
+  BUDGET,
+  dynamicImports,
+  gzipped,
+  kb,
+  measureChunks,
+  staticClosure,
+} from "./quality-views-size-lib.mjs";
 
 const requireBuild = process.argv.includes("--require-build");
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -146,10 +153,10 @@ function lazyRenderers(label, rollup, dir) {
     return seen;
   };
   const base = closure(entry.fileName);
-  // The page's own checks (local-checks.ts, guards-computed.ts) load lazily for a computed
-  // preset or a worker that cannot answer, and are measured the same way.
-  const lazyKind =
-    /\/quality-views\/(render\/|export\/|transforms\/|activations\.ts|local-checks\.ts|guards-computed\.ts)/;
+  const lazyKind = /\/quality-views\/(render\/|export\/|transforms\/|activations\.ts)/;
+  // Only when the worker cannot start does the page check views itself (local-checks.ts, which
+  // loads the guards); that set is printed, not gated, since no first screen loads it.
+  const fallbackKind = /\/quality-views\/(local-checks\.ts|guards-computed\.ts)/;
   const mustBeLazy = /\/quality-views\/(export\/|transforms\/|activations\.ts)/;
   for (const name of base) {
     const held = chunks.get(name).moduleIds.filter((id) => mustBeLazy.test(id));
@@ -172,31 +179,98 @@ function lazyRenderers(label, rollup, dir) {
     }
   };
   for (const name of base) visit(name);
-  let measured = 0;
-  for (const name of [...lazy].sort()) {
-    const chunk = chunks.get(name);
-    if (!chunk || !chunk.moduleIds.some((id) => lazyKind.test(id))) continue;
-    // What a page holds once it has loaded this chunk: the entry's set, this chunk's static set,
-    // and the lazy chunk that imported it, when that is one of these.
-    const parents = [...lazy].filter((p) => chunks.get(p)?.dynamicImports.includes(name));
-    const set = new Set([...base, ...closure(name), ...parents.flatMap((p) => [...closure(p)])]);
+  const sizeOf = (set) => {
     let size = 0;
     let raw = 0;
+    const all = [];
     for (const member of set) {
       const bytes = readFileSync(join(dir, member));
       size += gzipped(bytes);
       raw += bytes.length;
+      all.push(bytes);
     }
-    const own = chunk.moduleIds.filter((id) => lazyKind.test(id)).map((id) => id.replace(/^.*\/quality-views\//, ""));
+    return { size, raw, together: gzipped(Buffer.concat(all)) };
+  };
+  const ownOf = (chunk, kind) =>
+    chunk.moduleIds.filter((id) => kind.test(id)).map((id) => id.replace(/^.*\/quality-views\//, ""));
+  /** The lazy chunk holding a module of this path, by file name. */
+  const holding = (path) =>
+    [...lazy].find((name) => chunks.get(name)?.moduleIds.some((id) => id.endsWith(`/quality-views/${path}`)));
+  let measured = 0;
+  for (const name of [...lazy].sort()) {
+    const chunk = chunks.get(name);
+    if (!chunk) continue;
+    if (chunk.moduleIds.some((id) => lazyKind.test(id))) {
+      const { size, raw } = sizeOf(new Set([...base, ...closure(name)]));
+      results.push({
+        label: `${label}: main thread with the lazy ${ownOf(chunk, lazyKind).join(", ")} (${name})`,
+        size,
+        raw,
+        budget: BUDGET.mainThread,
+      });
+      measured++;
+    } else if (chunk.moduleIds.some((id) => fallbackKind.test(id))) {
+      const parents = [...lazy].filter((p) => chunks.get(p)?.dynamicImports.includes(name));
+      const set = new Set([...base, ...closure(name), ...parents.flatMap((p) => [...closure(p)])]);
+      notes.push(
+        `${label}: with the page's own checks (${ownOf(chunk, fallbackKind).join(", ")}), loaded only when the worker cannot start: ${kb(sizeOf(set).size)} gzipped, not gated.`,
+      );
+    }
+  }
+  if (measured === 0) throw new Error(`${label}: no lazy renderer chunk was found`);
+  // What a first screen loads, gated as one union gzipped together (the review of #594): each
+  // tab's renderers with the entry. The sum of each file's own gzip is printed beside it.
+  for (const [tab, paths] of [
+    ["Spectrum tab (lines and scalp maps)", ["render/lines.ts", "render/sensor-field-view.ts"]],
+    ["Components tab (scalp maps and histogram)", ["render/sensor-field-view.ts", "render/histogram.ts"]],
+  ]) {
+    const set = new Set(base);
+    for (const path of paths) {
+      const name = holding(path);
+      if (!name) throw new Error(`${label}: no lazy chunk holds ${path}`);
+      for (const member of closure(name)) set.add(member);
+    }
+    const { size, raw, together } = sizeOf(set);
     results.push({
-      label: `${label}: main thread with the lazy ${own.join(", ")} (${name})`,
-      size,
+      label: `${label}: first screen, ${tab}, ${set.size} files gzipped together (${kb(size)} as separate files)`,
+      size: together,
       raw,
       budget: BUDGET.mainThread,
     });
-    measured++;
   }
-  if (measured === 0) throw new Error(`${label}: no lazy renderer chunk was found`);
+  // The module worker with its lazy chunk (the computed presets' schemas), gzipped together,
+  // against the worker budget. The module worker is the file a chunk names in `new Worker(new
+  // URL(...))`; the client's in-thread fallback for a browser without workers is another file.
+  const files = new Map(
+    readdirSync(dir)
+      .filter((f) => f.endsWith(".js"))
+      .map((f) => [f, readFileSync(join(dir, f))]),
+  );
+  const moduleWorkers = new Set();
+  for (const bytes of files.values()) {
+    for (const m of bytes.toString("utf8").matchAll(/new Worker\(\s*new URL\(\s*["']([^"']+\.js)["']/g)) {
+      moduleWorkers.add(m[1].replace(/^.*\//, ""));
+    }
+  }
+  if (moduleWorkers.size === 0) throw new Error(`${label}: no module worker is named`);
+  for (const workerName of moduleWorkers) {
+    const bytes = files.get(workerName);
+    if (!bytes) throw new Error(`${label}: the worker ${workerName} was not emitted`);
+    const extra = dynamicImports(bytes.toString("utf8"), files);
+    const set = staticClosure([workerName, ...extra], files);
+    const { size, raw, together } = sizeOf(set);
+    results.push({
+      label: `${label}: worker ${workerName} with its lazy ${extra.join(", ") || "(none)"}, gzipped together (${kb(size)} as separate files)`,
+      size: together,
+      raw,
+      budget: BUDGET.worker,
+    });
+    for (const name of extra) {
+      notes.push(
+        `${label}: the worker's lazy chunk ${name}: ${kb(gzipped(files.get(name)))} gzipped on its own.`,
+      );
+    }
+  }
 }
 
 for (const note of notes) console.log(note);
