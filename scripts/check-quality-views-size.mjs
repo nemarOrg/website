@@ -118,8 +118,8 @@ function siteUnions(dir) {
     ],
     // W7: the Activations tab's own chunk (its checks, the transfer, the trace adapter, the
     // captions). The transform runs in the worker; the store reader, zarrita and the trace renderer
-    // it loads lazily are the signal viewer's own chunks, printed below and not gated (whether they
-    // count toward the tab is the owner's call).
+    // it loads lazily are the chunks the page already loads for its signal viewer, which do not count
+    // against the tab's budget (the owner's ruling of 2026-11-26): their total is printed, not gated.
     ["Activations tab", ["panel", "activity"]],
     ["Activations tab with no idle preload", ["panel", "activity", "quality-api"]],
   ]) {
