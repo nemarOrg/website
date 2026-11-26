@@ -124,7 +124,7 @@ src/
     host.ts                           two-host route classification + noindex/production host logic
     embed.ts                          embed route matcher, ?theme= parser, embed/dataset URLs, iframe snippet
     embed-analytics.ts                pure Analytics Engine data point for an embed call (dataset, embedding host, kind) and whether a response counts; written by middleware.ts (ADR 0024)
-    qa.ts                             the retired Phase 3 `/qa/*` client and types; only `bucketAgesBySex` and `pickAgeBuckets` are live (render-age-gender.ts). The Data quality tab reads `extensions.dataQuality` (quality-views/dataset-summary.ts)
+    age-buckets.ts                    `bucketAgesBySex` and `pickAgeBuckets` for the Demographics chart (render-age-gender.ts)
     filters.ts                        FilterState ↔ URL params; modality AND/OR; license tier
     tags.ts                           modality/license/keyword classification + /discover hrefs
     provenance.ts                     detectProvenance for on*; listMirrorVersions
@@ -159,7 +159,6 @@ src/
     quality-views.css                 the quality views' figures (render/), imported by the panel that draws them and by the dataset summary
 vitest.config.ts vitest.astro.config.ts vitest.workspace.ts   two Vitest projects run by `bun run test`: the unit tests, and `test/*.astro.test.ts`, which render `.astro` components through Astro's container, compiled by Astro's compiler in the project's own plugin (Astro 6's Vite config does not load under Vitest 2)
 test/
-  fixtures/                           qa-aggregates, qa-file-dataqual, qa-hed-summary (Phase 3)
   fixtures/compute/                   captured from the real nemar-cli routes, never hand-written: `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-fixtures.mjs` (access, E1), `bun scripts/capture-compute-read-fixtures.mjs` (me, usage, jobs, errors; E2) and `bun scripts/capture-compute-job-fixtures.mjs` (job, log, results, cancel, refusals; E3, on the backend's lifecycle fixture and Tapis stand-in); `fixtures/compute/cli-help/` is the real `nemar ... --help-all` text the dialog's commands are checked against: `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-cli-help.mjs` (E5)
   fixtures/quality-views/vectors/     neuroschema's parity vectors, copied with the vocabulary above and pinned in its pin.json; tests only, never shipped
   fixtures/quality-summary/           metadata.json from nemar-cli's real route, one dataset per gate (shown, canary only, concealed, withdrawn, tombstoned, never published, private), and dataset-level `dataQuality` documents with Ajv's verdict and the backend's writer rule; captured by scripts/capture-quality-summary-fixtures.mjs, never hand-written
