@@ -497,3 +497,11 @@ export function compareLayout(
   if (planarOff) problems.push("planar");
   return problems;
 }
+
+/** Each map's word and notes by the site's `nemar.sensor-field.v1`, as the model vectors hold them. */
+export function mapOutcome(thetaDeg: number[], radius: number[], values: number[]) {
+  const result = sensorField(thetaDeg, radius, values);
+  return result.kind === "refused"
+    ? { word: result.word, notes: [] }
+    : { word: null, notes: [...result.map.notes] };
+}

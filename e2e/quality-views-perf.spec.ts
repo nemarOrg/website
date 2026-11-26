@@ -10,7 +10,11 @@
  * exactly as a page's import would. Each view is the heaviest of its size, one independent-component
  * map per sensor on the vectors' caps, with the 8 maps on screen asked for first. The first view is
  * timed on its own (it starts the worker and compiles its code); the budgets are gated on the median
- * of five later views, each with a layout the worker has not cached.
+ * of five later views, each with a layout the worker has not cached. The first views a page meets
+ * (website#592) are each drawn by a client with a new worker: cold (the panel warms the worker on
+ * mount and prepares the geometry when the layout arrives, the values come after), eager (cached
+ * data at mount) and mid-warm (the data arrive during the warm-up's first batch). Cold is gated at
+ * the same budgets, and eager at 128 sensors; eager at 256 and mid-warm are printed.
  *
  * Run it with `bun run test:e2e e2e/quality-views-perf.spec.ts` (see playwright.config.ts). It needs
  * no network: the page's own requests to the API may fail without changing what is measured.
@@ -57,19 +61,13 @@ for (const [name, viewBudget] of [
         const maps = Array.from({ length: thetaDeg.length }, (_, m) =>
           Float64Array.from(base, (v, s) => v * Math.cos(m + 1) + Math.sin(s * (m + 1))),
         );
-        const client = new SensorFieldClient();
-        const runs: {
-          firstMaps: number;
-          view: number;
-          drawn: number;
-          kind: string;
-          worker: number;
-        }[] = [];
-        for (let run = 0; run <= 5; run++) {
+        type Run = { firstMaps: number; view: number; drawn: number; kind: string; worker: number };
+        // biome-ignore lint/suspicious/noExplicitAny: the client module is imported by URL.
+        const timeDraw = async (client: any, layoutKey: string): Promise<Run> => {
           let firstMaps = Number.NaN;
           const start = performance.now();
           const outcome = await client.draw(
-            { layoutKey: `${name}-${run}`, thetaDeg, radius, maps },
+            { layoutKey, thetaDeg, radius, maps },
             {
               first: [0, 1, 2, 3, 4, 5, 6, 7],
               onBatch: () => {
@@ -77,10 +75,9 @@ for (const [name, viewBudget] of [
               },
             },
           );
-          const view = performance.now() - start;
-          runs.push({
+          return {
             firstMaps,
-            view,
+            view: performance.now() - start,
             kind: outcome.kind,
             // The worker's own time, from the request's arrival to its last batch.
             worker: outcome.kind === "done" ? outcome.stats.totalMs : Number.NaN,
@@ -88,15 +85,51 @@ for (const [name, viewBudget] of [
               outcome.kind === "done"
                 ? outcome.maps.filter((m: { kind: string }) => m.kind === "map").length
                 : 0,
-          });
-        }
+          };
+        };
+        // Each scenario's client starts a new module worker, so its first view is cold.
+        // Cold: the panel warms the worker when it mounts, prepares the layout's geometry when the
+        // layout arrives, and the values arrive after the warm-up.
+        const coldClient = new SensorFieldClient();
+        const coldWarm = coldClient.warm();
+        await coldClient.prepare({ layoutKey: `${name}-cold`, thetaDeg, radius });
+        const warm = await coldWarm;
+        const cold = await timeDraw(coldClient, `${name}-cold`);
+        coldClient.terminate();
+        // Eager: cached data are there when the panel mounts.
+        const eagerClient = new SensorFieldClient();
+        const eagerWarm = eagerClient.warm();
+        const eager = await timeDraw(eagerClient, `${name}-eager`);
+        await eagerWarm;
+        eagerClient.terminate();
+        // Mid-warm: the data arrive while the warm-up draws its first batch.
+        const client = new SensorFieldClient();
+        let midway: () => void = () => {};
+        const firstBatch = new Promise<void>((resolve) => {
+          midway = resolve;
+        });
+        const midWarming = client.warm(undefined, { onBatch: () => midway() });
+        await firstBatch;
+        const midWarm = await timeDraw(client, `${name}-mid`);
+        await midWarming;
+        const later: Run[] = [];
+        for (let run = 1; run <= 5; run++) later.push(await timeDraw(client, `${name}-${run}`));
         client.terminate();
-        return { runs, userAgent: navigator.userAgent, cores: navigator.hardwareConcurrency };
+        return {
+          cold,
+          eager,
+          midWarm,
+          later,
+          warmMs: warm.ms,
+          warmed: warm.draw.kind,
+          userAgent: navigator.userAgent,
+          cores: navigator.hardwareConcurrency,
+        };
       },
       { name, data: sensors(name) },
     );
-    const [first, ...later] = timings.runs;
-    for (const run of timings.runs) {
+    const { cold, eager, midWarm, later } = timings;
+    for (const run of [cold, eager, midWarm, ...later]) {
       expect(run.kind).toBe("done");
       expect(run.drawn).toBe(sensors(name).value.length);
     }
@@ -104,10 +137,19 @@ for (const [name, viewBudget] of [
     const firstMaps = median(later.map((r) => r.firstMaps));
     const view = median(later.map((r) => r.view));
     const worker = median(later.map((r) => r.worker));
-    const line = `${name} in ${timings.userAgent} (${timings.cores} cores): first view (worker start) first maps ${first.firstMaps.toFixed(1)} ms, view ${first.view.toFixed(1)} ms; median of 5: first maps ${firstMaps.toFixed(1)} ms, view ${view.toFixed(1)} ms (in the worker ${worker.toFixed(1)} ms)`;
+    const at = (r: { firstMaps: number; view: number }) =>
+      `first maps ${r.firstMaps.toFixed(1)} ms, view ${r.view.toFixed(1)} ms`;
+    const line = `${name} in ${timings.userAgent} (${timings.cores} cores): warm-up ${timings.warmMs.toFixed(1)} ms (${timings.warmed}); cold ${at(cold)}; eager ${at(eager)}; mid-warm ${at(midWarm)}; median of 5: ${at({ firstMaps, view })} (in the worker ${worker.toFixed(1)} ms)`;
     info.annotations.push({ type: "quality-views perf", description: line });
     console.info(`[quality-views perf] ${line}`);
-    expect(firstMaps).toBeLessThanOrEqual(BUDGET.firstMaps);
-    expect(view).toBeLessThanOrEqual(viewBudget);
+    expect(timings.warmed).toBe("done");
+    // A first visit's eager view at 256 sensors is printed, not gated: W6 gates it as "panel
+    // opened after page load", once the page prepares the geometry in idle time.
+    const gated =
+      name === "montage_128" ? [cold, eager, { firstMaps, view }] : [cold, { firstMaps, view }];
+    for (const run of gated) {
+      expect(run.firstMaps).toBeLessThanOrEqual(BUDGET.firstMaps);
+      expect(run.view).toBeLessThanOrEqual(viewBudget);
+    }
   });
 }

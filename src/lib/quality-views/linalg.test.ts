@@ -52,3 +52,47 @@ describe("luSolve", () => {
     expect(() => luSolve([1, 0, 0, 1], [1, 2, 3])).toThrow(RangeError);
   });
 });
+
+describe("the LU factorization, four rows per pass", () => {
+  /** The row-by-row elimination it replaced. */
+  function reference(a: Float64Array, n: number): Float64Array {
+    const lu = Float64Array.from(a);
+    for (let k = 0; k < n; k++) {
+      let pivot = k;
+      let best = Math.abs(lu[k * n + k]);
+      for (let i = k + 1; i < n; i++) {
+        const m = Math.abs(lu[i * n + k]);
+        if (m > best) {
+          best = m;
+          pivot = i;
+        }
+      }
+      if (pivot !== k) {
+        for (let j = k; j < n; j++) {
+          const t = lu[k * n + j];
+          lu[k * n + j] = lu[pivot * n + j];
+          lu[pivot * n + j] = t;
+        }
+      }
+      const d = lu[k * n + k];
+      for (let i = k + 1; i < n; i++) {
+        const f = lu[i * n + k] / d;
+        lu[i * n + k] = f;
+        for (let j = k + 1; j < n; j++) lu[i * n + j] -= f * lu[k * n + j];
+      }
+    }
+    return lu;
+  }
+
+  it.each([1, 2, 3, 7, 8, 33, 128, 257])("n = %i: the same factors to the bit", (n) => {
+    const a = Float64Array.from(
+      { length: n * n },
+      (_, i) => Math.sin(i * 1.7 + n) * 10 ** ((i % 7) - 3),
+    );
+    const got = luFactor(a, n).lu;
+    const want = reference(a, n);
+    expect(got.length).toBe(want.length);
+    for (let i = 0; i < want.length; i++)
+      expect(Object.is(got[i], want[i]), `entry ${i}`).toBe(true);
+  });
+});

@@ -16,7 +16,9 @@
  * over a `MessageChannel`.
  */
 
+import type { ViewCheck } from "./checks";
 import { contourLines } from "./contours";
+import { checkContent, checkView } from "./kinds";
 import {
   type GeometryResult,
   type SensorFieldGeometry,
@@ -29,6 +31,7 @@ import {
   type GeometryEntry,
   type MapGeometryMessage,
   type MapMessage,
+  type PrepareRequest,
   type WorkerRequest,
   type WorkerResponse,
   requestProblem,
@@ -56,6 +59,9 @@ export interface WorkerLike {
 }
 
 const now = (): number => performance.now();
+
+const describe = (error: unknown): string =>
+  error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 
 /** Let the event loop run (a `cancel` may be waiting) without a timer's clamped delay. */
 function yieldToEvents(): Promise<void> {
@@ -136,6 +142,18 @@ export function drawBatches(
 }
 
 /**
+ * A declaration's checks in the worker. The computed presets' schemas (`guards-computed.ts`) are a
+ * lazy chunk of the worker's own, loaded the first time a view names one, so the worker's base
+ * chunk stays within its budget and the page never loads the guards.
+ */
+async function checkHere(view: unknown): Promise<ViewCheck> {
+  const held = checkView(view);
+  if (held) return held;
+  const { COMPUTED_SCHEMAS } = await import("./guards-computed");
+  return checkView(view, COMPUTED_SCHEMAS)!;
+}
+
+/**
  * The worker's message handler, with its own cache. `post` sends an answer; each answer's buffers
  * are listed for transfer.
  */
@@ -144,7 +162,7 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
   const cancelled = new Set<number>();
 
   function geometryFor(
-    request: DrawRequest,
+    request: DrawRequest | PrepareRequest,
     usable: Uint8Array,
     tally: { hits: number; misses: number; geometryMs: number },
   ): CacheEntry {
@@ -309,15 +327,54 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
       cancelled.add(request.id);
       return;
     }
-    draw(request).catch((error: unknown) => {
-      post(
-        {
-          type: "failure",
-          id: request.id,
-          message: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
-        },
-        [],
+    if (request.type === "check") {
+      checkHere(request.view).then(
+        (check) => post({ type: "checked", id: request.id, ...check }, []),
+        (error: unknown) => post({ type: "failure", id: request.id, message: describe(error) }, []),
       );
+      return;
+    }
+    if (request.type === "check-content") {
+      try {
+        post(
+          {
+            type: "content-checked",
+            id: request.id,
+            valid: checkContent(request.schema, request.content),
+          },
+          [],
+        );
+      } catch (error) {
+        post({ type: "failure", id: request.id, message: describe(error) }, []);
+      }
+      return;
+    }
+    if (request.type === "prepare") {
+      // The geometry of a map whose every value is finite: the usable rows are the placed ones.
+      const usable = usableMask(
+        request.thetaDeg,
+        request.radius,
+        new Float64Array(request.thetaDeg.length),
+      );
+      const tally = { hits: 0, misses: 0, geometryMs: 0 };
+      try {
+        geometryFor(request, usable, tally);
+        post(
+          {
+            type: "prepared",
+            id: request.id,
+            geometryMs: tally.geometryMs,
+            cached: tally.hits > 0,
+          },
+          [],
+        );
+      } catch (error) {
+        post({ type: "failure", id: request.id, message: describe(error) }, []);
+      }
+      return;
+    }
+    draw(request).catch((error: unknown) => {
+      post({ type: "failure", id: request.id, message: describe(error) }, []);
     });
   };
 }

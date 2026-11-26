@@ -340,13 +340,9 @@ export function prepareSensorField(
 
   // 8. The interpolation matrix, G[a][b] = g(|p_a − p_b|) with g(0) = 0, factorized once.
   const matrix = new Float64Array(k * k);
-  for (let a = 0; a < k; a++) {
-    for (let b = 0; b < k; b++) {
-      const dx = px[a] - px[b];
-      const dy = py[a] - py[b];
-      matrix[a * k + b] = a === b ? 0 : green(dx * dx + dy * dy);
-    }
-  }
+  // Row a is g from sensor a to each sensor: the evaluation matrix's row function, whose g(0) = 0
+  // is the diagonal's 0.
+  for (let a = 0; a < k; a++) greenRow(matrix, a * k, px[a], py[a], px, py, k);
   const factors = luFactor(matrix, k);
 
   // 9. The evaluation matrix: g from every inside cell to every interpolated sensor.
@@ -355,12 +351,7 @@ export function prepareSensorField(
     const cell = inside[c];
     const qx = gx[(cell / GRID_SIZE) | 0];
     const qy = gy[cell % GRID_SIZE];
-    const base = c * k;
-    for (let s = 0; s < k; s++) {
-      const dx = qx - px[s];
-      const dy = qy - py[s];
-      evaluation[base + s] = green(dx * dx + dy * dy);
-    }
+    greenRow(evaluation, c * k, qx, qy, px, py, k);
   }
 
   return {
@@ -472,66 +463,7 @@ function evaluateCells(
     const z1 = grids[b];
     const z2 = grids[c2];
     const z3 = grids[d];
-    // Two cells per pass as well: each value of E and of w is loaded once for eight sums. Each sum
-    // still runs over the sensors in order, so a map's cells are the one-map loop's to the bit.
-    let c = 0;
-    for (; c + 2 <= cells; c += 2) {
-      const base = c * k;
-      const next = base + k;
-      let s0 = 0;
-      let s1 = 0;
-      let s2 = 0;
-      let s3 = 0;
-      let t0 = 0;
-      let t1 = 0;
-      let t2 = 0;
-      let t3 = 0;
-      for (let s = 0; s < k; s++) {
-        const e = evaluation[base + s];
-        const f = evaluation[next + s];
-        const v0 = w0[s];
-        const v1 = w1[s];
-        const v2 = w2[s];
-        const v3 = w3[s];
-        s0 += e * v0;
-        s1 += e * v1;
-        s2 += e * v2;
-        s3 += e * v3;
-        t0 += f * v0;
-        t1 += f * v1;
-        t2 += f * v2;
-        t3 += f * v3;
-      }
-      const cell = inside[c];
-      const after = inside[c + 1];
-      z0[cell] = m0 + s0;
-      z1[cell] = m1 + s1;
-      z2[cell] = m2 + s2;
-      z3[cell] = m3 + s3;
-      z0[after] = m0 + t0;
-      z1[after] = m1 + t1;
-      z2[after] = m2 + t2;
-      z3[after] = m3 + t3;
-    }
-    for (; c < cells; c++) {
-      const base = c * k;
-      let s0 = 0;
-      let s1 = 0;
-      let s2 = 0;
-      let s3 = 0;
-      for (let s = 0; s < k; s++) {
-        const e = evaluation[base + s];
-        s0 += e * w0[s];
-        s1 += e * w1[s];
-        s2 += e * w2[s];
-        s3 += e * w3[s];
-      }
-      const cell = inside[c];
-      z0[cell] = m0 + s0;
-      z1[cell] = m1 + s1;
-      z2[cell] = m2 + s2;
-      z3[cell] = m3 + s3;
-    }
+    evaluateFour(evaluation, inside, k, cells, w0, w1, w2, w3, m0, m1, m2, m3, z0, z1, z2, z3);
   }
   for (; q < solved.length; q++) {
     const p = solved[q];
@@ -544,6 +476,112 @@ function evaluateCells(
       for (let s = 0; s < k; s++) sum += evaluation[base + s] * w[s];
       grid[inside[c]] = mean + sum;
     }
+  }
+}
+
+/**
+ * One row of g from the point (qx, qy) to each interpolated sensor, into `out` from `base`. The
+ * interpolation matrix and the evaluation matrix both fill their rows with it, so the engine has
+ * optimized it on the first's rows before the second's many.
+ */
+function greenRow(
+  out: Float64Array,
+  base: number,
+  qx: number,
+  qy: number,
+  px: Float64Array,
+  py: Float64Array,
+  k: number,
+): void {
+  for (let s = 0; s < k; s++) {
+    const dx = qx - px[s];
+    const dy = qy - py[s];
+    out[base + s] = green(dx * dx + dy * dy);
+  }
+}
+
+/**
+ * Four maps' inside cells, two cells per pass over E: each value of E and of w is loaded once for
+ * eight sums. Each sum still runs over the sensors in order, so a map's cells are the one-map
+ * loop's to the bit. A function of its own, called once per four maps, so the engine optimizes it
+ * after the first calls of a page's first view instead of running the whole view in the
+ * interpreter until the loop is replaced on the stack.
+ */
+function evaluateFour(
+  evaluation: Float64Array,
+  inside: Int32Array,
+  k: number,
+  cells: number,
+  w0: Float64Array,
+  w1: Float64Array,
+  w2: Float64Array,
+  w3: Float64Array,
+  m0: number,
+  m1: number,
+  m2: number,
+  m3: number,
+  z0: Float64Array,
+  z1: Float64Array,
+  z2: Float64Array,
+  z3: Float64Array,
+): void {
+  let c = 0;
+  for (; c + 2 <= cells; c += 2) {
+    const base = c * k;
+    const next = base + k;
+    let s0 = 0;
+    let s1 = 0;
+    let s2 = 0;
+    let s3 = 0;
+    let t0 = 0;
+    let t1 = 0;
+    let t2 = 0;
+    let t3 = 0;
+    for (let s = 0; s < k; s++) {
+      const e = evaluation[base + s];
+      const f = evaluation[next + s];
+      const v0 = w0[s];
+      const v1 = w1[s];
+      const v2 = w2[s];
+      const v3 = w3[s];
+      s0 += e * v0;
+      s1 += e * v1;
+      s2 += e * v2;
+      s3 += e * v3;
+      t0 += f * v0;
+      t1 += f * v1;
+      t2 += f * v2;
+      t3 += f * v3;
+    }
+    const cell = inside[c];
+    const after = inside[c + 1];
+    z0[cell] = m0 + s0;
+    z1[cell] = m1 + s1;
+    z2[cell] = m2 + s2;
+    z3[cell] = m3 + s3;
+    z0[after] = m0 + t0;
+    z1[after] = m1 + t1;
+    z2[after] = m2 + t2;
+    z3[after] = m3 + t3;
+  }
+  for (; c < cells; c++) {
+    const base = c * k;
+    let s0 = 0;
+    let s1 = 0;
+    let s2 = 0;
+    let s3 = 0;
+    for (let s = 0; s < k; s++) {
+      const e = evaluation[base + s];
+      s0 += e * w0[s];
+      s1 += e * w1[s];
+      s2 += e * w2[s];
+      s3 += e * w3[s];
+    }
+    const cell = inside[c];
+    z0[cell] = m0 + s0;
+    z1[cell] = m1 + s1;
+    z2[cell] = m2 + s2;
+    z3[cell] = m3 + s3;
   }
 }
 

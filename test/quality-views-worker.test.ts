@@ -23,13 +23,17 @@ import {
   type MapResult,
   SensorFieldClient,
   UNREADABLE_ANSWER,
+  WARM_MAPS,
   contoursOf,
+  sharedSensorFieldClient,
 } from "../src/lib/quality-views/worker-client";
 import {
   type DrawRequest,
   GRID_CELLS,
   type WorkerRequest,
   type WorkerResponse,
+  isWorkerResponse,
+  requestProblem,
 } from "../src/lib/quality-views/worker-protocol";
 import {
   caseLayout,
@@ -534,5 +538,104 @@ describe("the client's error paths", () => {
     const outcome = await next;
     client.terminate();
     expect(outcome.kind).toBe("done");
+  });
+});
+
+describe("late events from a dropped worker (website#592)", () => {
+  it("ignore a failure with no id and a messageerror, and the new worker's draws are unaffected", async () => {
+    const stubs: StubWorker[] = [];
+    const client = new SensorFieldClient(() => {
+      if (stubs.length > 0) return inThreadWorker();
+      const stub = stubWorker(() => {});
+      stubs.push(stub);
+      return stub;
+    });
+    const running = client.draw(input(mapsOf(1)));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    client.terminate();
+    expect(await running).toEqual({ kind: "cancelled" });
+    const next = client.draw(input(mapsOf(3)));
+    // Both arrive while the new worker draws: an unaddressed failure would settle every draw, and
+    // a messageerror would end the worker, if the dropped worker's handlers still acted.
+    stubs[0].answer({ type: "failure", id: null, message: "late" });
+    stubs[0].onmessageerror?.(new MessageEvent("messageerror"));
+    const outcome = await next;
+    const again = await client.draw(input(mapsOf(1)));
+    client.terminate();
+    if (outcome.kind !== "done" || again.kind !== "done") throw new Error("a draw did not finish");
+    expect(outcome.maps.map((m) => m.kind)).toEqual(["map", "map", "map"]);
+    // The new worker kept its cache: the second draw found the layout's geometry.
+    expect(again.stats.cacheHits).toBe(1);
+  });
+});
+
+describe("warming the worker for the cold first view (website#592)", () => {
+  it("prepares a layout's geometry so the view's draw finds it cached", async () => {
+    const client = new SensorFieldClient(inThreadWorker);
+    const layout = { layoutKey: LAYOUT_KEY, thetaDeg: THETA, radius: RADIUS };
+    const first = await client.prepare(layout);
+    const second = await client.prepare(layout);
+    const drawn = await client.draw(input(mapsOf(2)));
+    client.terminate();
+    expect(first).toMatchObject({ kind: "prepared", cached: false });
+    expect(second).toEqual({ kind: "prepared", geometryMs: 0, cached: true });
+    if (drawn.kind !== "done") throw new Error(drawn.kind);
+    expect([drawn.stats.cacheMisses, drawn.stats.cacheHits]).toEqual([0, 1]);
+  });
+
+  it("warms with a full-size throwaway draw on the layout, and the view draws as without it", async () => {
+    const client = new SensorFieldClient(inThreadWorker);
+    const warm = await client.warm({ layoutKey: LAYOUT_KEY, thetaDeg: THETA, radius: RADIUS });
+    expect(warm.prepared.kind).toBe("prepared");
+    if (warm.draw.kind !== "done") throw new Error(warm.draw.kind);
+    expect(warm.draw.maps).toHaveLength(WARM_MAPS);
+    expect(warm.draw.stats.cacheMisses).toBe(0);
+    const maps = mapsOf(3);
+    const outcome = await client.draw(input(maps));
+    client.terminate();
+    if (outcome.kind !== "done") throw new Error(outcome.kind);
+    maps.forEach((values, m) => {
+      const map = outcome.maps[m];
+      const core = sensorField(THETA, RADIUS, values);
+      if (map.kind !== "map" || core.kind !== "map") throw new Error("a map was refused");
+      expect(map.grid).toEqual(core.map.z);
+    });
+  });
+
+  it("cancels a warm-up still running when the view's draw comes", async () => {
+    const client = new SensorFieldClient(inThreadWorker);
+    const warming = client.warm({ layoutKey: LAYOUT_KEY, thetaDeg: THETA, radius: RADIUS }, { maps: 512 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const outcome = await client.draw(input(mapsOf(2)));
+    const warm = await warming;
+    client.terminate();
+    expect(outcome.kind).toBe("done");
+    expect(warm.draw.kind).toBe("cancelled");
+  });
+
+  it("settles a warm-up as unavailable when the worker cannot start, and never rejects", async () => {
+    const client = new SensorFieldClient(() => {
+      throw new Error("no workers");
+    });
+    const warm = await client.warm({ layoutKey: LAYOUT_KEY, thetaDeg: THETA, radius: RADIUS });
+    expect(warm.prepared).toEqual({
+      kind: "unavailable",
+      reason: "the map worker could not start: Error: no workers",
+    });
+    expect(warm.draw.kind).toBe("unavailable");
+  });
+
+  it("speaks the prepare request and its answer in the protocol", () => {
+    const prepare = { type: "prepare", id: 1, layoutKey: "k", thetaDeg: THETA, radius: RADIUS };
+    expect(requestProblem(prepare)).toBeNull();
+    expect(requestProblem({ ...prepare, radius: new Float64Array(1) })).toBe(
+      "thetaDeg and radius differ in length",
+    );
+    expect(isWorkerResponse({ type: "prepared", id: 1, geometryMs: 2, cached: false })).toBe(true);
+    expect(isWorkerResponse({ type: "prepared", id: 1, geometryMs: 2 })).toBe(false);
+  });
+
+  it("gives a page one client, so the viewer and a panel share one worker", () => {
+    expect(sharedSensorFieldClient()).toBe(sharedSensorFieldClient());
   });
 });

@@ -24,6 +24,8 @@ export interface NodeFs {
 export interface NodeProcess {
   cwd(): string;
   env: Record<string, string | undefined>;
+  on(event: "unhandledRejection", listener: (reason: unknown) => void): void;
+  off(event: "unhandledRejection", listener: (reason: unknown) => void): void;
 }
 
 export async function nodeFs(): Promise<NodeFs> {
