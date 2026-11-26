@@ -9,7 +9,11 @@
  * It pins: a digest mismatch (a file's, and a declaration's) shows its sentence and draws nothing
  * of that view; the deep link's round trip; one text row per component, each cell its stored text;
  * the class counts as stored; the Turbo toggle; and the Signal tab's marks, checked against the
- * store before the viewer would draw.
+ * store before the viewer would draw. And the export (W8): its code loads only when a view's Export
+ * toggle opens; a PNG at 2 to 4 times in the light palette whose text chunks parse back with every
+ * CRC verified and name the view's digest, kind and permalink; an SVG with the same in `<metadata>`;
+ * a file saved as the exact bytes recorded; no request while exporting; the controls' names and
+ * keyboard order; and every drawn map's contour lines, those of maps never on screen too.
  *
  * The page is the dev server's `robots.txt`, a same-origin document that needs no API, into which
  * the panel's server markup (`QualityPanel.astro`'s) is written. Run with
@@ -17,7 +21,10 @@
  */
 
 import { readFileSync } from "node:fs";
+import { inflateSync } from "node:zlib";
 import { type Page, expect, test } from "@playwright/test";
+import { pngChunks, pngTexts } from "../src/lib/quality-views/export/png";
+import { svgMetadata } from "../src/lib/quality-views/export/svg";
 
 const ROUTE = new URL("../test/fixtures/quality-views/route/", import.meta.url);
 const read = (name: string) => readFileSync(new URL(name, ROUTE));
@@ -47,6 +54,13 @@ const MODULES = {
   panel: "/src/lib/quality-views/panel.ts",
   verify: "/src/lib/quality-views/verify.ts",
   client: "/src/lib/quality-views/worker-client.ts",
+  model: "/src/lib/quality-views/model.ts",
+  render: "/src/lib/quality-views/render/index.ts",
+  montages: "/src/lib/quality-views/montage-loader.ts",
+  raster: "/src/lib/quality-views/export/raster.ts",
+  maps: "/src/lib/quality-views/export/maps-part.ts",
+  contours: "/src/lib/quality-views/contours.ts",
+  picture: "/src/lib/quality-views/export/picture.ts",
 };
 
 const SHELL = `
@@ -92,6 +106,9 @@ interface MountOptions {
    *  `secondHasRecord`, the first's record without its activation view. */
   readonly second?: string;
   readonly secondHasRecord?: boolean;
+  /** A view of the generic kind `nemar.lines` on the spectrum's values, with no preset of its own
+   *  (it is drawn under Other views): its declaration's digest recomputed to match. */
+  readonly genericLines?: boolean;
   /** Delay every file's answer by this many milliseconds. */
   readonly slowFiles?: number;
   /** Do not wait for the panel to be ready. */
@@ -138,6 +155,30 @@ async function mount(page: Page, options: MountOptions = {}): Promise<void> {
           }
           doc.view_digests[view.key] = await viewDigest(view);
         }
+        body = JSON.stringify(doc);
+        headers = { "Content-Type": "application/json", ETag: `"${await hexOf(body)}"` };
+      }
+      if (options.genericLines) {
+        const { viewDigest } = await import(/* @vite-ignore */ modules.verify);
+        const doc = JSON.parse(body);
+        const views = doc.dataQuality.recipes[provenance.recipe].views;
+        const spectrum = views.find((v: { key: string }) => v.key === "spectrum");
+        const lines = {
+          key: "lines",
+          kind: "nemar.lines",
+          kind_version: 1,
+          caption: "The spectrum's values as a generic line chart.",
+          source: spectrum.source,
+          // The values alone, their sensors named by the header (the spectrum's name the layout).
+          data: spectrum.data
+            .filter((d: { role: string }) => d.role === "values")
+            .map((d: { dims: { coords: object }[] }) => ({
+              ...d,
+              dims: [d.dims[0], { ...d.dims[1], coords: { header: true } }],
+            })),
+        };
+        views.push(lines);
+        doc.view_digests.lines = await viewDigest(lines);
         body = JSON.stringify(doc);
         headers = { "Content-Type": "application/json", ETag: `"${await hexOf(body)}"` };
       }
@@ -513,6 +554,521 @@ test.describe("on a touch screen", () => {
   });
 });
 
+// ── Export (website phase W8) ───────────────────────────────────────────
+
+/** The page's requests from now on, by URL; `blob:` and `data:` addresses are not requests. */
+function recordRequests(page: Page): string[] {
+  const urls: string[] = [];
+  page.on("request", (request) => {
+    const url = request.url();
+    if (!url.startsWith("blob:") && !url.startsWith("data:")) urls.push(url);
+  });
+  return urls;
+}
+
+/** Open a view's Export toggle and wait until its controls and images have loaded. */
+async function openExport(page: Page, key: string): Promise<void> {
+  const view = page.locator(`[data-qp-view="${key}"]`);
+  await view.locator("details.qv-export > summary").click();
+  await expect(view.getByRole("button", { name: "Save image (PNG)" })).toBeVisible();
+  // The images chunk loads as the controls open; a click then makes no request.
+  await page.evaluate((url) => import(/* @vite-ignore */ url), MODULES.picture);
+  await page.waitForTimeout(300);
+}
+
+/** Save through a button and read what the browser saved. */
+async function saved(page: Page, button: ReturnType<Page["getByRole"]>): Promise<Buffer> {
+  const [download] = await Promise.all([page.waitForEvent("download"), button.click()]);
+  return readFileSync((await download.path())!);
+}
+
+const dataRequests = (page: Page) =>
+  page.evaluate(() => (window as unknown as { requests: string[] }).requests.length);
+
+test.describe("export", () => {
+  test("loads its code only when a view's Export toggle opens", async ({ page }) => {
+    const urls = recordRequests(page);
+    await mount(page);
+    await expect(page.locator('[data-qp-view="spectrum"] details.qv-export')).toHaveCount(1);
+    expect(urls.filter((u) => u.includes("/quality-views/export/"))).toEqual([]);
+    await openExport(page, "spectrum");
+    expect(urls.some((u) => u.includes("/quality-views/export/controls.ts"))).toBe(true);
+    // The Signal tab's window is computed: its input files, verified, and no image.
+    await page.locator('[data-qp-tab="signal"]').click();
+    await ready(page);
+    const signal = page.locator('[data-qp-view="midsegment"]');
+    await signal.locator("details.qv-export > summary").click();
+    await expect(
+      signal.getByRole("list", { name: "Save a file of this view, as recorded" }),
+    ).toBeVisible();
+    await expect(signal.getByRole("button", { name: "Save image (PNG)" })).toHaveCount(0);
+  });
+
+  test("a PNG at 2 to 4 times, light, its text chunks naming the view, with no request", async ({
+    page,
+  }) => {
+    // The page in the dark theme: the export stays light.
+    await page.emulateMedia({ colorScheme: "dark" });
+    const urls = recordRequests(page);
+    await mount(page);
+    await openExport(page, "spectrum");
+    const view = page.locator('[data-qp-view="spectrum"]');
+    const before = { urls: urls.length, data: await dataRequests(page) };
+    const widths: number[] = [];
+    for (const scale of ["2", "4"]) {
+      await view.getByLabel("Scale").selectOption(scale);
+      const bytes = new Uint8Array(
+        await saved(page, view.getByRole("button", { name: "Save image (PNG)" })),
+      );
+      const chunks = pngChunks(bytes);
+      expect(chunks.every((c) => c.crcOk)).toBe(true);
+      expect(chunks[0].type).toBe("IHDR");
+      const texts = Object.fromEntries(pngTexts(bytes));
+      const digest = JSON.parse(record.body).view_digests.spectrum;
+      expect(texts["nemar:view-digest"]).toBe(digest);
+      expect(texts["nemar:kind"]).toBe("nemar.spectrum");
+      expect(texts["nemar:kind-version"]).toBe("1");
+      const origin = new URL(page.url()).origin;
+      expect(texts["nemar:permalink"]).toBe(
+        `${origin}/dataset/${provenance.dataset_id}?v=v1.0.0#quality/${provenance.recording}/spectrum`,
+      );
+      // The spectrum's scalp maps are in the image: the color maps' notice goes with them.
+      expect(texts["nemar:color-maps"]).toContain(`${origin}/licenses/quality-views/NOTICE.txt`);
+      const header = new DataView(chunks[0].data.buffer, chunks[0].data.byteOffset);
+      widths.push(header.getUint32(0));
+      // The first pixel, after its row's filter byte, is the light ground (white, opaque).
+      const pixels = inflateSync(
+        Buffer.concat(chunks.filter((c) => c.type === "IDAT").map((c) => c.data)),
+      );
+      expect(Array.from(pixels.subarray(1, 5))).toEqual([255, 255, 255, 255]);
+    }
+    expect(widths[1]).toBe(widths[0] * 2);
+    await expect(view.locator(".qv-export").getByRole("status")).toHaveText(
+      /Saved the image at 4×/,
+    );
+    // No request left the page while exporting, neither for data nor for code.
+    expect(urls.slice(before.urls)).toEqual([]);
+    expect(await dataRequests(page)).toBe(before.data);
+  });
+
+  test("an SVG with the digest, kind and permalink in <metadata>, as XML", async ({ page }) => {
+    const urls = recordRequests(page);
+    await mount(page);
+    await openExport(page, "spectrum");
+    const before = urls.length;
+    const view = page.locator('[data-qp-view="spectrum"]');
+    const text = (
+      await saved(page, view.getByRole("button", { name: "Save drawing (SVG)" }))
+    ).toString("utf8");
+    const metadata = svgMetadata(text)!;
+    expect(metadata["nemar:view-digest"]).toBe(JSON.parse(record.body).view_digests.spectrum);
+    expect(metadata["nemar:kind"]).toBe("nemar.spectrum");
+    expect(metadata["nemar:permalink"]).toContain(`#quality/${provenance.recording}/spectrum`);
+    expect(metadata["nemar:color-maps"]).toBeUndefined();
+    const parsed = await page.evaluate((svg) => {
+      const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+      return {
+        error: doc.querySelector("parsererror")?.textContent ?? null,
+        root: doc.documentElement.namespaceURI,
+        series: doc.querySelectorAll("polyline.qv-series").length,
+        cursor: doc.querySelectorAll(".qv-cursor").length,
+      };
+    }, text);
+    // One series per channel, as the page draws them.
+    const channels =
+      read(`files/${shaOf("_spectrum.tsv")}`)
+        .toString("utf8")
+        .split("\n")[0]
+        .split("\t").length - 1;
+    expect(parsed).toEqual({
+      error: null,
+      root: "http://www.w3.org/2000/svg",
+      series: channels,
+      cursor: 0,
+    });
+    expect(urls.slice(before)).toEqual([]);
+    // The histogram offers SVG; the scalp maps offer PNG only.
+    await page.locator('[data-qp-tab="components"]').click();
+    await ready(page);
+    await openExport(page, "icclasses");
+    await expect(
+      page
+        .locator('[data-qp-view="icclasses"]')
+        .getByRole("button", { name: "Save drawing (SVG)" }),
+    ).toHaveCount(1);
+    // With the Components tab's scalp maps drawn, the histogram's image shows none of them.
+    const classes = new Uint8Array(
+      await saved(
+        page,
+        page
+          .locator('[data-qp-view="icclasses"]')
+          .getByRole("button", { name: "Save image (PNG)" }),
+      ),
+    );
+    const texts = Object.fromEntries(pngTexts(classes));
+    expect(texts["nemar:kind"]).toBe("nemar.ic-classes");
+    expect(texts["nemar:color-maps"]).toBeUndefined();
+    await page.locator('[data-qp-view="icmaps"] details.qv-export > summary').click();
+    await expect(
+      page.locator('[data-qp-view="icmaps"]').getByRole("button", { name: "Save image (PNG)" }),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[data-qp-view="icmaps"]').getByRole("button", { name: "Save drawing (SVG)" }),
+    ).toHaveCount(0);
+  });
+
+  test("a file is the exact bytes NEMAR recorded, saved with no request", async ({ page }) => {
+    const urls = recordRequests(page);
+    await mount(page);
+    await openExport(page, "spectrum");
+    const before = { urls: urls.length, data: await dataRequests(page) };
+    const view = page.locator('[data-qp-view="spectrum"]');
+    for (const suffix of ["_spectrum.tsv", "_chanlocs.tsv"]) {
+      const name = files[shaOf(suffix)].location.split("/").pop()!;
+      const bytes = await saved(page, view.getByRole("button", { name: `Save ${name}` }));
+      expect(bytes.equals(read(`files/${shaOf(suffix)}`))).toBe(true);
+      await expect(view.locator(".qv-export").getByRole("status")).toHaveText(
+        `Saved ${name} (${bytes.length} bytes), the bytes NEMAR recorded.`,
+      );
+    }
+    expect(urls.slice(before.urls)).toEqual([]);
+    expect(await dataRequests(page)).toBe(before.data);
+  });
+
+  test("the controls are reachable and named for the keyboard and a screen reader", async ({
+    page,
+  }) => {
+    await mount(page);
+    const view = page.locator('[data-qp-view="spectrum"]');
+    const summary = view.locator("details.qv-export > summary");
+    await summary.focus();
+    await page.keyboard.press("Enter");
+    await expect(view.locator("details.qv-export")).toHaveAttribute("open", "");
+    const group = view.getByRole("group", { name: "Save the view as an image" });
+    await expect(group).toBeVisible();
+    await expect(view.getByLabel("Scale")).toHaveValue("2");
+    await expect(
+      view.getByRole("list", { name: "Save a file of this view, as recorded" }),
+    ).toBeVisible();
+    // Tab order: the scale, then each button, every one a native control with its own name.
+    await page.keyboard.press("Tab");
+    const order: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press("Tab");
+      order.push(
+        await page.evaluate(() => {
+          const el = document.activeElement as HTMLElement;
+          return `${el.tagName.toLowerCase()}:${el.getAttribute("aria-label") ?? el.textContent}`;
+        }),
+      );
+    }
+    expect(order.slice(0, 3)).toEqual([
+      "select:2×3×4×",
+      "button:Save image (PNG)",
+      "button:Save drawing (SVG)",
+    ]);
+    expect(order[3]).toMatch(/^button:Save .*_spectrum\.tsv$/);
+    // The result is said in a status line.
+    const status = view.locator(".qv-export").getByRole("status");
+    await expect(status).toHaveText("");
+    await saved(page, view.getByRole("button", { name: "Save drawing (SVG)" }));
+    await expect(status).toHaveText("Saved the drawing.");
+  });
+
+  test("a view of a generic kind, with no preset of its own, is exported too", async ({ page }) => {
+    await mount(page, { genericLines: true });
+    await page.locator('[data-qp-tab="other"]').click();
+    await ready(page);
+    const view = page.locator('[data-qp-view="lines"]');
+    await expect(view.locator("svg.qv-lines")).toHaveCount(1);
+    await openExport(page, "lines");
+    const bytes = new Uint8Array(
+      await saved(page, view.getByRole("button", { name: "Save image (PNG)" })),
+    );
+    const texts = Object.fromEntries(pngTexts(bytes));
+    expect(texts["nemar:kind"]).toBe("nemar.lines");
+    expect(texts["nemar:permalink"]).toMatch(/#quality\/.+\/lines$/);
+    await expect(view.getByRole("button", { name: "Save drawing (SVG)" })).toHaveCount(1);
+  });
+
+  test("every drawn map is exported with its contour lines, those never on screen too", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 400 });
+    await mount(page);
+    const result = await page.evaluate(
+      async ({ record, bytes, provenance, modules }) => {
+        const { buildModel } = await import(/* @vite-ignore */ modules.model);
+        const { mountView, viewContext } = await import(/* @vite-ignore */ modules.render);
+        const { SensorFieldClient } = await import(/* @vite-ignore */ modules.client);
+        const { loadMontage } = await import(/* @vite-ignore */ modules.montages);
+        const { paintPicture } = await import(/* @vite-ignore */ modules.raster);
+        const { fieldMaps } = await import(/* @vite-ignore */ modules.maps);
+        const { contourLines } = await import(/* @vite-ignore */ modules.contours);
+        const doc = JSON.parse(record.body);
+        const view = doc.dataQuality.recipes[provenance.recipe].views.find(
+          (v: { key: string }) => v.key === "icmaps",
+        );
+        const files = Object.fromEntries(
+          Object.entries(bytes as Record<string, string>).map(([sha, b64]) => [
+            sha,
+            Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)),
+          ]),
+        );
+        const client = new SensorFieldClient();
+        const built = await buildModel(view, async (f: { sha256: string }) => files[f.sha256], {
+          checks: client.checks(),
+          montage: loadMontage,
+        });
+        const target = document.createElement("div");
+        document.body.append(target);
+        const mounted = await mountView(target, built, viewContext(view, "x"), {
+          client: () => client,
+          layoutKey: "export-test",
+          colors: { foreground: "#000", background: "#fff", contour: "#000" },
+        });
+        await mounted.field.ready;
+        const handle = mounted.field;
+        const untraced = handle
+          .drawnMaps()
+          .filter((d: { map: { contourLines: unknown } }) => d.map.contourLines === null).length;
+        const maps = fieldMaps({ built, field: handle, colorMap: "diverging" });
+        const same = maps.every(
+          (m: {
+            map: {
+              contourLines: Float32Array[];
+              grid: Float64Array;
+              geometry: { x: Float64Array; y: Float64Array };
+              contourLevels: number[];
+            };
+          }) => {
+            const traced = contourLines(
+              m.map.grid,
+              m.map.geometry.x,
+              m.map.geometry.y,
+              m.map.contourLevels,
+            );
+            return (
+              m.map.contourLines.length === traced.length &&
+              m.map.contourLines.every(
+                (l, i) => l.length === traced[i].length && l.every((v, j) => v === traced[i][j]),
+              )
+            );
+          },
+        );
+        const segments = maps.map((m: { contours: Float32Array[] }) =>
+          m.contours.reduce((n, l) => n + l.length / 4, 0),
+        );
+        const canvas = await paintPicture(
+          document,
+          {
+            meta: {
+              caption: view.caption,
+              kind: view.kind,
+              kindVersion: view.kind_version,
+              digest: doc.view_digests.icmaps,
+              permalink: "https://nemar.org/dataset/x#quality",
+              colorMaps: true,
+            },
+            built,
+            fields: [{ built, field: handle, colorMap: "diverging" }],
+          },
+          3,
+        );
+        handle.destroy();
+        const ctx = canvas.getContext("2d")!;
+        const pixel = (x: number, y: number) => Array.from(ctx.getImageData(x, y, 1, 1).data);
+        // The first map's center (12 px of margin, a caption line, then the map's 160 px square).
+        const top = 12 + 18 + 6;
+        return {
+          corner: pixel(canvas.width - 1, canvas.height - 1),
+          mapCenter: pixel(3 * (12 + 80), 3 * (top + 80)),
+          outside: pixel(3 * (12 + 1040 + 6), 3 * (top + 80)),
+          maps: maps.length,
+          untraced,
+          same,
+          everyHasLines: segments.every((n: number) => n > 0),
+          width: canvas.width,
+          height: canvas.height,
+        };
+      },
+      { record, bytes, provenance, modules: MODULES },
+    );
+    expect(result.maps).toBe(18);
+    // Maps past the first batch were never asked for their lines by the worker…
+    expect(result.untraced).toBeGreaterThan(0);
+    // …and the export draws every map's lines, traced as the worker traces them.
+    expect(result.same).toBe(true);
+    expect(result.everyHasLines).toBe(true);
+    // Six maps a row, three rows, at 3 times: the rows' 3 × 192 px with the text, under four rows.
+    expect(result.width).toBe(3 * (6 * 176 - 16 + 24));
+    expect(result.height).toBeGreaterThan(3 * 3 * 192);
+    // Four rows would add another 192 px to the rows and about 230 px of text.
+    expect(result.height).toBeLessThan(3 * (4 * 192 + 40));
+    // Painted at 3 times on a light ground to its last pixel, the map where its square is.
+    expect(result.corner).toEqual([255, 255, 255, 255]);
+    expect(result.outside).toEqual([255, 255, 255, 255]);
+    expect(result.mapCenter).not.toEqual([255, 255, 255, 255]);
+  });
+
+  test("a button keeps the keyboard's focus while it saves, and takes no second click", async ({
+    page,
+  }) => {
+    await mount(page);
+    await openExport(page, "spectrum");
+    const view = page.locator('[data-qp-view="spectrum"]');
+    const button = view.getByRole("button", { name: "Save image (PNG)" });
+    await view.getByLabel("Scale").selectOption("4");
+    await button.focus();
+    const downloads: unknown[] = [];
+    page.on("download", (d) => downloads.push(d));
+    // Enter twice, at once: one image, the button busy but never disabled.
+    const busy = await page.evaluate(() => {
+      const b = [...document.querySelectorAll("button")].find(
+        (x) => x.textContent === "Save image (PNG)",
+      )!;
+      b.click();
+      const during = {
+        aria: b.getAttribute("aria-disabled"),
+        disabled: b.disabled,
+        focused: document.activeElement === b,
+      };
+      b.click();
+      return during;
+    });
+    expect(busy).toEqual({ aria: "true", disabled: false, focused: true });
+    await expect(view.locator(".qv-export").getByRole("status")).toHaveText(/Saved the image/);
+    await expect(button).not.toHaveAttribute("aria-disabled");
+    await expect(button).toBeFocused();
+    await page.waitForTimeout(300);
+    expect(downloads).toHaveLength(1);
+    // The keyboard alone: Enter saves again, and the focus stays.
+    await page.keyboard.press("Enter");
+    await expect(button).toBeFocused();
+  });
+
+  test("an SVG's printed lines fit its width, measured by the browser", async ({ page }) => {
+    await mount(page);
+    await page.locator('[data-qp-tab="components"]').click();
+    await ready(page);
+    await openExport(page, "icclasses");
+    const text = (
+      await saved(
+        page,
+        page
+          .locator('[data-qp-view="icclasses"]')
+          .getByRole("button", { name: "Save drawing (SVG)" }),
+      )
+    ).toString("utf8");
+    const measured = await page.evaluate((svg) => {
+      const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+      const root = document.importNode(doc.documentElement, true) as unknown as SVGSVGElement;
+      document.body.append(root);
+      const width = Number(root.getAttribute("width"));
+      const lines = [...root.querySelectorAll<SVGTextElement>(".qv-export-text, .qv-export-title")];
+      const out = lines.map((t) => ({
+        right: (Number(t.getAttribute("x")) || 0) + t.getComputedTextLength(),
+        text: t.textContent,
+      }));
+      root.remove();
+      return { width, out };
+    }, text);
+    expect(measured.out.length).toBeGreaterThan(3);
+    for (const line of measured.out)
+      expect(line.right, line.text ?? "").toBeLessThanOrEqual(measured.width);
+  });
+
+  test("a heatmap's PNG prints its labels and its legend's stored texts", async ({ page }) => {
+    const models = JSON.parse(
+      readFileSync(
+        new URL("../test/fixtures/quality-views/vectors/kinds-models.v1.json", import.meta.url),
+        "utf8",
+      ),
+    ) as { cases: { name: string; view: unknown; model: unknown }[] };
+    const cases = ["heatmap_classes", "heatmap_absmax"].map((name) =>
+      models.cases.find((c) => c.name === name),
+    );
+    await page.goto("/robots.txt");
+    const printed = await page.evaluate(
+      async ({ cases, modules }) => {
+        const { mountView, viewContext } = await import(/* @vite-ignore */ modules.render);
+        const { SensorFieldClient } = await import(/* @vite-ignore */ modules.client);
+        const { paintPicture } = await import(/* @vite-ignore */ modules.raster);
+        const client = new SensorFieldClient();
+        // Each text the canvas is asked to print, observed as the export paints.
+        const fill = CanvasRenderingContext2D.prototype.fillText;
+        const out: { texts: string[]; ground: number[] }[] = [];
+        for (const c of cases) {
+          const built = c!.model as { model: { type: string } };
+          const target = document.createElement("div");
+          document.body.append(target);
+          await mountView(target, built, viewContext(c!.view, "h"), {
+            client: () => client,
+            layoutKey: "h",
+            colors: { foreground: "#000", background: "#fff", contour: "#000" },
+          });
+          const cells = target.querySelector("canvas.qv-heatmap-cells");
+          const seen: string[] = [];
+          CanvasRenderingContext2D.prototype.fillText = function (
+            t: string,
+            ...rest: [number, number]
+          ) {
+            seen.push(t);
+            return fill.call(this, t, ...rest);
+          };
+          const view = c!.view as { caption: string; kind: string; kind_version: number };
+          const canvas = await paintPicture(
+            document,
+            {
+              meta: {
+                caption: view.caption,
+                kind: view.kind,
+                kindVersion: view.kind_version,
+                digest: "0".repeat(64),
+                permalink: "https://nemar.org/dataset/x#quality",
+                colorMaps: true,
+              },
+              built,
+              fields: [],
+              heatmap: cells,
+            },
+            2,
+          );
+          CanvasRenderingContext2D.prototype.fillText = fill;
+          out.push({
+            texts: seen,
+            ground: Array.from(canvas.getContext("2d")!.getImageData(1, 1, 1, 1).data),
+          });
+        }
+        return out;
+      },
+      { cases, modules: MODULES },
+    );
+    const [classes, absmax] = printed;
+    const model = (
+      cases[0]!.model as {
+        model: {
+          rows: { labels: string[] };
+          columns: { labels: string[] };
+          values: number[][];
+          text: string[][];
+        };
+      }
+    ).model;
+    for (const label of [...model.rows.labels, ...model.columns.labels]) {
+      expect(classes.texts).toContain(label);
+    }
+    const values = model.values.flat();
+    const text = model.text.flat();
+    expect(classes.texts).toContain(`${text[values.indexOf(Math.min(...values))]} %`);
+    expect(classes.texts).toContain(`${text[values.indexOf(Math.max(...values))]} %`);
+    expect(absmax.texts).toContain("negative");
+    expect(absmax.texts).toContain("positive");
+    expect(absmax.texts.some((t) => t.startsWith("centered on 0; largest magnitude "))).toBe(true);
+    expect(classes.ground).toEqual([255, 255, 255, 255]);
+  });
+});
+
 // ── Activations (W7) ─────────────────────────────────────────────────────
 
 /** The activation view's channels, from the record: the matrix's columns, matched by label. */
@@ -771,4 +1327,126 @@ test("a decoy bad-segment table is refused before the serving copy is asked for"
   const view = page.locator('[data-qp-view="icactivity"]');
   await expect(view.locator("[data-word]")).toHaveAttribute("data-word", "table_location_mismatch");
   await expect(view.locator("canvas")).toHaveCount(0);
+});
+
+/** The panel's own rule for the activations plot (`QualityPanel.astro`'s scoped style, which the
+ *  shell written into this page does not carry): its two canvases stacked in the plot's box, so
+ *  the second does not spill over what follows. */
+const activityPlotStyle = (page: Page) =>
+  page.addStyleTag({
+    content:
+      ".qp-activity__plot{position:relative;inline-size:100%;block-size:240px}.qp-activity__plot canvas{position:absolute;inset:0;inline-size:100%;block-size:100%}",
+  });
+
+test("the Signal window's files are asked for as its export opens; Save makes no request", async ({
+  page,
+}) => {
+  const urls = recordRequests(page);
+  await mount(page);
+  await page.locator('[data-qp-tab="signal"]').click();
+  await ready(page);
+  const view = page.locator('[data-qp-view="midsegment"]');
+  const before = await dataRequests(page);
+  await view.locator("details.qv-export > summary").click();
+  const names = ["_channels.tsv", "_badsegments.tsv"].map((suffix) => [
+    suffix,
+    files[shaOf(suffix)].location.split("/").pop()!,
+  ]);
+  await expect(view.getByRole("button", { name: `Save ${names[0][1]}` })).toBeVisible();
+  // Opening the controls asked for both files, once each.
+  await expect.poll(() => dataRequests(page)).toBe(before + 2);
+  await page.waitForTimeout(300);
+  const asked = { urls: urls.length, data: await dataRequests(page) };
+  for (const [suffix, name] of names) {
+    const bytes = await saved(page, view.getByRole("button", { name: `Save ${name}` }));
+    expect(bytes.equals(read(`files/${shaOf(suffix)}`))).toBe(true);
+  }
+  expect(urls.slice(asked.urls)).toEqual([]);
+  expect(await dataRequests(page)).toBe(asked.data);
+});
+
+test.describe("the Activations export", () => {
+  test("saves the drawn window as a light PNG naming the view and the window, with no request", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme: "dark" });
+    const served = await serveZarr(page);
+    const urls = recordRequests(page);
+    await mount(page, { zarr: true, hash: `#quality/${provenance.recording}/icactivity` });
+    await activityPlotStyle(page);
+    const view = page.locator('[data-qp-view="icactivity"]');
+    await expect(view.locator(".qp-activity__where")).toHaveText("0 s to 9.995 s of 30 s");
+    await openExport(page, "icactivity");
+    // A computed view: no SVG, its image and its input files.
+    await expect(view.getByRole("button", { name: "Save drawing (SVG)" })).toHaveCount(0);
+    const before = { urls: urls.length, data: await dataRequests(page), chunks: served.chunks };
+    const save = view.getByRole("button", { name: "Save image (PNG)" });
+    // Every text the export's canvas prints, observed as it paints.
+    await page.evaluate(() => {
+      const printed: string[] = [];
+      (window as unknown as { printed: string[] }).printed = printed;
+      const fill = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (t: string, x: number, y: number) {
+        printed.push(t);
+        return fill.call(this, t, x, y);
+      };
+    });
+    const first = new Uint8Array(await saved(page, save));
+    // The notes are printed in the picture too, wrapped to its width.
+    const printed = (
+      await page.evaluate(() => (window as unknown as { printed: string[] }).printed)
+    ).join(" ");
+    expect(printed).toContain("not checked against a digest NEMAR recorded");
+    expect(printed).toContain("1 Hz high-pass for display only");
+    expect(printed).toContain("5 spans ASR repaired in this window are shaded (burst).");
+    const chunks = pngChunks(first);
+    expect(chunks.every((c) => c.crcOk)).toBe(true);
+    const texts = Object.fromEntries(pngTexts(first));
+    expect(texts["nemar:kind"]).toBe("nemar.ic-activity");
+    expect(texts["nemar:view-digest"]).toBe(JSON.parse(record.body).view_digests.icactivity);
+    expect(texts["nemar:permalink"]).toMatch(/#quality\/.+\/icactivity$/);
+    expect(texts["nemar:window-start-s"]).toBe("0");
+    expect(texts["nemar:window-length-s"]).toBe("10");
+    expect(texts["nemar:color-maps"]).toBeUndefined();
+    // The tab's notes, ADR 0137 decision 9's captions: the store digest's state, the display
+    // filter, and the spans shaded in this window.
+    expect(texts["nemar:notes"]).toContain("not checked against a digest NEMAR recorded");
+    expect(texts["nemar:notes"]).toContain("1 Hz high-pass for display only");
+    expect(texts["nemar:notes"]).toContain(
+      "5 spans ASR repaired in this window are shaded (burst).",
+    );
+    // The window is in the picture: 18 components draw 354 px of traces, twice that at 2×.
+    const header = new DataView(chunks[0].data.buffer, chunks[0].data.byteOffset);
+    expect(header.getUint32(4)).toBeGreaterThan(2 * 354);
+    const pixels = inflateSync(
+      Buffer.concat(chunks.filter((c) => c.type === "IDAT").map((c) => c.data)),
+    );
+    expect(Array.from(pixels.subarray(1, 5))).toEqual([255, 255, 255, 255]);
+    // Exporting read nothing: no data, no code, no sample of the serving copy.
+    expect(urls.slice(before.urls)).toEqual([]);
+    expect(await dataRequests(page)).toBe(before.data);
+    expect(served.chunks).toBe(before.chunks);
+    // The next window: the export saves the window on show.
+    await view.getByRole("button", { name: "Later window" }).click();
+    await expect(view.locator(".qp-activity__where")).toHaveText("10 s to 19.995 s of 30 s");
+    const second = Object.fromEntries(pngTexts(new Uint8Array(await saved(page, save))));
+    expect(second["nemar:window-start-s"]).toBe("10");
+    expect(second["nemar:window-length-s"]).toBe("10");
+  });
+
+  test("hands over the verified input files as the exact bytes recorded", async ({ page }) => {
+    await serveZarr(page);
+    await mount(page, { zarr: true, hash: `#quality/${provenance.recording}/icactivity` });
+    await activityPlotStyle(page);
+    const view = page.locator('[data-qp-view="icactivity"]');
+    await expect(view.locator(".qp-activity__plot canvas")).toHaveCount(2);
+    await openExport(page, "icactivity");
+    const before = await dataRequests(page);
+    for (const suffix of ["_servingunmixing.tsv", "_components.tsv", "_badsegments.tsv"]) {
+      const name = files[shaOf(suffix)].location.split("/").pop()!;
+      const bytes = await saved(page, view.getByRole("button", { name: `Save ${name}` }));
+      expect(bytes.equals(read(`files/${shaOf(suffix)}`))).toBe(true);
+    }
+    expect(await dataRequests(page)).toBe(before);
+  });
 });

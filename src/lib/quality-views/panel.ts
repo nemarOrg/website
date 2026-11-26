@@ -12,9 +12,11 @@
  * of three states (`quality-api.ts`): none, not on this server yet, or failed with a word.
  */
 
+import { attachExport } from "./export-hook";
 import type { ExtraContext } from "./extras/context";
 import {
   type BuiltModel,
+  type FileSource,
   type ModelOptions,
   type SensorFieldModel,
   type ViewDecl,
@@ -134,7 +136,10 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
   let controller = new AbortController();
   let drawn = new Map<TabId, Promise<void>>();
   /** The scalp maps drawn, by the element they were drawn into: one live handle per target. */
-  const fields = new Map<HTMLElement, { field: FieldHandle; model: SensorFieldModel }>();
+  const fields = new Map<
+    HTMLElement,
+    { field: FieldHandle; model: SensorFieldModel; built: BuiltModel & { model: SensorFieldModel } }
+  >();
   let turbo = readTurbo(storage);
   let current: Promise<void> = Promise.resolve();
 
@@ -210,20 +215,25 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
       return null;
     }
     if (mounted.field && built.model.type === "sensor-field") {
-      fields.set(target, { field: mounted.field, model: built.model });
+      fields.set(target, {
+        field: mounted.field,
+        model: built.model,
+        built: built as BuiltModel & { model: SensorFieldModel },
+      });
       if (turbo) mounted.field.setColorMap("turbo");
     }
     return mounted.element;
   };
 
+  /** Draw one view; what it drew, for its export, or nothing when it drew nothing to export. */
   async function drawView(
     view: ViewDecl,
     r: QualityRecord,
     container: HTMLElement,
     signal: AbortSignal,
-  ): Promise<void> {
+  ): Promise<{ built: BuiltModel | null; files: FileSource } | undefined> {
     const ctx = viewContext(view, `qp-${view.key}`, (file) => fileUrl(base, r, file));
-    const refuse = (word: string, downloads = downloadsOf(view)): void => {
+    const refuse = (word: string, downloads = downloadsOf(view)): undefined => {
       if (!signal.aborted)
         container.replaceChildren(toDom(renderRefusal(word, downloads, ctx), doc));
     };
@@ -257,7 +267,7 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
       // A base that refused its files shows the fallback; the preset adds nothing to it.
       if (!figure || built.refused !== null) return;
     }
-    if (!loading) return;
+    if (!loading) return { built, files };
     try {
       const own = await loading;
       if (signal.aborted) return;
@@ -276,6 +286,7 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
         client: client(),
         sentence,
       });
+      return { built, files };
     } catch (error) {
       if (signal.aborted) return;
       const word = (error as { word?: unknown }).word;
@@ -284,6 +295,7 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
       // A preset's own word: the base stays drawn, and says why the extras are missing.
       const { noteOf, intoFigure } = await import("./extras/context");
       intoFigure(figure, await noteOf({ doc, sentence } as ExtraContext, word));
+      return { built, files };
     }
   }
 
@@ -317,15 +329,31 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
         container.className = "qp-view";
         container.dataset.qpView = key;
         panel.append(container);
-        return drawView(view, r, container, signal).catch(async (error: unknown) => {
-          if (signal.aborted) return;
-          console.error("[quality-views] a view of the panel could not be drawn:", error);
-          const p = doc.createElement("p");
-          p.className = "qv-note";
-          p.dataset.word = "failed";
-          p.textContent = await sentence("failed");
-          if (!signal.aborted) container.replaceChildren(p);
-        });
+        return drawView(view, r, container, signal).then(
+          (drew) => {
+            // The view's Export toggle, its code loaded when first opened (phase W8).
+            if (drew && !signal.aborted)
+              attachExport(container, {
+                ...drew,
+                view,
+                record: r,
+                fields,
+                container,
+                colorOf,
+                version: config.version,
+                origin: location.origin,
+              });
+          },
+          async (error: unknown) => {
+            if (signal.aborted) return;
+            console.error("[quality-views] a view of the panel could not be drawn:", error);
+            const p = doc.createElement("p");
+            p.className = "qv-note";
+            p.dataset.word = "failed";
+            p.textContent = await sentence("failed");
+            if (!signal.aborted) container.replaceChildren(p);
+          },
+        );
       }),
     ).then(() => {
       if (!signal.aborted && wanted && keys.includes(wanted)) {

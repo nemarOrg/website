@@ -12,12 +12,14 @@ import {
   type Activity,
   ActivityRefused,
   activity,
+  activityHeight,
   burstsRepaired,
   checkDeclaration,
   drawActivity,
   fetchInputs,
   firstWindow,
   openServingStore,
+  shownActivity,
   workerTransform,
 } from "../activations";
 import { CAPS, downloadsOf } from "../model";
@@ -112,23 +114,33 @@ export async function draw(x: ExtraContext): Promise<void> {
     if (signal.aborted) return;
     const own = typeof transform.caption === "string" ? `${transform.caption}.` : "";
     const hz = numberText(first.plan.highpassHz);
-    const said = el("p", "qv-note", "");
-    said.textContent = [...lines, own]
+    // What was computed and how; and, per window, the spans shaded. The export prints the same.
+    const saidText = [...lines, own]
       .filter(Boolean)
       .map((t) => t.replaceAll("{hz}", hz))
       .join(" ");
+    let spansText = "";
+    const said = el("p", "qv-note", saidText);
     const spans = el("p", "qv-note");
     notes.append(said, spans);
 
     let dispose = (): void => {};
     signal.addEventListener("abort", () => dispose(), { once: true });
+    // The window on show, for the view's export (W8).
+    let shownNow = first;
+    shownActivity.set(figure, () => ({
+      activity: shownNow,
+      label,
+      notes: [saidText, spansText].filter(Boolean),
+    }));
     const paint = async (a: Activity): Promise<void> => {
+      shownNow = a;
       const style = getComputedStyle(x.container);
       const token = (name: string, fallback: string) =>
         style.getPropertyValue(name).trim() || fallback;
       const n = a.plan.components.length;
       const width = Math.max(320, plot.clientWidth || x.container.clientWidth || 640);
-      const height = Math.min(640, Math.max(160, n * 18 + 30));
+      const height = activityHeight(n);
       plot.style.height = `${height}px`;
       dispose();
       const out = await drawActivity(
@@ -150,7 +162,8 @@ export async function draw(x: ExtraContext): Promise<void> {
       const t0 = numberText(a.result.time[0]);
       const t1 = numberText(a.result.time[a.plan.count - 1]);
       where.textContent = `${t0} s to ${t1} s of ${numberText(serving.samples / serving.rate)} s`;
-      spans.textContent = `${out.spans.length} span${out.spans.length === 1 ? "" : "s"} ASR repaired in this window ${out.spans.length === 1 ? "is" : "are"} shaded (${label}).`;
+      spansText = `${out.spans.length} span${out.spans.length === 1 ? "" : "s"} ASR repaired in this window ${out.spans.length === 1 ? "is" : "are"} shaded (${label}).`;
+      spans.textContent = spansText;
       plot.setAttribute(
         "aria-label",
         `Activations of ${n} components (${a.plan.components.join(", ")}) from ${t0} s to ${t1} s, in arbitrary units, filtered for display.`,

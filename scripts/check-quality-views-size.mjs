@@ -99,12 +99,41 @@ function siteUnions(dir) {
     });
   }
   // The quality panel's chunk by a sentence only it holds (another component's chunk is also named
-  // `panel`); the others by their unique names.
-  const MARKER = "Loading the recording's quality views";
+  // `panel`), and the export's controls and images (W8) by sentences of their own; the others by their
+  // unique names.
+  const MARKERS = {
+    panel: "Loading the recording's quality views",
+    controls: "Save image (PNG)",
+    picture: "the canvas gave no PNG",
+  };
   const named = (stem) =>
-    stem === "panel"
-      ? [...files.keys()].find((name) => files.get(name).toString("utf8").includes(MARKER))
+    Object.hasOwn(MARKERS, stem)
+      ? [...files.keys()].find((name) => files.get(name).toString("utf8").includes(MARKERS[stem]))
       : [...files.keys()].find((name) => name.startsWith(`${stem}.`));
+  // The export (W8): its controls, and the images chunk (PNG and SVG) and the picture's map and
+  // heatmap parts they load as they open. Each is a
+  // lazy root, gated with what it imports statically like every other (`measure` below); none may
+  // load with a first screen (checked below); and what a visitor holds once a view's export is open
+  // is printed, not gated, since exports are made only on request and no first screen loads them.
+  const exportChunks = ["controls", "picture", "maps-part", "heatmap-part"].map((stem) => [
+    stem,
+    named(stem),
+  ]);
+  for (const [stem, name] of exportChunks) {
+    if (name) {
+      notes.push(
+        `site build: the export's ${stem} chunk ${name}: ${kb(gzipped(files.get(name)))} gzipped on its own.`,
+      );
+      continue;
+    }
+    results.push({
+      label: `site build: the export's ${stem} chunk is missing`,
+      size: 1,
+      raw: 0,
+      budget: 0,
+    });
+  }
+  const exportNames = new Set(exportChunks.map(([, name]) => name).filter(Boolean));
   for (const [tab, stems] of [
     ["Spectrum tab", ["panel", "lines", "sensor-field-view", "spectrum"]],
     ["Components tab", ["panel", "sensor-field-view", "histogram", "components"]],
@@ -140,7 +169,25 @@ function siteUnions(dir) {
     );
     const page = island ? staticClosure([island], files) : new Set();
     const set = new Set([...staticClosure(roots, files)].filter((name) => !page.has(name)));
+    for (const name of set) {
+      if (!exportNames.has(name)) continue;
+      results.push({
+        label: `site build: first screen, ${tab}: the export's chunk ${name} loads with it`,
+        size: 1,
+        raw: 0,
+        budget: 0,
+      });
+    }
     const all = [...set].map((name) => files.get(name));
+    if (exportNames.size === exportChunks.length) {
+      const open = new Set(
+        [...staticClosure([...roots, ...exportNames], files)].filter((name) => !page.has(name)),
+      );
+      const bytes = [...open].map((name) => files.get(name));
+      notes.push(
+        `site build: ${tab} with a view's export open (controls, images, maps and heatmap parts), not gated: ${open.size} files, ${kb(gzipped(Buffer.concat(bytes)))} gzipped together, ${kb(gzipped(Buffer.concat(bytes)) - gzipped(Buffer.concat(all)))} over the first screen.`,
+      );
+    }
     results.push({
       label: `site build: first screen, ${tab}, ${set.size} files gzipped together`,
       size: gzipped(Buffer.concat(all)),

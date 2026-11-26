@@ -349,3 +349,45 @@ export async function drawActivity(a: Activity, canvas: ActivityCanvas, label: s
     dispose: () => gl?.dispose(),
   };
 }
+
+// ── Export (website phase W8) ───────────────────────────────────────────
+
+/** The activations each figure shows now, by its figure: read by the view's export (W8) at each
+ *  click, so it saves the window on show. */
+export const shownActivity = new WeakMap<
+  Element,
+  () => {
+    readonly activity: Activity;
+    readonly label: string;
+    /** The notes the figure prints under the window, in order: what was computed, the display
+     *  filter, the store digest's state, the archive and transform captions, and the shaded
+     *  spans (ADR 0137 decision 9's captions). */
+    readonly notes: readonly string[];
+  }
+>();
+
+/** The window an activity covers, in seconds: its first sample's time and its length. */
+export const activityWindow = (a: Activity): { startS: number; lengthS: number } => ({
+  startS: a.plan.start / a.plan.rate,
+  lengthS: a.plan.count / a.plan.rate,
+});
+
+/** The drawn window's height for `n` components, as the page sizes it. */
+export const activityHeight = (n: number): number => Math.min(640, Math.max(160, n * 18 + 30));
+
+/**
+ * A painter of the window on show, all in 2D in `colors`: the export's copy. The page draws its
+ * traces with WebGL, whose drawing buffer is not kept (`preserveDrawingBuffer: false`), so the
+ * export draws the same frame again with the viewer's 2D renderer (`renderFrame`) instead of
+ * reading the page's canvases.
+ */
+export async function activityPainter(
+  a: Activity,
+  label: string,
+  colors: ActivityCanvas["colors"],
+): Promise<(ctx: CanvasRenderingContext2D, width: number, height: number) => void> {
+  const render = await import("../eeg-viewer/render");
+  const frame = activityFrame(a, colors.foreground, label);
+  return (ctx, width, height) =>
+    render.renderFrame(ctx, frame, { ...render.DEFAULT_RENDER, ...colors, width, height });
+}
