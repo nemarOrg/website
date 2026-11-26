@@ -21,8 +21,8 @@ import {
   locateBin,
   snapRow,
 } from "../src/lib/quality-views/model";
-import { MontageNotFound, loadMontage } from "../src/lib/quality-views/montage-loader";
-import { type Montage, MontageFileInvalid, parseMontage } from "../src/lib/quality-views/montages";
+import { MONTAGE_NOT_FOUND, loadMontage } from "../src/lib/quality-views/montage-loader";
+import { type Montage, parseMontage } from "../src/lib/quality-views/montages";
 import { MAP_SENTENCES } from "../src/lib/quality-views/render/words";
 import { MONTAGE_UNAVAILABLE } from "../src/lib/quality-views/sensor-labels-copy";
 import { nodeFs, repoPath } from "./node";
@@ -145,13 +145,13 @@ describe("model vectors", () => {
       "biosemi256",
       () =>
         Promise.resolve().then(() => parseMontage({ format: "nemar.montage.v2" }, "biosemi256")),
-      MontageFileInvalid,
+      "MontageFileInvalid",
     ],
     [
       "a montage name no file has",
       "standard_1005",
       () => loadMontage("Standard_1005"),
-      MontageNotFound,
+      MONTAGE_NOT_FOUND,
     ],
   ] as const)("propagates %s", async (_what, name, broken, kind) => {
     const c = vectors.cases.find((v) => v.name === "sensor_field_names")!;
@@ -164,7 +164,8 @@ describe("model vectors", () => {
         (built) => built,
         (thrown: unknown) => thrown,
       );
-      expect(outcome).toBeInstanceOf(kind);
+      expect(outcome).toBeInstanceOf(Error);
+      expect((outcome as Error).name).toBe(kind);
       expect(error).not.toHaveBeenCalled();
     } finally {
       error.mockRestore();
