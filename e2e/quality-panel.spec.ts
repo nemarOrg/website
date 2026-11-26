@@ -745,7 +745,13 @@ test("the window buttons keep the keyboard's focus at the recording's ends", asy
   // At the end: Later says it does nothing more, and keeps the focus.
   await expect(later).toHaveAttribute("aria-disabled", "true");
   await expect(later).toBeFocused();
+  const computes = () =>
+    page.evaluate(() => (window as unknown as { counted: { computes: number } }).counted.computes);
+  const before = await computes();
   await page.keyboard.press("Enter");
+  await page.waitForTimeout(300);
+  // Nothing recomputed for a button that says it does nothing.
+  expect(await computes()).toBe(before);
   await expect(view.locator(".qp-activity__where")).toHaveText("20 s to 29.995 s of 30 s");
   await expect(later).toBeFocused();
   await expect(earlier).toHaveAttribute("aria-disabled", "false");
