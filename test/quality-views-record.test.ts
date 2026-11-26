@@ -92,24 +92,25 @@ describe("a record answer", () => {
     expect(await readRecordAnswer(BODY, null, ASK, false)).toMatchObject({ recipe: ASK.recipe });
   });
 
-  it("was captured with the ETag the panel requires, exposed to the site when the route says so", () => {
+  it("was captured with the ETag the panel requires, exposed to the site's origins", () => {
     expect(etagDigest(captured.headers.ETag)).toMatch(/^[0-9a-f]{64}$/);
-    const exposed = captured.headers["Access-Control-Expose-Headers"];
-    if (exposed === undefined) {
-      console.info("[quality record] the captured answer carries no Access-Control-Expose-Headers yet (nemar-cli epic #2324 adds ETag to it); re-capture once it does.");
-    } else {
-      expect(exposed.split(",").map((h) => h.trim().toLowerCase())).toContain("etag");
-    }
+    // nemar-cli#2400: the public quality route exposes ETag; without it the browser cannot read it.
+    const exposed = captured.headers["Access-Control-Expose-Headers"] ?? "";
+    expect(exposed.split(",").map((h) => h.trim().toLowerCase())).toContain("etag");
   });
 
-  it("is lenient only for this page's own origin or a loopback host", () => {
-    expect(lenientBase("https://data.nemar.org", "https://nemar.org")).toBe(false);
-    expect(lenientBase("https://data.example.invalid", "https://nemar.org")).toBe(false);
-    expect(lenientBase("http://localhost:8787/data", "https://nemar.org")).toBe(true);
-    expect(lenientBase("http://127.0.0.1:8787/data", "https://nemar.org")).toBe(true);
-    expect(lenientBase("https://nemar.org/data", "https://nemar.org")).toBe(true);
-    expect(lenientBase("not a url", "https://nemar.org")).toBe(false);
+  it("is lenient only for a loopback host", () => {
+    expect(lenientBase("https://data.nemar.org")).toBe(false);
+    expect(lenientBase("https://data.example.invalid")).toBe(false);
+    // The page's own origin is not enough: a same-origin data plane is still the data plane.
+    expect(lenientBase("https://nemar.org/data")).toBe(false);
+    expect(lenientBase("http://localhost:8787/data")).toBe(true);
+    expect(lenientBase("http://127.0.0.1:8787/data")).toBe(true);
+    expect(lenientBase("http://[::1]:8787/data")).toBe(true);
+    expect(lenientBase("http://localhost.example.org/data")).toBe(false);
+    expect(lenientBase("not a url")).toBe(false);
   });
+
 
   it("refuses a fetched record whose ETag the data plane does not expose", async () => {
     const hidden = { ...captured.headers };

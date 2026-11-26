@@ -9,7 +9,7 @@
  *    the site's origins (`Access-Control-Expose-Headers`), and an answer with none, or one that
  *    names no SHA-256, is refused (`record_digest_missing`), never read unchecked. Only local
  *    development reads an answer without one (`requireDigest: false`, which `quality-api.ts` gives
- *    for a same-origin or loopback base alone).
+ *    for a loopback base alone).
  * 2. The text, as Internet JSON (`read.ts`).
  * 3. The answer's envelope (an open contract: an extra member is tolerated, a missing or wrongly
  *    typed one refuses it), and that it is the dataset, recipe and recording asked for.

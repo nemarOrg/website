@@ -6,9 +6,8 @@
  * bytes are handed to the model (`model.ts`), which checks their size and SHA-256 before it parses
  * them; this client reads no more than the declared size, so a longer answer is a missing file.
  *
- * The record's `ETag` digest is required unless the data plane is this page's own origin or a
- * loopback host (`lenientBase`): local development and the browser tests against a local backend,
- * and nothing a visitor reaches.
+ * The record's `ETag` digest is required unless the data plane is a loopback host (`lenientBase`):
+ * a local backend in development, and nothing a visitor reaches.
  *
  * Every answer but a record is one of three states, which the panel words:
  * - `none`: the route says this recording has no quality (`quality_not_found`: no promoted
@@ -56,21 +55,17 @@ function routeWord(bytes: Uint8Array | null): string | null {
   }
 }
 
-/** Whether `base` is local development (this page's own origin, or a loopback host), the one
- *  place a record is read without its `ETag` digest. */
-export function lenientBase(base: string, pageOrigin = globalThis.location?.origin): boolean {
-  let url: URL;
+/** Whether `base` is local development, a loopback host: the one place a record is read without
+ *  its `ETag` digest (a local backend). Every other data plane, this site's own origin included,
+ *  must send it. */
+export function lenientBase(base: string): boolean {
+  let host: string;
   try {
-    url = new URL(base);
+    host = new URL(base).hostname;
   } catch {
     return false;
   }
-  return (
-    url.origin === pageOrigin ||
-    url.hostname === "localhost" ||
-    url.hostname === "127.0.0.1" ||
-    url.hostname === "[::1]"
-  );
+  return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
 }
 
 /** Fetch and read one recording's record. Never rejects, except when `signal` aborts. */
