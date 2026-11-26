@@ -233,11 +233,18 @@ class MontageUnavailable {
   constructor(readonly failure: unknown) {}
 }
 
-/** `load()`, or `MontageUnavailable` when it rejects. */
+/** Errors a reload does not mend: a montage file that is not what it says (`MontageFileInvalid`)
+ *  and a name no file has (`MontageNotFound`, `montage-loader.ts`). Named, not imported, so the
+ *  model loads no montage code. */
+const NOT_RELOADABLE = new Set(["MontageFileInvalid", "MontageNotFound"]);
+
+/** `load()`, or `MontageUnavailable` when it fails as a fetch or a chunk does (offline, redeployed,
+ *  a chunk that throws as it evaluates); any error a reload does not mend is rethrown as is. */
 async function loaded<T>(load: () => Promise<T>): Promise<T> {
   try {
     return await load();
   } catch (error) {
+    if (error instanceof Error && NOT_RELOADABLE.has(error.name)) throw error;
     throw new MontageUnavailable(error);
   }
 }

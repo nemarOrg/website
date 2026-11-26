@@ -21,7 +21,10 @@ import {
   locateBin,
   snapRow,
 } from "../src/lib/quality-views/model";
-import { type Montage, parseMontage } from "../src/lib/quality-views/montages";
+import { MontageNotFound, loadMontage } from "../src/lib/quality-views/montage-loader";
+import { type Montage, MontageFileInvalid, parseMontage } from "../src/lib/quality-views/montages";
+import { MAP_SENTENCES } from "../src/lib/quality-views/render/words";
+import { MONTAGE_UNAVAILABLE } from "../src/lib/quality-views/sensor-labels-copy";
 import { nodeFs, repoPath } from "./node";
 import { MONTAGES_DIR, mapOutcome, same } from "./quality-views-vectors";
 
@@ -122,11 +125,47 @@ describe("model vectors", () => {
       expect(same(built.refused, c.model.refused)).toBeNull();
       expect(same(built.downloads, c.model.downloads)).toBeNull();
       const model = built.model as SensorFieldModel;
-      expect(model.placement.word).toBe("montage_unavailable");
+      // The model writes the word as a literal; it is the copy module's, with a sentence.
+      expect(model.placement.word).toBe(MONTAGE_UNAVAILABLE);
+      expect(MAP_SENTENCES[model.placement.word!]).toBeDefined();
       expect(model.sensors.drawn.every((d) => !d)).toBe(true);
-      expect(model.maps.items.every((item) => item.word === "montage_unavailable")).toBe(true);
+      expect(model.maps.items.every((item) => item.word === MONTAGE_UNAVAILABLE)).toBe(true);
       expect(built.layout).toBeUndefined();
       expect(error).toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  // A file that is not the montage, or a name no file has, is not mended by a reload: it propagates
+  // as itself and is never labeled montage_unavailable (kills: loaded() catching every error).
+  it.each([
+    [
+      "a montage file that is not the montage",
+      "biosemi256",
+      () =>
+        Promise.resolve().then(() => parseMontage({ format: "nemar.montage.v2" }, "biosemi256")),
+      MontageFileInvalid,
+    ],
+    [
+      "a montage name no file has",
+      "standard_1005",
+      () => loadMontage("Standard_1005"),
+      MontageNotFound,
+    ],
+  ] as const)("propagates %s", async (_what, name, broken, kind) => {
+    const c = vectors.cases.find((v) => v.name === "sensor_field_names")!;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const outcome = await buildModel(c.view, source(c.files), {
+        ...options(c.caps),
+        montage: (n: string) => (n === name ? broken() : montage(n)),
+      }).then(
+        (built) => built,
+        (thrown: unknown) => thrown,
+      );
+      expect(outcome).toBeInstanceOf(kind);
+      expect(error).not.toHaveBeenCalled();
     } finally {
       error.mockRestore();
     }
