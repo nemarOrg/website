@@ -26,9 +26,13 @@ import {
   COMPUTE_PIPELINE_STAMP_ID_RE,
   COMPUTE_PIPELINE_TREND_DAYS_DEFAULT,
   COMPUTE_PIPELINE_TREND_DAYS_MAX,
+  COMPUTE_RUN_QUALITY_PAGE_SIZE,
+  COMPUTE_RUN_QUALITY_RECORDINGS_STATES,
+  COMPUTE_RUN_QUALITY_STATES,
   PIPELINE_STAMP_NOT_FOUND,
   PROGRESS_MAX_FAILURES,
   RUNNER_ID_RE,
+  SERVING_INDEX_DEFERRED,
   STANDARD_CHECKPOINTS,
   STORED_CHECKPOINT,
 } from "../src/lib/compute-pipeline-contract";
@@ -147,6 +151,16 @@ describe.skipIf(SHOULD_SKIP)("against nemar-cli's pipeline grid contract", () =>
         extractStringArray(admin, "COMPUTE_PIPELINE_RUN_OUTCOMES"),
       ],
       [
+        "COMPUTE_RUN_QUALITY_STATES",
+        COMPUTE_RUN_QUALITY_STATES,
+        extractStringArray(admin, "COMPUTE_RUN_QUALITY_STATES"),
+      ],
+      [
+        "COMPUTE_RUN_QUALITY_RECORDINGS_STATES",
+        COMPUTE_RUN_QUALITY_RECORDINGS_STATES,
+        extractStringArray(admin, "COMPUTE_RUN_QUALITY_RECORDINGS_STATES"),
+      ],
+      [
         "STANDARD_CHECKPOINTS",
         STANDARD_CHECKPOINTS,
         extractStringArray(recipes, "STANDARD_CHECKPOINTS"),
@@ -170,6 +184,7 @@ describe.skipIf(SHOULD_SKIP)("against nemar-cli's pipeline grid contract", () =>
       ["COMPUTE_PIPELINE_TREND_DAYS_DEFAULT", COMPUTE_PIPELINE_TREND_DAYS_DEFAULT],
       ["COMPUTE_PIPELINE_TREND_DAYS_MAX", COMPUTE_PIPELINE_TREND_DAYS_MAX],
       ["PROGRESS_MAX_FAILURES", PROGRESS_MAX_FAILURES],
+      ["COMPUTE_RUN_QUALITY_PAGE_SIZE", COMPUTE_RUN_QUALITY_PAGE_SIZE],
       ["STORED_CHECKPOINT", STORED_CHECKPOINT],
     ]);
     const result = compareConstants(ours, merged);
@@ -180,7 +195,15 @@ describe.skipIf(SHOULD_SKIP)("against nemar-cli's pipeline grid contract", () =>
   it("declares the same patterns", () => {
     const admin = read(CONTRACT_PATH as string);
     const patterns: ReadonlyArray<[string, RegExp, string]> = [
-      ["COMPUTE_PIPELINE_STAMP_ID_RE", COMPUTE_PIPELINE_STAMP_ID_RE, admin],
+      // Declared in the import-free leaf `compute-stamp.ts` since nemar-cli phase B3b, which
+      // `compute-admin.ts` re-exports; read from the admin contract where it is still declared.
+      [
+        "COMPUTE_PIPELINE_STAMP_ID_RE",
+        COMPUTE_PIPELINE_STAMP_ID_RE,
+        extractRegexLiteral(admin, "COMPUTE_PIPELINE_STAMP_ID_RE")
+          ? admin
+          : read(sibling("compute-stamp.ts")),
+      ],
       ["COMPUTE_PIPELINE_RECIPE_VERSION_RE", COMPUTE_PIPELINE_RECIPE_VERSION_RE, admin],
       ["RUNNER_ID_RE", RUNNER_ID_RE, read(sibling("compute-runner.ts"))],
       ["COMPUTE_DATASET_ID_RE", COMPUTE_DATASET_ID_RE, read(sibling("compute.ts"))],
@@ -201,5 +224,12 @@ describe.skipIf(SHOULD_SKIP)("against nemar-cli's pipeline grid contract", () =>
     expect(
       extractSatisfiedNumberMap(admin, "COMPUTE_ADMIN_ERROR_STATUS")?.[PIPELINE_STAMP_NOT_FOUND],
     ).toBe(404);
+  });
+
+  it("defers a run on a serving-index fault with serving_index_deferred, and says when it goes ahead", () => {
+    const admin = read(CONTRACT_PATH as string);
+    // A pipeline-only refusal word with its 503 (phase B2b), and the dispatch answer's field.
+    expect(admin).toMatch(new RegExp(`\\n\\s*${SERVING_INDEX_DEFERRED}: 503,`));
+    expect(admin).toMatch(/\n\s*runs_without_index_after: z\.string\(\)\.optional\(\),/);
   });
 });

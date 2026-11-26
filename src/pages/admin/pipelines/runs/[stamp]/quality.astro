@@ -1,0 +1,333 @@
+---
+/**
+ * One run's quality views (website phase W9, #588; nemar-cli ADR 0137 decision 7): where the run's
+ * derivative stands, a page of the recordings that succeeded, and the views of one recording
+ * drawn from STORED data only (the Spectrum, the component maps and the class histogram), read
+ * through the site's same-origin proxy of the admin mount (`quality/[...rest].ts`). Computed views
+ * are listed, never drawn. No content security policy change: every fetch is same-origin.
+ *
+ * Admin only (`adminGate` before any fetch), never cached. A recording path is text derived from a
+ * dataset: it is offered only when it is a recording path the quality routes take, printed as
+ * text, and put in a URL only encoded. The dataset's public page is linked only for a `current`
+ * derivative of a dataset public now, so a concealed anonymous deposit never gets a public link.
+ */
+import "../../../../../styles/quality-views.css";
+import ComputeSectionError from "../../../../../components/admin/ComputeSectionError.astro";
+import AdminLayout from "../../../../../layouts/AdminLayout.astro";
+import { adminGate } from "../../../../../lib/admin-guard";
+import { getSession } from "../../../../../lib/auth";
+import { ComputeAdminApiError, computeAdminErrorText } from "../../../../../lib/compute-admin-api";
+import {
+  type PipelineRunDetail,
+  getPipelineRun,
+  isNotAvailable,
+} from "../../../../../lib/compute-pipeline-api";
+import { PIPELINE_STAMP_NOT_FOUND } from "../../../../../lib/compute-pipeline-contract";
+import { PIPELINE_LABELS } from "../../../../../lib/compute-pipeline-labels";
+import { parseStampParam } from "../../../../../lib/compute-pipeline-view";
+import { displaySafeLine } from "../../../../../lib/mail-display";
+import { type RunQuality, getRunQuality } from "../../../../../lib/pipeline-quality-api";
+import { PIPELINE_QUALITY_LABELS as QL } from "../../../../../lib/pipeline-quality-labels";
+import {
+  deferralOf,
+  deferralText,
+  drawableRecordings,
+  drillHref,
+  nextPageHref,
+  pickRecording,
+  recordingParam,
+  recordingsSentence,
+  runQualityView,
+} from "../../../../../lib/pipeline-quality-view";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
+}
+if (!session) {
+  // adminGate(null, ...) always returns a redirect above; this only narrows `session`.
+  return Astro.redirect("/login");
+}
+Astro.response.headers.set("Cache-Control", "no-store");
+
+const stampId = parseStampParam(Astro.params.stamp);
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+const after = recordingParam(Astro.url.searchParams.get("after"));
+const asked = recordingParam(Astro.url.searchParams.get("recording"));
+
+type Read<T> =
+  | { ok: true; value: T }
+  | { ok: false; notFound: boolean; notAvailable: boolean; reason: string };
+function settle<T>(p: Promise<T>): Promise<Read<T>> {
+  return p.then(
+    (value): Read<T> => ({ ok: true, value }),
+    (err: unknown): Read<T> => ({
+      ok: false,
+      notFound: err instanceof ComputeAdminApiError && err.code === PIPELINE_STAMP_NOT_FOUND,
+      notAvailable: isNotAvailable(err),
+      reason: computeAdminErrorText(err),
+    }),
+  );
+}
+const missing = { ok: false, notFound: true, notAvailable: false, reason: "" } as const;
+const [runRead, qualityRead]: [Read<PipelineRunDetail>, Read<RunQuality>] =
+  stampId === null
+    ? [missing, missing]
+    : await Promise.all([
+        settle(getPipelineRun(stampId, { cookieHeader })),
+        settle(getRunQuality(stampId, after, { cookieHeader })),
+      ]);
+const notFound = (!runRead.ok && runRead.notFound) || (!qualityRead.ok && qualityRead.notFound);
+if (notFound) Astro.response.status = 404;
+
+const q = qualityRead.ok ? qualityRead.value : null;
+const view = q ? runQualityView(q) : null;
+const deferral = runRead.ok ? deferralOf(runRead.value.run) : null;
+const listed = q && q.recordings.state === "listed" ? drawableRecordings(q) : [];
+const picked = pickRecording(listed, asked);
+const next = q && stampId !== null ? nextPageHref(stampId, q) : null;
+const backHref = stampId === null ? "/admin/pipelines" : `/admin/pipelines/runs/${stampId}`;
+const title = stampId === null ? QL.drillHeading : `${QL.drillHeading} #${stampId}`;
+---
+
+<AdminLayout title={title} active="pipelines" session={session}>
+  <Fragment slot="lede">{QL.storedOnly}</Fragment>
+
+  <div class="pq">
+    <p class="pq__back"><a href={backHref}>{QL.backToRun}</a></p>
+
+    {
+      notFound && (
+        <div class="pq__note" data-pipeline-run-not-found>
+          <p class="pq__note-title">{PIPELINE_LABELS.runNotFoundTitle}</p>
+          <p>{PIPELINE_LABELS.runNotFoundBody}</p>
+        </div>
+      )
+    }
+    {
+      !notFound && !qualityRead.ok && qualityRead.notAvailable && (
+        <div class="pq__note">
+          <p class="pq__note-title">{QL.notAvailableTitle}</p>
+          <p>{QL.notAvailableBody}</p>
+        </div>
+      )
+    }
+    {
+      !notFound && !qualityRead.ok && !qualityRead.notAvailable && (
+        <ComputeSectionError what={QL.whatQuality} reason={qualityRead.reason} />
+      )
+    }
+
+    {
+      q && view && stampId !== null && (
+        <Fragment>
+          <section class="pq__box" aria-labelledby="pq-state-title" data-run-quality>
+            <h2 id="pq-state-title">{QL.stateHeading}</h2>
+            {deferral && (
+              <div class="pq__note" data-run-deferred>
+                <p class="pq__note-title">{QL.deferredTitle}</p>
+                <p>{deferralText(deferral)}</p>
+              </div>
+            )}
+            <p data-quality-word={view.word}>
+              {view.notPublic && (
+                <span class="pq__tag" data-quality-not-public>{QL.notPublic}</span>
+              )}{" "}
+              {view.sentence}
+            </p>
+            {view.detail && <p class="pq__aside">{view.detail}</p>}
+            {view.notPublic && <p class="pq__aside">{QL.notPublicBody}</p>}
+            <dl>
+              <div class="pq__fact">
+                <dt>{PIPELINE_LABELS.fieldDataset}</dt>
+                <dd>{displaySafeLine(q.dataset_id)}</dd>
+              </div>
+              <div class="pq__fact">
+                <dt>{PIPELINE_LABELS.fieldVersion}</dt>
+                <dd>{displaySafeLine(q.version)}</dd>
+              </div>
+              <div class="pq__fact">
+                <dt>{PIPELINE_LABELS.fieldRecipe}</dt>
+                <dd>{displaySafeLine(q.recipe)}</dd>
+              </div>
+              {view.facts.map(([k, v]) => (
+                <div class="pq__fact">
+                  <dt>{k}</dt>
+                  <dd>{v}</dd>
+                </div>
+              ))}
+            </dl>
+            {view.publicHref && (
+              <p>
+                <a href={view.publicHref} data-quality-public>{QL.publicLink}</a>
+              </p>
+            )}
+          </section>
+
+          <section class="pq__box" aria-labelledby="pq-rec-title">
+            <h2 id="pq-rec-title">{QL.recordingsHeading}</h2>
+            <p class="pq__aside" data-recordings-word={q.recordings.state}>
+              {recordingsSentence(q.recordings.state)}
+            </p>
+            {q.recordings.unlisted > 0 && (
+              <p class="pq__aside">
+                {QL.unlisted}: {q.recordings.unlisted}
+              </p>
+            )}
+            <p class="pq__links">
+              {after !== null && <a href={drillHref(stampId)}>{QL.firstPage}</a>}
+              {next && <a href={next}>{QL.nextPage}</a>}
+            </p>
+          </section>
+
+          {picked !== null ? (
+            <section
+              class="pq__box qd"
+              aria-labelledby="pq-views-title"
+              data-admin-drill
+              data-stamp={String(stampId)}
+              data-dataset={q.dataset_id}
+              data-recipe={q.recipe}
+              data-recording={picked}
+            >
+              <h2 id="pq-views-title">{QL.heading}</h2>
+              <label class="pq__pick">
+                <span>{QL.recording}</span>
+                <select data-qd-recording>
+                  {listed.map((path) => (
+                    <option value={path} selected={path === picked}>
+                      {displaySafeLine(path)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p class="pq__aside">{QL.storedOnly}</p>
+              <p class="pq__status" data-qd-status role="status">{QL.loading}</p>
+              <noscript>
+                <p class="pq__status">{QL.needsScript}</p>
+              </noscript>
+              <div class="qd__views" data-qd-views></div>
+              <h3>{QL.computedHeading}</h3>
+              <p class="pq__aside">{QL.computedLead}</p>
+              <div data-qd-computed></div>
+            </section>
+          ) : (
+            <p class="pq__aside" data-qd-none>{QL.noRecording}</p>
+          )}
+        </Fragment>
+      )
+    }
+  </div>
+</AdminLayout>
+
+<script>
+  for (const root of document.querySelectorAll<HTMLElement>("[data-admin-drill]")) {
+    const stampId = Number(root.dataset.stamp);
+    if (!Number.isSafeInteger(stampId) || stampId < 1) continue;
+    void import("../../../../../lib/quality-views/admin-drill").then((m) => {
+      const handle = m.mountAdminDrill({
+        root,
+        stampId,
+        datasetId: root.dataset.dataset ?? "",
+        recipe: root.dataset.recipe ?? "",
+      });
+      void handle.ready().then(() => {
+        root.dataset.qdReady = "";
+      });
+    });
+  }
+</script>
+
+<style>
+  .pq {
+    display: grid;
+    gap: var(--space-5);
+    min-inline-size: 0;
+  }
+  .pq a {
+    color: var(--color-link);
+  }
+  .pq h2 {
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+  }
+  .pq h3 {
+    margin: var(--space-3) 0 0;
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+  }
+  .pq p {
+    margin: 0;
+  }
+  .pq__box {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    min-inline-size: 0;
+    overflow-x: auto;
+  }
+  .pq__box dl {
+    display: grid;
+    gap: var(--space-1) var(--space-5);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr));
+    margin: 0;
+  }
+  .pq__fact {
+    display: grid;
+    gap: 2px;
+  }
+  .pq__fact dt {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+  }
+  .pq__fact dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+  }
+  .pq__aside {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .pq__tag {
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--admin-warn-soft);
+    color: var(--admin-warn-text);
+    font-size: var(--fs-xs);
+  }
+  .pq__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+  .pq__pick {
+    display: grid;
+    gap: 2px;
+    max-inline-size: 100%;
+  }
+  .pq__pick select {
+    max-inline-size: 100%;
+  }
+  .pq__note {
+    padding: var(--space-4) var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    color: var(--color-fg-muted);
+  }
+  .pq__note-title {
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .qd__views {
+    display: grid;
+    gap: var(--space-4);
+    min-inline-size: 0;
+  }
+</style>

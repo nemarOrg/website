@@ -127,6 +127,12 @@ export interface PipelineRunView {
   readonly disagreement: boolean;
   readonly created_at: string;
   readonly updated_at: string;
+  /**
+   * A `serving_index_deferred` stamp only: when the run goes ahead without the serving index. The
+   * dispatch's answer carries it (nemar-cli phase B2b); the run detail does not yet, so it is
+   * optional and read only when it is a string.
+   */
+  readonly runs_without_index_after: string | null;
 }
 
 export function parseRunView(value: unknown): PipelineRunView {
@@ -156,6 +162,8 @@ export function parseRunView(value: unknown): PipelineRunView {
     disagreement: bool(d.disagreement),
     created_at: str(d.created_at),
     updated_at: str(d.updated_at),
+    runs_without_index_after:
+      typeof d.runs_without_index_after === "string" ? d.runs_without_index_after : null,
   };
 }
 

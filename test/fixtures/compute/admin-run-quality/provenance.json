@@ -1,0 +1,10 @@
+{
+  "nemar_cli_commit": "311c71fa",
+  "stamps": [
+    "current",
+    "canary",
+    "expired",
+    "in_progress",
+    "deferred"
+  ]
+}
