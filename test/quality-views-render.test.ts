@@ -320,15 +320,16 @@ describe("scalp maps", () => {
     for (const c of field) {
       const b = await built(c);
       if (b.model.type !== "sensor-field") continue;
-      const draw = fieldDrawInput({ ...b, model: b.model });
-      if (b.model.placement.word !== null) {
+      const model: SensorFieldModel = b.model;
+      const draw = fieldDrawInput({ ...b, model });
+      if (model.placement.word !== null) {
         expect(draw).toBeNull();
         continue;
       }
       if (!draw) continue;
-      expect(draw.rows).toEqual(b.model.sensors.drawn.flatMap((d, k) => (d ? [k] : [])));
+      expect(draw.rows).toEqual(model.sensors.drawn.flatMap((d, k) => (d ? [k] : [])));
       for (const [i, m] of draw.mapIndices.entries()) {
-        expect([...draw.maps[i]]).toEqual(draw.rows.map((k) => b.model.maps.items[m].values[k]));
+        expect([...draw.maps[i]]).toEqual(draw.rows.map((k) => model.maps.items[m].values[k]));
       }
     }
   });
