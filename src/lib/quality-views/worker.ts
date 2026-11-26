@@ -434,16 +434,28 @@ export function createSensorFieldHandler(
       cancelled.add(request.id);
       return;
     }
-    if (request.type === "check" || request.type === "check-content") {
+    if (request.type === "check") {
+      try {
+        const check = checkView(request.view);
+        post(
+          check
+            ? { type: "checked", id: request.id, ...check }
+            : { type: "unchecked", id: request.id },
+          [],
+        );
+      } catch (error) {
+        post({ type: "failure", id: request.id, message: describe(error) }, []);
+      }
+      return;
+    }
+    if (request.type === "check-content") {
       try {
         post(
-          request.type === "check"
-            ? { type: "checked", id: request.id, ...checkView(request.view) }
-            : {
-                type: "content-checked",
-                id: request.id,
-                valid: checkContent(request.schema, request.content),
-              },
+          {
+            type: "content-checked",
+            id: request.id,
+            valid: checkContent(request.schema, request.content),
+          },
           [],
         );
       } catch (error) {

@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import { CONTENT_SCHEMAS, declarationValid } from "../src/lib/quality-views/guards";
+import { COMPUTED_SCHEMAS } from "../src/lib/quality-views/guards-computed";
 import { nodeFs, repoPath } from "./node";
 
 interface VerdictCase {
@@ -33,7 +34,7 @@ const NOT_DRAWN: Readonly<Record<string, string>> = {
 };
 
 function verdict(schema: string, instance: unknown): boolean {
-  if (schema === "view") return declarationValid(instance);
+  if (schema === "view") return declarationValid(instance, COMPUTED_SCHEMAS);
   const guard = CONTENT_SCHEMAS[schema];
   if (!guard) throw new Error(`no guard for ${schema}`);
   return guard(instance);

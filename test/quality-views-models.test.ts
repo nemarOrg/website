@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { localChecks } from "../src/lib/quality-views/local-checks";
 import {
   type BuiltModel,
   type FileDecl,
@@ -22,7 +23,6 @@ import {
   locateBin,
   snapRow,
 } from "../src/lib/quality-views/model";
-import { localChecks } from "../src/lib/quality-views/kinds";
 import { type Montage, parseMontage } from "../src/lib/quality-views/montages";
 import { nodeFs, repoPath } from "./node";
 import { MONTAGES_DIR, mapOutcome } from "./quality-views-vectors";

@@ -203,6 +203,8 @@ export type WorkerResponse =
     }
   | ({ readonly type: "checked"; readonly id: number } & ViewCheck)
   | { readonly type: "content-checked"; readonly id: number; readonly valid: boolean }
+  /** The worker does not hold this view's schemas (a computed preset): the page checks it. */
+  | { readonly type: "unchecked"; readonly id: number }
   | { readonly type: "failure"; readonly id: number | null; readonly message: string };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -350,6 +352,8 @@ export function isWorkerResponse(value: unknown): value is WorkerResponse {
       );
     case "content-checked":
       return Number.isInteger(value.id) && typeof value.valid === "boolean";
+    case "unchecked":
+      return Number.isInteger(value.id);
     case "prepared":
       return (
         Number.isInteger(value.id) &&

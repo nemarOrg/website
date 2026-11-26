@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { localChecks } from "../src/lib/quality-views/kinds";
+import { localChecks } from "../src/lib/quality-views/local-checks";
 import {
   BUILDERS,
   type FileDecl,

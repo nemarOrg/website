@@ -142,7 +142,10 @@ function lazyRenderers(label, rollup, dir) {
     return seen;
   };
   const base = closure(entry.fileName);
-  const lazyKind = /\/quality-views\/(render\/|export\/|transforms\/|activations\.ts)/;
+  // The page's own checks (local-checks.ts, guards-computed.ts) load lazily for a computed
+  // preset or a worker that cannot answer, and are measured the same way.
+  const lazyKind =
+    /\/quality-views\/(render\/|export\/|transforms\/|activations\.ts|local-checks\.ts|guards-computed\.ts)/;
   const mustBeLazy = /\/quality-views\/(export\/|transforms\/|activations\.ts)/;
   for (const name of base) {
     const held = chunks.get(name).moduleIds.filter((id) => mustBeLazy.test(id));
@@ -155,13 +158,24 @@ function lazyRenderers(label, rollup, dir) {
       });
     }
   }
+  // Lazy chunks of the entry's set, and theirs in turn (guards-computed loads from local-checks).
   const lazy = new Set();
-  for (const name of base) for (const d of chunks.get(name).dynamicImports) lazy.add(d);
+  const visit = (name) => {
+    for (const d of chunks.get(name)?.dynamicImports ?? []) {
+      if (lazy.has(d)) continue;
+      lazy.add(d);
+      for (const member of closure(d)) visit(member);
+    }
+  };
+  for (const name of base) visit(name);
   let measured = 0;
   for (const name of [...lazy].sort()) {
     const chunk = chunks.get(name);
     if (!chunk || !chunk.moduleIds.some((id) => lazyKind.test(id))) continue;
-    const set = new Set([...base, ...closure(name)]);
+    // What a page holds once it has loaded this chunk: the entry's set, this chunk's static set,
+    // and the lazy chunk that imported it, when that is one of these.
+    const parents = [...lazy].filter((p) => chunks.get(p)?.dynamicImports.includes(name));
+    const set = new Set([...base, ...closure(name), ...parents.flatMap((p) => [...closure(p)])]);
     let size = 0;
     let raw = 0;
     for (const member of set) {

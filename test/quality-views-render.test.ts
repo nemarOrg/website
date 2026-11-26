@@ -9,7 +9,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { drawAs, localChecks } from "../src/lib/quality-views/kinds";
+import { drawAs } from "../src/lib/quality-views/kinds";
+import { localChecks } from "../src/lib/quality-views/local-checks";
 import {
   type BuiltModel,
   type FileDecl,
@@ -425,7 +426,9 @@ describe("the review's fixes (#594)", () => {
     if (model.heights === "density") {
       expect(histogramReadout(model, bin)).toContain("per unit width");
     }
-    expect(histogramReadout({ ...model, unit: "%" }, bin).startsWith(`${bin.label} %: `)).toBe(true);
+    expect(histogramReadout({ ...model, unit: "%" }, bin).startsWith(`${bin.label} %: `)).toBe(
+      true,
+    );
     const inside = c.locates.find((l) => l.bin >= 0 && l.bin < model.items.length)!;
     const mark = { value: inside.value, text: "stored-text", label: "this recording" };
     const label = histogramLabel(model, "Caption.", mark);

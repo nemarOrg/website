@@ -258,7 +258,7 @@ export class SensorFieldClient {
    * never left unchecked and never refused for want of a worker.
    */
   checks(): ViewChecks {
-    const local = () => import("./kinds").then((m) => m.localChecks);
+    const local = () => import("./local-checks").then((m) => m.localChecks);
     return {
       view: async (view) => {
         const answer = await this.ask({ type: "check", id: this.nextId++, view });
@@ -458,7 +458,12 @@ export class SensorFieldClient {
       }
       return;
     }
-    if (data.type === "prepared" || data.type === "checked" || data.type === "content-checked") {
+    if (
+      data.type === "prepared" ||
+      data.type === "checked" ||
+      data.type === "content-checked" ||
+      data.type === "unchecked"
+    ) {
       this.asks.get(data.id)?.(data);
       return;
     }

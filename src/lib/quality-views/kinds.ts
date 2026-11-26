@@ -12,8 +12,15 @@
  * `neuroschema.views.registry.draw_as` and `meets_role_contract` are the Python reference.
  */
 
-import { type Drawing, TABLE, type ViewCheck, type ViewChecks } from "./checks";
-import { CONTENT_SCHEMAS, GENERIC_DATA, GENERIC_ROLES, declarationValid } from "./guards";
+import { type Drawing, TABLE, type ViewCheck } from "./checks";
+import {
+  CONTENT_SCHEMAS,
+  type ExtraSchemas,
+  GENERIC_DATA,
+  GENERIC_ROLES,
+  declarationValid,
+  needsComputedSchemas,
+} from "./guards";
 import type { ViewDecl } from "./model";
 // A named import, so the build keeps only this part of the registry (no descriptions).
 import { kinds } from "./vocabulary/registry.json";
@@ -71,9 +78,15 @@ export function drawAs(view: ViewDecl): Drawing {
   return drawByBase(view);
 }
 
-/** A declaration's checks, on this thread: what the worker answers `check` with. */
-export function checkView(view: unknown): ViewCheck {
-  if (!declarationValid(view)) return { valid: false, drawing: TABLE, byBase: TABLE };
+/**
+ * A declaration's checks with the schemas at hand: what the worker answers `check` with. Null when
+ * the view names a computed preset or its transform and `schemas` (`guards-computed.ts`) are not
+ * given: the worker does not hold them, and the page checks such a view itself
+ * (`local-checks.ts`).
+ */
+export function checkView(view: unknown, schemas?: ExtraSchemas): ViewCheck | null {
+  if (needsComputedSchemas(view) && !schemas) return null;
+  if (!declarationValid(view, schemas)) return { valid: false, drawing: TABLE, byBase: TABLE };
   const decl = view as ViewDecl;
   return { valid: true, drawing: drawAs(decl), byBase: drawByBase(decl) };
 }
@@ -82,9 +95,3 @@ export function checkContent(schema: string, content: unknown): boolean {
   const guard = CONTENT_SCHEMAS[schema];
   return guard ? guard(content) : false;
 }
-
-/** The checks run on this thread (the worker, the tests, and the page when the worker cannot). */
-export const localChecks: ViewChecks = {
-  view: async (view) => checkView(view),
-  content: async (schema, content) => checkContent(schema, content),
-};
