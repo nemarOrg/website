@@ -40,6 +40,13 @@ const bytes = Object.fromEntries(
 const shaOf = (suffix: string) =>
   Object.keys(files).find((sha) => files[sha].location.endsWith(suffix))!;
 
+/** The modules the page imports, through the dev server (a variable specifier, so neither Vite nor
+ *  the type check resolves it here). */
+const MODULES = {
+  bridge: "/src/lib/quality-views/panel-bridge.ts",
+  panel: "/src/lib/quality-views/panel.ts",
+};
+
 const SHELL = `
 <section class="qp" data-quality-panel>
   <div class="qp__bar">
@@ -71,7 +78,7 @@ interface MountOptions {
 async function mount(page: Page, options: MountOptions = {}): Promise<void> {
   await page.goto("/robots.txt");
   await page.evaluate(
-    async ({ shell, record, bytes, provenance, options, flipSha }) => {
+    async ({ shell, record, bytes, provenance, options, flipSha, modules }) => {
       document.body.innerHTML = shell;
       if (options.hash) history.replaceState(null, "", options.hash);
       const files = Object.fromEntries(
@@ -99,13 +106,11 @@ async function mount(page: Page, options: MountOptions = {}): Promise<void> {
           ? new Response(files[sha])
           : new Response(JSON.stringify({ error: "view_not_declared" }), { status: 404 });
       };
-      const bridge = await import(/* @vite-ignore */ "/src/lib/quality-views/panel-bridge.ts");
+      const bridge = await import(/* @vite-ignore */ modules.bridge);
       bridge.publishRecordings([
         { path: provenance.recording, name: provenance.recording.split("/").pop() },
       ]);
-      const { mountQualityPanel } = await import(
-        /* @vite-ignore */ "/src/lib/quality-views/panel.ts"
-      );
+      const { mountQualityPanel } = await import(/* @vite-ignore */ modules.panel);
       const root = document.querySelector<HTMLElement>("[data-quality-panel]")!;
       const handle = mountQualityPanel(
         {
@@ -127,6 +132,7 @@ async function mount(page: Page, options: MountOptions = {}): Promise<void> {
       provenance,
       options,
       flipSha: options.flip ? shaOf(options.flip) : null,
+      modules: MODULES,
     },
   );
 }
@@ -238,24 +244,27 @@ test("the Signal tab's marks are the floor's, checked against the store first", 
     .map((line) => line.split("\t"))
     .filter((cells) => cells[2] === "bad")
     .map((cells) => cells[0]);
-  const prepared = await page.evaluate(async (labels) => {
-    const bridge = await import(/* @vite-ignore */ "/src/lib/quality-views/panel-bridge.ts");
-    const got: unknown[] = [];
-    bridge.registerSignalOpener(
-      async (_path: string, marks: { prepare: (s: unknown) => Promise<unknown> }) => {
-        got.push(await marks.prepare({ labels, samples: 250 * 600, rate: 250 }));
-        got.push(
-          await marks.prepare({ labels: [...labels, "EXTRA"], samples: 250 * 600, rate: 250 }),
-        );
-        return true;
-      },
-    );
-    document.querySelector<HTMLElement>('[data-qp-tab="signal"]')!.click();
-    await (window as unknown as { panel: { ready(): Promise<void> } }).panel.ready();
-    document.querySelector<HTMLButtonElement>(".qp-open")!.click();
-    for (let i = 0; i < 100 && got.length < 2; i++) await new Promise((r) => setTimeout(r, 50));
-    return got;
-  }, names);
+  const prepared = await page.evaluate(
+    async ({ labels, modules }) => {
+      const bridge = await import(/* @vite-ignore */ modules.bridge);
+      const got: unknown[] = [];
+      bridge.registerSignalOpener(
+        async (_path: string, marks: { prepare: (s: unknown) => Promise<unknown> }) => {
+          got.push(await marks.prepare({ labels, samples: 250 * 600, rate: 250 }));
+          got.push(
+            await marks.prepare({ labels: [...labels, "EXTRA"], samples: 250 * 600, rate: 250 }),
+          );
+          return true;
+        },
+      );
+      document.querySelector<HTMLElement>('[data-qp-tab="signal"]')!.click();
+      await (window as unknown as { panel: { ready(): Promise<void> } }).panel.ready();
+      document.querySelector<HTMLButtonElement>(".qp-open")!.click();
+      for (let i = 0; i < 100 && got.length < 2; i++) await new Promise((r) => setTimeout(r, 50));
+      return got;
+    },
+    { labels: names, modules: MODULES },
+  );
   const [ok, refused] = prepared as [
     { ok: true; startS: number; durationS: number; badChannels: string[]; note: string },
     { ok: false; sentence: string },

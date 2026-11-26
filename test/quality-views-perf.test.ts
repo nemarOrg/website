@@ -231,13 +231,17 @@ async function icMapsRecord(name: string) {
   const n = thetaDeg.length;
   const sensors = Array.from({ length: n }, (_, s) => `E${s + 1}`);
   const ics = Array.from({ length: n }, (_, m) => `IC${String(m + 1).padStart(3, "0")}`);
-  const tsv = (rows: string[][]) => new TextEncoder().encode(`${rows.map((r) => r.join("\t")).join("\n")}\n`);
+  const tsv = (rows: string[][]) =>
+    new TextEncoder().encode(`${rows.map((r) => r.join("\t")).join("\n")}\n`);
   const layout = tsv([
     ["name", "sensor_type", "theta_deg", "radius"],
     ...sensors.map((label, s) => [label, "EEG", String(thetaDeg[s]), String(radius[s])]),
   ]);
   const values = tsv([ics, ...sensors.map((_, s) => maps.map((m) => String(m[s])))]);
-  const components = tsv([["component", "variance_pct"], ...ics.map((ic, m) => [ic, String(m + 1)])]);
+  const components = tsv([
+    ["component", "variance_pct"],
+    ...ics.map((ic, m) => [ic, String(m + 1)]),
+  ]);
   const stem = "sub-01/eeg/sub-01_task-rest_desc-nemarica";
   const file = async (suffix: string, bytes: Uint8Array) => ({
     location: `${stem}_${suffix}.tsv`,
@@ -259,7 +263,12 @@ async function icMapsRecord(name: string) {
         ...(await file("mixing", values)),
         columns: ics.map((ic) => ({ name: ic, type: "number" })),
         dims: [
-          { name: "sensor", axis: "rows", type: "string", coords: { role: "layout", column: "name" } },
+          {
+            name: "sensor",
+            axis: "rows",
+            type: "string",
+            coords: { role: "layout", column: "name" },
+          },
           { name: "component", axis: "columns", type: "string", coords: { header: true } },
         ],
       },
@@ -283,7 +292,9 @@ async function icMapsRecord(name: string) {
           { name: "component", type: "string" },
           { name: "variance_pct", type: "number", unit: "%" },
         ],
-        dims: [{ name: "component", axis: "rows", type: "string", coords: { column: "component" } }],
+        dims: [
+          { name: "component", axis: "rows", type: "string", coords: { column: "component" } },
+        ],
       },
     ],
   };
@@ -348,7 +359,9 @@ async function panelAfterLoad(name: string): Promise<OpenedView> {
     const url = String(input);
     if (url.includes("/record/")) return new Response(fixture.answer);
     const sha = [...fixture.bytes.keys()].find((s) => url.includes(`/${s}/`));
-    return sha ? new Response(fixture.bytes.get(sha)!) : new Response(null, { status: 404 });
+    return sha
+      ? new Response(fixture.bytes.get(sha) as Uint8Array<ArrayBuffer>)
+      : new Response(null, { status: 404 });
   };
   const preload = await startIdlePreload(
     { base, datasetId: "nm000001", recipe: "nemar-ica" },
