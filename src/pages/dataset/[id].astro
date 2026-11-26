@@ -495,7 +495,9 @@ Astro.response.headers.set(
     type SignalMarks,
     publishRecordings,
     registerSignalOpener,
+    registerStoreUrl,
   } from "../../lib/quality-views/panel-bridge";
+  import { zarrStoreUrl } from "../../lib/zarr-base";
   import { DIALOG_CLOSE_REQUEST_EVENT } from "../../lib/dialog-close";
   import {
     type LiveViewer,
@@ -793,6 +795,8 @@ Astro.response.headers.set(
               name: r.name,
             })),
           );
+          // The Activations tab reads a recording's serving copy where the viewer does (W7).
+          registerStoreUrl((path) => zarrStoreUrl(datasetId, path, { token: state.token }));
           annotateZarrRows(section);
           // "View data" action-bar button (website#260): revealed only once the
           // index resolves with at least one store, so a dataset with none

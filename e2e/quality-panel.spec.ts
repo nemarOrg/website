@@ -58,11 +58,13 @@ const SHELL = `
   <div role="tablist">
     <button role="tab" data-qp-tab="spectrum" aria-selected="true" tabindex="0">Spectrum</button>
     <button role="tab" data-qp-tab="components" aria-selected="false" tabindex="-1">Components</button>
+    <button role="tab" data-qp-tab="activations" aria-selected="false" tabindex="-1">Activations</button>
     <button role="tab" data-qp-tab="signal" aria-selected="false" tabindex="-1">Signal</button>
     <button role="tab" data-qp-tab="other" aria-selected="false" tabindex="-1" hidden>Other views</button>
   </div>
   <div role="tabpanel" data-qp-panel="spectrum"></div>
   <div role="tabpanel" data-qp-panel="components" hidden></div>
+  <div role="tabpanel" data-qp-panel="activations" hidden></div>
   <div role="tabpanel" data-qp-panel="signal" hidden></div>
   <div role="tabpanel" data-qp-panel="other" hidden></div>
   <p data-qp-status role="status"></p>
@@ -79,9 +81,13 @@ interface MountOptions {
     readonly key: string;
     readonly parameters?: object;
     readonly recording?: string;
+    /** Another kind for the view (one this site does not know draws under Other). */
+    readonly kind?: string;
   };
+  /** Where the page says the serving copy is (`registerStoreUrl`): the test's served Zarr store. */
+  readonly zarr?: boolean;
   /** A second recording in the list, which has no quality (`quality_not_found`), or, with
-   *  `secondHasRecord`, the first's record without its views of other kinds (no Other tab). */
+   *  `secondHasRecord`, the first's record without its activation view. */
   readonly second?: string;
   readonly secondHasRecord?: boolean;
   /** Delay every file's answer by this many milliseconds. */
@@ -117,6 +123,7 @@ async function mount(page: Page, options: MountOptions = {}): Promise<void> {
         for (const view of doc.dataQuality.recipes[provenance.recipe].views) {
           if (view.key !== options.patch.key) continue;
           if (options.patch.parameters) Object.assign(view.parameters, options.patch.parameters);
+          if (options.patch.kind) view.kind = options.patch.kind;
           if (options.patch.recording) {
             for (const input of view.inputs) {
               if (input.store) input.store.recording = options.patch.recording;
@@ -147,7 +154,7 @@ async function mount(page: Page, options: MountOptions = {}): Promise<void> {
         const doc = JSON.parse(body);
         doc.recording = options.second;
         const entry = doc.dataQuality.recipes[provenance.recipe];
-        entry.views = entry.views.filter((v: { kind: string }) => v.kind !== "nemar.ic-activity");
+        entry.views = entry.views.filter((v: { key: string }) => v.key !== "icactivity");
         const { icactivity: _dropped, ...digests } = doc.view_digests;
         doc.view_digests = digests;
         secondBody = JSON.stringify(doc);
@@ -183,7 +190,7 @@ async function mount(page: Page, options: MountOptions = {}): Promise<void> {
       };
       // A client of the page's own kind that counts its draws: what a stale draw would show.
       const { SensorFieldClient } = await import(/* @vite-ignore */ modules.client);
-      const counted = { draws: 0, prepares: 0 };
+      const counted = { draws: 0, prepares: 0, computes: 0 };
       (window as unknown as { counted: typeof counted }).counted = counted;
       class CountingClient extends SensorFieldClient {
         draw(...args: unknown[]) {
@@ -194,9 +201,16 @@ async function mount(page: Page, options: MountOptions = {}): Promise<void> {
           counted.prepares++;
           return super.prepare(...(args as [never]));
         }
+        activity(...args: unknown[]) {
+          if ((args[0] as { step: string }).step === "compute") counted.computes++;
+          return super.activity(...(args as [never, never]));
+        }
       }
       const client = new CountingClient();
       const bridge = await import(/* @vite-ignore */ modules.bridge);
+      if (options.zarr) {
+        bridge.registerStoreUrl((path: string) => `${location.origin}/__zarr/${path}.zarr/`);
+      }
       bridge.publishRecordings([
         { path: provenance.recording, name: provenance.recording.split("/").pop() },
         ...(options.second
@@ -312,7 +326,10 @@ test("the deep link round-trips: a link opens its tab and view, a tab writes its
   // Keyboard: the arrow keys move between the tabs.
   await page.locator('[data-qp-tab="signal"]').focus();
   await page.keyboard.press("ArrowLeft");
-  await expect(page.locator('[data-qp-tab="components"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-qp-tab="activations"]')).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
 });
 
 test("the Turbo toggle switches every map and is remembered", async ({ page }) => {
@@ -429,7 +446,12 @@ test("a recording with no Other views, shown while Other is active, opens on Spe
   page,
 }) => {
   const second = "sub-CUCOV077/eeg/sub-CUCOV077_task-COVID_eeg.edf";
-  await mount(page, { second, secondHasRecord: true });
+  // The first recording's activation view under a kind this site does not know: drawn under Other.
+  await mount(page, {
+    second,
+    secondHasRecord: true,
+    patch: { key: "icactivity", kind: "example.activity" },
+  });
   await page.locator('[data-qp-tab="other"]').click();
   await expect(page.locator('[data-qp-tab="other"]')).toHaveAttribute("aria-selected", "true");
   await page.locator("[data-qp-recording]").selectOption(second);
@@ -482,4 +504,182 @@ test.describe("on a touch screen", () => {
       page.locator('[data-qp-view="spectrum"] .qp-spectrum-maps figcaption'),
     ).toContainText(`Scalp maps of the spectrum at ${rows[best]} Hz.`);
   });
+});
+
+// ── Activations (W7) ─────────────────────────────────────────────────────
+
+/** The activation view's channels, from the record: the matrix's columns, matched by label. */
+const activationView = (
+  JSON.parse(record.body).dataQuality.recipes[provenance.recipe].views as {
+    key: string;
+    inputs: { role: string; store?: { group: string } }[];
+    transform: { parameters: { columns: string[] } };
+  }[]
+).find((v) => v.key === "icactivity")!;
+const COLUMNS = activationView.transform.parameters.columns;
+const GROUP = activationView.inputs.find((i) => i.role === "signal")!.store!.group;
+
+/**
+ * A serving copy at `/__zarr/<recording>.zarr/`, a Zarr v3 store as the converter writes one (a
+ * group with its channels' labels, units, scales and offsets, and level-0 of int16 samples), so the
+ * page's own reader (`openServingStore`, zarrita and the viewer's store) reads it. `labels` are the
+ * store's rows; `slowMs` delays the samples.
+ */
+async function serveZarr(
+  page: Page,
+  options: { labels?: string[]; rate?: number; seconds?: number; slowMs?: number } = {},
+): Promise<{ chunks: number }> {
+  const labels = options.labels ?? ["ECG", ...COLUMNS];
+  const rate = options.rate ?? 200;
+  const samples = rate * (options.seconds ?? 30);
+  const data = Buffer.alloc(labels.length * samples * 2);
+  for (let r = 0; r < labels.length; r++) {
+    for (let k = 0; k < samples; k++) {
+      const t = k / rate;
+      const v = 800 * Math.sin(2 * Math.PI * (1.3 + r * 0.7) * t) + 300 * Math.sin(r + 19 * t);
+      data.writeInt16LE(Math.round(v), 2 * (r * samples + k));
+    }
+  }
+  const json = (body: object) => ({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(body),
+  });
+  const served = { chunks: 0 };
+  await page.route("**/__zarr/**", async (route) => {
+    const key = new URL(route.request().url()).pathname.replace(/^.*?\.zarr\//, "");
+    if (key === "zarr.json") {
+      return route.fulfill(
+        json({ zarr_format: 3, node_type: "group", attributes: { channel_groups: [GROUP] } }),
+      );
+    }
+    if (key === `${GROUP}/zarr.json`) {
+      return route.fulfill(
+        json({
+          zarr_format: 3,
+          node_type: "group",
+          attributes: {
+            rate,
+            n_samples: samples,
+            channels: labels.map((label, i) => ({
+              label,
+              unit: "uV",
+              scale: 0.25,
+              offset: i,
+              row_index: i,
+              channel_type: label === "ECG" ? "ECG" : "EEG",
+            })),
+          },
+        }),
+      );
+    }
+    if (key === `${GROUP}/0/zarr.json`) {
+      return route.fulfill(
+        json({
+          zarr_format: 3,
+          node_type: "array",
+          shape: [labels.length, samples],
+          data_type: "int16",
+          chunk_grid: { name: "regular", configuration: { chunk_shape: [labels.length, samples] } },
+          chunk_key_encoding: { name: "default", configuration: { separator: "/" } },
+          fill_value: 0,
+          codecs: [{ name: "bytes", configuration: { endian: "little" } }],
+          attributes: {},
+        }),
+      );
+    }
+    if (key === `${GROUP}/0/c/0/0`) {
+      served.chunks++;
+      if (options.slowMs) await new Promise((resolve) => setTimeout(resolve, options.slowMs));
+      return route.fulfill({ status: 200, contentType: "application/octet-stream", body: data });
+    }
+    return route.fulfill({ status: 404, body: "" });
+  });
+  return served;
+}
+
+test("the Activations tab draws the serving copy's activations, shaded and captioned", async ({
+  page,
+}) => {
+  await serveZarr(page);
+  await mount(page, { zarr: true, hash: `#quality/${provenance.recording}/icactivity` });
+  await expect(page.locator('[data-qp-tab="activations"]')).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  const view = page.locator('[data-qp-view="icactivity"]');
+  await expect(view.locator(".qp-activity__plot canvas")).toHaveCount(2);
+  // 18 components, labeled by the components table, over the first 10 s of 30.
+  await expect(view.locator(".qp-activity__plot")).toHaveAttribute(
+    "aria-label",
+    /^Activations of 18 components \(IC/,
+  );
+  await expect(view.locator(".qp-activity__where")).toHaveText("0 s to 9.995 s of 30 s");
+  const notes = view.locator(".qp-activity__notes");
+  await expect(notes).toContainText("Computed in your browser from the serving copy");
+  await expect(notes).toContainText("which no digest ties to the serving copy");
+  await expect(notes).toContainText("1 Hz high-pass for display only");
+  await expect(notes).toContainText("not checked against a digest NEMAR recorded");
+  await expect(notes).toContainText("not checked against the decomposition input.");
+  // The floor's table has five spans ASR repaired that meet the first 10 s.
+  await expect(notes).toContainText("5 spans ASR repaired in this window are shaded (burst).");
+  // The chrome canvas holds pixels: the traces' labels, the axis and the shading.
+  const painted = await view
+    .locator(".qp-activity__plot canvas")
+    .nth(1)
+    .evaluate((c) => {
+      const canvas = c as HTMLCanvasElement;
+      const pixels = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+      let n = 0;
+      for (let i = 3; i < pixels.length; i += 4) if (pixels[i] > 0) n++;
+      return n;
+    });
+  expect(painted).toBeGreaterThan(1000);
+  // The next window: computed again, with its own context.
+  await view.getByRole("button", { name: "Later" }).click();
+  await expect(view.locator(".qp-activity__where")).toHaveText("10 s to 19.995 s of 30 s");
+  await expect(view.getByRole("button", { name: "Earlier" })).toBeEnabled();
+});
+
+test("the Activations tab refuses a serving copy whose channels differ", async ({ page }) => {
+  // One of the decomposition's channels is missing from the store.
+  await serveZarr(page, { labels: ["ECG", ...COLUMNS.slice(1)] });
+  await mount(page, { zarr: true, hash: `#quality/${provenance.recording}/icactivity` });
+  const view = page.locator('[data-qp-view="icactivity"]');
+  await expect(view.locator('[data-word="channel_set_mismatch"]')).toHaveText(
+    "The serving copy does not hold each of the decomposition's channels exactly once, so no activations are drawn.",
+  );
+  await expect(view.locator("canvas")).toHaveCount(0);
+  // Every file input is offered for download.
+  await expect(view.locator(".qv-downloads a")).toHaveCount(3);
+});
+
+test("the Activations tab says so when the page reads no serving copy", async ({ page }) => {
+  await mount(page, { hash: `#quality/${provenance.recording}/icactivity` });
+  const view = page.locator('[data-qp-view="icactivity"]');
+  await expect(view.locator('[data-word="no_store"]')).toHaveCount(1);
+  await expect(view.locator("canvas")).toHaveCount(0);
+});
+
+test("a switch of recording while the samples load computes and draws no activations", async ({
+  page,
+}) => {
+  const second = "sub-CUCOV077/eeg/sub-CUCOV077_task-COVID_eeg.edf";
+  const served = await serveZarr(page, { slowMs: 1500 });
+  await mount(page, {
+    zarr: true,
+    second,
+    noWait: true,
+    hash: `#quality/${provenance.recording}/icactivity`,
+  });
+  // The plan passed and the samples are on their way: switch.
+  await expect.poll(() => served.chunks).toBe(1);
+  await page.locator("[data-qp-recording]").selectOption(second);
+  await ready(page);
+  await page.waitForTimeout(2500);
+  const counted = await page.evaluate(
+    () => (window as unknown as { counted: { computes: number } }).counted,
+  );
+  expect(counted.computes).toBe(0);
+  await expect(page.locator(".qp-activity, canvas")).toHaveCount(0);
 });

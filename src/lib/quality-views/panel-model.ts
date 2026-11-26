@@ -8,7 +8,7 @@
 
 import { isQualityRecordingPath } from "./route-contract";
 
-export type TabId = "spectrum" | "components" | "signal" | "other";
+export type TabId = "spectrum" | "components" | "activations" | "signal" | "other";
 
 /** The panel's tabs, in order, with the kinds each draws; every other kind is drawn under Other,
  *  so no view the record declares goes unshown. */
@@ -19,6 +19,7 @@ export const TABS: readonly {
 }[] = [
   { id: "spectrum", label: "Spectrum", kinds: ["nemar.spectrum"] },
   { id: "components", label: "Components", kinds: ["nemar.ic-maps", "nemar.ic-classes"] },
+  { id: "activations", label: "Activations", kinds: ["nemar.ic-activity"] },
   { id: "signal", label: "Signal", kinds: ["nemar.signal-window"] },
   { id: "other", label: "Other views", kinds: [] },
 ];

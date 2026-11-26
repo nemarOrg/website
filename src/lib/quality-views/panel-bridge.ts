@@ -9,6 +9,8 @@
  *   default recording, the one the idle preload warms, is the first of them.
  * - The Signal tab opens a recording in the page's signal viewer with the floor's decisions marked
  *   (`openSignal`), through the page's viewer session.
+ * - The Activations tab reads a recording's serving copy at the address the page gives
+ *   (`storeUrlOf`), with the viewer's own reader (website phase W7).
  */
 
 export interface PanelRecording {
@@ -42,6 +44,39 @@ export interface SignalMarks {
 }
 
 type Opener = (path: string, marks: SignalMarks) => Promise<boolean>;
+
+/** One channel group of a recording's serving copy, as the Activations tab reads it
+ *  (`activations.ts`; neuroschema `docs/views/ic-activity.md`, The store). */
+export interface ServingStore {
+  /** One entry per store row, in store order; null where the store states none. */
+  readonly labels: readonly (string | null)[];
+  readonly units: readonly (string | null)[];
+  readonly scale: readonly number[];
+  readonly offset: readonly number[];
+  readonly rate: number;
+  /** Samples per row. */
+  readonly samples: number;
+  /** The group's content digest as the serving copy publishes it; null until it publishes one
+   *  (nemarOrg/nemar-cli#2343). */
+  readonly published_sha256: string | null;
+  /** The stored integers of `rows` over samples `[from, to)`, row after row in `rows`' order. */
+  read(
+    rows: readonly number[],
+    from: number,
+    to: number,
+    signal: AbortSignal,
+  ): Promise<ArrayLike<number>>;
+}
+
+let storeUrl: ((path: string) => string) | null = null;
+
+/** The page: the address of a recording's serving copy, where its signal viewer reads it. */
+export function registerStoreUrl(url: (path: string) => string): void {
+  storeUrl = url;
+}
+
+/** The panel: that address, or null when the page has none (the Activations tab, W7). */
+export const storeUrlOf = (path: string): string | null => (storeUrl ? storeUrl(path) : null);
 
 let published: ((list: readonly PanelRecording[] | null) => void) | null = null;
 let list: Promise<readonly PanelRecording[] | null> = new Promise((resolve) => {

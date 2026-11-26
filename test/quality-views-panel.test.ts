@@ -69,13 +69,19 @@ afterEach(() => forgetPreloads());
 
 describe("tabs", () => {
   it("draws each kind under its tab, and every other kind under Other", () => {
-    expect(TABS.map((t) => t.id)).toEqual(["spectrum", "components", "signal", "other"]);
+    expect(TABS.map((t) => t.id)).toEqual([
+      "spectrum",
+      "components",
+      "activations",
+      "signal",
+      "other",
+    ]);
     const byTab = viewsByTab(record.views as never);
     expect(byTab.get("spectrum")).toEqual(["spectrum"]);
     expect(byTab.get("components")).toEqual(["icmaps", "icclasses"]);
+    expect(byTab.get("activations")).toEqual(["icactivity"]);
     expect(byTab.get("signal")).toEqual(["midsegment"]);
-    // Activations are phase W7's; until then the view is shown under Other, never left out.
-    expect(byTab.get("other")).toEqual(["icactivity"]);
+    expect(byTab.get("other")).toEqual([]);
     expect(tabOf("example.unknown-kind")).toBe("other");
   });
 });
