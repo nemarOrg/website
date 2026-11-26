@@ -274,6 +274,12 @@
   --qv-sequential-7: #6ece58;
   --qv-sequential-8: #b5de2b;
   --qv-sequential-9: #fde725;
+  /* Turbo at 0, 1/4, 1/2, 3/4 and 1 (turbo-lut.ts), for the legend when the turbo toggle is on. */
+  --qv-turbo-0: #30123b;
+  --qv-turbo-1: #28bceb;
+  --qv-turbo-2: #a4fc3c;
+  --qv-turbo-3: #fb8122;
+  --qv-turbo-4: #7a0403;
   --qv-contour-line: rgb(15 23 42 / 45%);
   --qv-sensor-marker: #0f172a;
   --qv-sensor-ring: #ffffff;

@@ -20,7 +20,8 @@ import { numberText } from "../read";
 import { type Element, h } from "../tree";
 import type { DrawOutcome, DrawnMap, MapResult, SensorFieldClient } from "../worker-client";
 import { contoursOf } from "../worker-client";
-import { type ViewContext, dataTableToggle, figure, textTable } from "./figure";
+import { type ViewContext, figure, textTable } from "./figure";
+import { readoutWriter, step } from "./interact";
 import { mapFrame, markerPoints, toCanvas } from "./map-frame";
 import { columnHeader } from "./table";
 import { MAP_SENTENCES, UNUSED_POSITIONS_SENTENCES, sentence } from "./words";
@@ -142,6 +143,9 @@ export function placementStatement(model: SensorFieldModel): string {
 export const fieldColorMap = (model: SensorFieldModel): ColorMapName =>
   model.limits === "absmax" ? "diverging" : "sequential";
 
+/** Said with the legend: the color axes are each map's own. */
+export const LEGEND_NOTE = "each map is colored on its own range";
+
 /** The legend's words: no number, since the color axis comes from the interpolated grid. */
 export function legendWords(model: SensorFieldModel): readonly [string, string, string] {
   const unit = model.unit ? ` (${model.unit})` : "";
@@ -172,6 +176,7 @@ export function renderSensorField(
   ctx: ViewContext,
 ): Element {
   const [low, middle, high] = legendWords(model);
+  const firstDrawn = model.maps.items.findIndex((item) => item.word === null);
   const maps = model.maps.items.map((item, m) =>
     h(
       "li",
@@ -182,7 +187,9 @@ export function renderSensorField(
             width: MAP_SIZE,
             height: MAP_SIZE,
             role: "img",
-            tabindex: 0,
+            "aria-roledescription": "scalp map",
+            // One tab stop for all the maps (a roving tabindex): the arrow keys move between them.
+            tabindex: m === firstDrawn ? 0 : -1,
             "aria-label": mapLabel(model, m),
             "aria-describedby": `${ctx.id}-readout`,
           })
@@ -198,6 +205,7 @@ export function renderSensorField(
   return figure({
     ctx,
     role: "group",
+    focusable: false,
     drawing: h("ol", { class: "qv-maps" }, ...maps),
     label: `${ctx.caption} ${model.maps.items.length} scalp maps of ${model.sensors.labels.length} sensors.`,
     readout: true,
@@ -217,7 +225,13 @@ export function renderSensorField(
         h("span", { class: `qv-legend-bar qv-legend-${fieldColorMap(model)}` }),
         middle ? h("span", { class: "qv-legend-middle" }, middle) : null,
         h("span", { class: "qv-legend-high" }, high),
+        h("span", { class: "qv-legend-note" }, LEGEND_NOTE),
         h("button", { type: "button", class: "qv-turbo", "aria-pressed": "false" }, "Turbo colors"),
+      ),
+      h(
+        "p",
+        { class: "qv-keys" },
+        "Keys: left and right arrows move between maps, up and down between sensors.",
       ),
       h(
         "ul",
@@ -225,7 +239,7 @@ export function renderSensorField(
         ...model.maps.items.map((_, m) => h("li", { "data-map": m }, mapTextRow(model, m))),
       ),
     ].filter((n): n is Element => n !== null),
-    table: dataTableToggle(fieldTable(model, ctx.caption)),
+    table: () => fieldTable(model, ctx.caption),
     downloads,
     colorMaps: true,
   });
@@ -310,6 +324,12 @@ export function paintFieldMap(
   });
 }
 
+/** Give the `next` map the one tab stop and the focus. */
+function moveFocus(canvases: readonly HTMLCanvasElement[], next: number): void {
+  for (const [i, c] of canvases.entries()) c.tabIndex = i === next ? 0 : -1;
+  canvases[next]?.focus();
+}
+
 export interface SensorFieldHandle {
   /** Settles when every map is drawn, refused or the draw ends. */
   readonly ready: Promise<DrawOutcome | null>;
@@ -338,6 +358,7 @@ export function mountSensorField(
   const { model } = built;
   const doc = root.ownerDocument;
   const readout = root.querySelector<HTMLOutputElement>(".qv-readout");
+  const write = readout ? readoutWriter(readout) : () => false;
   const draw = fieldDrawInput(built);
   const abort = new AbortController();
   const results = new Map<number, DrawnMap>();
@@ -385,6 +406,12 @@ export function mountSensorField(
     const li = root.querySelector(`.qv-map[data-map="${m}"]`);
     const canvas = li?.querySelector("canvas");
     if (canvas) {
+      if (canvas.tabIndex === 0) {
+        const others = [...root.querySelectorAll<HTMLCanvasElement>(".qv-map canvas")].filter(
+          (c) => c !== canvas,
+        );
+        if (others[0]) others[0].tabIndex = 0;
+      }
       const p = doc.createElement("p");
       p.className = "qv-map-word";
       p.dataset.word = word;
@@ -400,7 +427,7 @@ export function mountSensorField(
     const map = results.get(m);
     if (!map) return;
     selected.set(m, k);
-    if (readout) readout.textContent = markerReadout(model, draw, map, m, k);
+    write(markerReadout(model, draw, map, m, k));
     paint(m);
   };
 
@@ -438,19 +465,28 @@ export function mountSensorField(
       select(m, nearestMarker(onCanvas, px, py, MAP_SIZE / 8));
     });
     canvas.addEventListener("keydown", (event) => {
+      if (
+        event.key === "ArrowLeft" ||
+        event.key === "ArrowRight" ||
+        event.key === "Home" ||
+        event.key === "End"
+      ) {
+        // Between maps: one tab stop, moved by the arrow keys (a roving tabindex).
+        const canvases = [...root.querySelectorAll<HTMLCanvasElement>(".qv-map canvas")];
+        const next = step(event.key, canvases.indexOf(canvas), canvases.length);
+        if (next === null) return;
+        event.preventDefault();
+        moveFocus(canvases, next);
+        return;
+      }
       const map = results.get(m);
       if (!map) return;
       const count = map.geometry.plotted.length;
       const at = selected.get(m);
-      const step =
-        event.key === "ArrowRight" || event.key === "ArrowDown"
-          ? 1
-          : event.key === "ArrowLeft" || event.key === "ArrowUp"
-            ? -1
-            : 0;
-      if (step === 0) return;
+      const delta = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+      if (delta === 0) return;
       event.preventDefault();
-      select(m, at === undefined ? 0 : (at + step + count) % count);
+      select(m, at === undefined ? 0 : (at + delta + count) % count);
     });
   }
   root.querySelector(".qv-turbo")?.addEventListener("click", (event) => {
@@ -492,6 +528,8 @@ export function mountSensorField(
         .map(([index, map]) => ({ index, map, contours: contoursOf(map) })),
     setColorMap(name) {
       colorMap = name;
+      const bar = root.querySelector(".qv-legend-bar");
+      if (bar) bar.className = `qv-legend-bar qv-legend-${name}`;
       for (const m of painted) paint(m);
     },
     destroy() {

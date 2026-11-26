@@ -20,11 +20,14 @@ export function renderTable(
     ctx,
     drawing: null,
     label: ctx.caption,
-    table: textTable(
-      ctx.caption,
-      model.columns.map((c) => columnHeader(c.name, c.unit)),
-      model.rows,
-    ),
+    // The table is the view itself: shown, not behind a toggle.
+    notes: [
+      textTable(
+        ctx.caption,
+        model.columns.map((c) => columnHeader(c.name, c.unit)),
+        model.rows,
+      ),
+    ],
     downloads,
   });
 }

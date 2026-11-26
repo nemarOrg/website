@@ -19,8 +19,24 @@ export interface ViewContext {
   /** The view's declared kind and version, said beside the caption. */
   readonly kind: string;
   readonly kindVersion: number;
-  /** Where a file can be downloaded, or null when the page offers no link yet. */
+  /** Where a file can be downloaded, or null when the page offers no link yet. Only an http(s)
+   *  or blob address (or a path on this site) is linked; any other is shown as text. */
   readonly downloadUrl?: (file: Download) => string | null;
+  /** Build the data tables now, for a page drawn on the server with no script; a page builds
+   *  each when its toggle is first opened. */
+  readonly eagerTables?: boolean;
+}
+
+/** `url` when it is an http(s) or blob address, or a path that resolves to one; null otherwise
+ *  (`javascript:`, `data:` and every other scheme). */
+export function safeUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const protocol = new URL(url, "https://nemar.invalid/").protocol;
+    return protocol === "https:" || protocol === "http:" || protocol === "blob:" ? url : null;
+  } catch {
+    return null;
+  }
 }
 
 /** A table of text: one header row and rows of cells, every cell a stored text. */
@@ -38,8 +54,11 @@ export function textTable(
   );
 }
 
-/** A data table behind a native toggle, closed by default. */
-export function dataTableToggle(table: Element, label = "Data table"): Element {
+export const DATA_TABLE = "Data table";
+
+/** A data table behind a native toggle, closed by default; built now only when `table` is given
+ *  (the server), otherwise on the toggle's first opening (`attachLazyTable`). */
+export function dataTableToggle(table: Element | null, label = DATA_TABLE): Element {
   return h("details", { class: "qv-data" }, h("summary", {}, label), table);
 }
 
@@ -53,7 +72,7 @@ export function downloadList(files: readonly Download[], ctx: ViewContext): Elem
     "ul",
     { class: "qv-downloads", "aria-label": "Files of this view" },
     ...files.map((file) => {
-      const url = ctx.downloadUrl?.(file) ?? null;
+      const url = safeUrl(ctx.downloadUrl?.(file));
       const name = fileName(file.location);
       return h(
         "li",
@@ -85,7 +104,10 @@ export interface FigureParts {
   /** `img` (the default): the drawing is one image. `group`: it holds images of its own (a row of
    *  scalp maps, each with its own text alternative). */
   readonly role?: "img" | "group";
-  readonly table?: Element | null;
+  /** The drawing takes focus and arrow keys itself (false for scalp maps, whose maps do). */
+  readonly focusable?: boolean;
+  /** The data table, built when its toggle first opens (or now, with `ctx.eagerTables`). */
+  readonly table?: () => Element;
   readonly notes?: readonly Child[];
   readonly downloads: readonly Download[];
   readonly colorMaps?: boolean;
@@ -111,7 +133,7 @@ export function figure(parts: FigureParts): Element {
             class: "qv-drawing",
             role: parts.role ?? "img",
             "aria-label": parts.label,
-            tabindex: parts.readout ? 0 : null,
+            tabindex: parts.readout && parts.focusable !== false ? 0 : null,
             "aria-describedby": parts.readout ? `${ctx.id}-readout` : null,
           },
           parts.drawing,
@@ -121,7 +143,7 @@ export function figure(parts: FigureParts): Element {
       ? h("output", { class: "qv-readout", id: `${ctx.id}-readout`, "aria-live": "polite" })
       : null,
     ...(parts.notes ?? []),
-    parts.table ?? null,
+    parts.table ? dataTableToggle(ctx.eagerTables ? parts.table() : null) : null,
     downloadList(parts.downloads, ctx),
     parts.colorMaps ? colorMapsNotice() : null,
   );

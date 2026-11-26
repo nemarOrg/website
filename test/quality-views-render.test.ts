@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { drawAs } from "../src/lib/quality-views/kinds";
+import { drawAs, localChecks } from "../src/lib/quality-views/kinds";
 import {
   type BuiltModel,
   type FileDecl,
@@ -19,22 +19,34 @@ import {
   buildModel,
 } from "../src/lib/quality-views/model";
 import { type Montage, parseMontage } from "../src/lib/quality-views/montages";
-import { heatmapPixels, heatmapReadout } from "../src/lib/quality-views/render/heatmap";
+import { RENDER_FAILED } from "../src/lib/quality-views/render/fallback";
+import { DATA_TABLE, safeUrl } from "../src/lib/quality-views/render/figure";
+import {
+  heatmapLegend,
+  heatmapPixels,
+  heatmapReadout,
+  renderHeatmap,
+} from "../src/lib/quality-views/render/heatmap";
 import {
   HISTOGRAM_SIZE,
   histogramBars,
+  histogramLabel,
+  histogramReadout,
   histogramRows,
   histogramSvg,
   markedIndex,
 } from "../src/lib/quality-views/render/histogram";
 import { renderRefusal, renderView, viewContext } from "../src/lib/quality-views/render/index";
+import { readoutWriter } from "../src/lib/quality-views/render/interact";
 import {
   linesPlot,
   linesReadout,
+  linesSvg,
   rowAtPointer,
   yTickTexts,
 } from "../src/lib/quality-views/render/lines";
 import {
+  LEGEND_NOTE,
   fieldDrawInput,
   mapTextRow,
   markerReadout,
@@ -81,6 +93,7 @@ const caps = (c?: Record<string, number>) =>
 
 async function built(c: ModelCase, compute = false): Promise<BuiltModel> {
   return buildModel(c.view, source(c.files), {
+    checks: localChecks,
     montage,
     caps: caps(c.caps),
     mapOutcome: compute ? mapOutcome : undefined,
@@ -95,7 +108,7 @@ const elements = (tree: Element, cls: string) =>
 describe("every model vector draws", () => {
   it.each(vectors.cases.map((c) => [c.name, c] as const))("%s", async (_name, c) => {
     const b = await built(c);
-    const tree = renderView(b, ctxOf(c));
+    const { tree } = await renderView(b, ctxOf(c));
     expect(tree.tag).toBe("figure");
     const caption = [...walk(tree)].find((e) => e.tag === "figcaption")!;
     expect(tree.attrs["aria-labelledby"]).toBe(caption.attrs.id);
@@ -135,6 +148,7 @@ describe("the renderer rule never throws", () => {
 
   it("builds an unknown kind's model as the fallback", async () => {
     const b = await buildModel(unknown, async () => new TextEncoder().encode("a\tb\n"), {
+      checks: localChecks,
       montage,
       sha256: async () => unknown.data[0].sha256,
     }).catch((error: unknown) => error);
@@ -142,14 +156,14 @@ describe("the renderer rule never throws", () => {
     expect((b as BuiltModel).model.type).toBe("fallback");
   });
 
-  it("draws a model it has no renderer for as tables, without throwing", () => {
+  it("draws a model it has no renderer for as tables, without throwing", async () => {
     const strange = {
       drawing: { via: "kind", kind: "acme.x", kind_version: 1 },
       refused: null,
       downloads: [],
       model: { type: "acme-chart" },
     } as unknown as BuiltModel;
-    const tree = renderView(strange, viewContext(unknown as never, "qv-strange"));
+    const { tree } = await renderView(strange, viewContext(unknown as never, "qv-strange"));
     expect(tree.tag).toBe("figure");
     expect(textOf(tree)).toContain("does not draw acme.scalp-movie version 7");
   });
@@ -233,7 +247,7 @@ describe("the histogram is one SVG tree for the server and the page", () => {
     for (const { value, bin } of c.locates) expect(markedIndex(model, value)).toBe(bin);
     expect(markedIndex(model, Number.NaN)).toBeNull();
     const marked = toHtml(
-      histogramSvg(model, { value: c.locates[0].value, label: "this recording" }),
+      histogramSvg(model, { value: c.locates[0].value, text: "stored", label: "this recording" }),
     );
     expect(marked).toContain("qv-marked");
   });
@@ -251,7 +265,7 @@ describe("scalp maps", () => {
       const b = await built(c, true);
       if (b.model.type !== "sensor-field") continue;
       const model: SensorFieldModel = b.model;
-      const tree = renderView(b, ctxOf(c));
+      const { tree } = await renderView(b, ctxOf(c));
       const rows = elements(tree, "qv-map-rows")[0];
       expect(rows.children.length).toBe(model.maps.items.length);
       for (const [m, item] of model.maps.items.entries()) {
@@ -337,7 +351,7 @@ describe("scalp maps", () => {
   it("each drawn map is an image with a text alternative and the color map notice is linked", async () => {
     const c = field.find((x) => x.name.includes("layout")) ?? field[0];
     const b = await built(c);
-    const tree = renderView(b, ctxOf(c));
+    const { tree } = await renderView(b, ctxOf(c));
     if (b.model.type !== "sensor-field") return;
     const canvases = [...walk(tree)].filter((e) => e.tag === "canvas");
     expect(canvases.length).toBe(b.model.maps.items.filter((item) => item.word === null).length);
@@ -346,5 +360,222 @@ describe("scalp maps", () => {
       expect(canvas.attrs["aria-label"].length).toBeGreaterThan(0);
     }
     expect(toHtml(tree)).toContain('href="/licenses/quality-views/NOTICE.txt"');
+  });
+});
+
+describe("the review's fixes (#594)", () => {
+  const heatmap = (
+    overrides: Partial<import("../src/lib/quality-views/model").HeatmapModel> = {},
+  ) =>
+    ({
+      type: "heatmap",
+      rows: { dim: "component", type: "string", unit: null, labels: ["IC1", "IC2"] },
+      columns: {
+        dim: "class",
+        type: "string",
+        unit: null,
+        labels: ["brain", "eye"],
+        names: ["brain", "eye"],
+      },
+      unit: "%",
+      values: [
+        [15, -2],
+        [4.25, 88],
+      ],
+      text: [
+        ["1.50e1", "-2.0"],
+        ["4.25", "8.8E1"],
+      ],
+      limits: { rule: "minmax", min: -2, max: 88 },
+      ...overrides,
+    }) as import("../src/lib/quality-views/model").HeatmapModel;
+
+  it("heatmap: the readout prints the stored text, not the value printed again", () => {
+    const model = heatmap();
+    expect(heatmapReadout(model, 0, 0)).toBe("IC1, brain: 1.50e1 %");
+    expect(heatmapReadout(model, 0, 0)).not.toContain(String(model.values[0][0]));
+  });
+
+  it("heatmap: the legend prints the smallest and largest cells' texts, or the largest magnitude", () => {
+    expect(heatmapLegend(heatmap())).toEqual({ low: "-2.0 %", high: "8.8E1 %", note: null });
+    const absmax = heatmapLegend(heatmap({ limits: { rule: "absmax", min: -88, max: 88 } }));
+    expect(absmax.low).toBe("negative");
+    expect(absmax.high).toBe("positive");
+    expect(absmax.note).toContain("8.8E1 %");
+    const tree = renderHeatmap(
+      heatmap(),
+      [],
+      viewContext({ caption: "C.", kind: "nemar.heatmap", kind_version: 1 } as never, "h"),
+    );
+    expect(textOf(tree)).toContain("8.8E1 %");
+  });
+
+  it("histogram: a bar's readout carries the unit for bins by edges, and the mark its stored text", async () => {
+    const c = vectors.cases.find(
+      (x) => x.view.kind === "nemar.histogram" && (x as { locates?: unknown }).locates,
+    ) as ModelCase & { locates: { value: number; bin: number }[] };
+    const model = (await built(c)).model as HistogramModel;
+    const bars = histogramBars(model, 100, 100);
+    const bin = bars.find((bar) => bar.index === 0)!;
+    expect(
+      histogramReadout(model, bin).startsWith(
+        model.unit ? `${bin.label} ${model.unit}: ${bin.count}` : `${bin.label}: ${bin.count}`,
+      ),
+    ).toBe(true);
+    if (model.heights === "density") {
+      expect(histogramReadout(model, bin)).toContain("per unit width");
+    }
+    expect(histogramReadout({ ...model, unit: "%" }, bin).startsWith(`${bin.label} %: `)).toBe(true);
+    const inside = c.locates.find((l) => l.bin >= 0 && l.bin < model.items.length)!;
+    const mark = { value: inside.value, text: "stored-text", label: "this recording" };
+    const label = histogramLabel(model, "Caption.", mark);
+    expect(label).toContain("this recording: stored-text");
+    expect(label).toContain(`in the bin ${model.items[inside.bin].label}`);
+    expect(histogramLabel(model, "Caption.", { ...mark, value: Number.NaN })).toContain(
+      "in no bin",
+    );
+    expect(toHtml(histogramSvg(model, mark))).toContain("this recording: stored-text");
+  });
+
+  it("builds the data table when its toggle first opens, or now on the server", async () => {
+    const c = byName("lines_spectrum");
+    const b = await built(c);
+    const { tree, table } = await renderView(b, ctxOf(c));
+    const details = [...walk(tree)].find((e) => e.tag === "details")!;
+    expect([...walk(details)].some((e) => e.tag === "table")).toBe(false);
+    expect(textOf(details)).toBe(DATA_TABLE);
+    expect(table!().tag).toBe("table");
+    const eager = await renderView(b, { ...ctxOf(c), eagerTables: true });
+    const filled = [...walk(eager.tree)].find((e) => e.tag === "details")!;
+    expect([...walk(filled)].some((e) => e.tag === "table")).toBe(true);
+  });
+
+  it("says a view could not be drawn, and lists its files, when its renderer fails", async () => {
+    const broken = {
+      drawing: { via: "kind", kind: "nemar.lines", kind_version: 1 },
+      refused: null,
+      downloads: [{ role: "values", location: "a/b.tsv", size: 3, sha256: "0".repeat(64) }],
+      model: { type: "lines" },
+    } as unknown as BuiltModel;
+    const { tree } = await renderView(
+      broken,
+      viewContext({ caption: "C.", kind: "nemar.lines", kind_version: 1 } as never, "b"),
+    );
+    expect(textOf(tree)).toContain(RENDER_FAILED);
+    expect(textOf(tree)).toContain("b.tsv");
+  });
+
+  it("never writes a coordinate that is not a number, even for spans past the largest double", () => {
+    const model = {
+      type: "lines",
+      x: {
+        dim: "x",
+        type: "number",
+        unit: null,
+        column: "x",
+        values: [-1.7e308, 0, 1.7e308],
+        text: ["a", "b", "c"],
+      },
+      y: { unit: null, min: -1.7e308, max: 1.7e308 },
+      series: {
+        dim: "s",
+        type: "string",
+        unit: null,
+        items: [{ label: "s", column: "s", values: [-1.7e308, 0, 1.7e308], text: ["d", "e", "f"] }],
+      },
+    } as unknown as LinesModel;
+    const html = toHtml(linesSvg(model));
+    expect(html).not.toMatch(/NaN|Infinity/);
+    const plot = linesPlot(model);
+    expect(rowAtPointer(model, plot, plot.width)).toBe(2);
+    const histogram = {
+      type: "histogram",
+      bins: "edges",
+      heights: "count",
+      unit: null,
+      items: [
+        {
+          label: "[-1.7e+308, 0)",
+          lower: -1.7e308,
+          upper: 0,
+          upper_closed: false,
+          count: 1,
+          width: 1.7e308,
+          density: 0,
+        },
+        {
+          label: "[0, 1.7e+308]",
+          lower: 0,
+          upper: 1.7e308,
+          upper_closed: true,
+          count: 2,
+          width: 1.7e308,
+          density: 0,
+        },
+      ],
+      underflow: { label: "< -1.7e+308", count: 0 },
+      overflow: { label: "> 1.7e+308", count: 0 },
+      missing: null,
+      total: 3,
+      max_count: 2,
+      max_density: 0,
+    } as unknown as HistogramModel;
+    expect(toHtml(histogramSvg(histogram))).not.toMatch(/NaN|Infinity/);
+  });
+
+  it("links a download only by http(s), blob or a path on this site", () => {
+    expect(safeUrl("javascript:alert(1)")).toBeNull();
+    expect(safeUrl(" JavaScript:alert(1)")).toBeNull();
+    expect(safeUrl("data:text/html,x")).toBeNull();
+    expect(safeUrl("vbscript:x")).toBeNull();
+    expect(safeUrl("https://data.nemar.org/x.tsv")).toBe("https://data.nemar.org/x.tsv");
+    expect(safeUrl("blob:https://nemar.org/1")).toBe("blob:https://nemar.org/1");
+    expect(safeUrl("/api/quality/x.tsv")).toBe("/api/quality/x.tsv");
+    const c = byName("table_channels");
+    return built(c).then(async (b) => {
+      const ctx = { ...ctxOf(c), downloadUrl: () => "javascript:alert(1)" };
+      const { tree } = await renderView(b, ctx);
+      expect(toHtml(tree)).not.toContain("javascript:");
+    });
+  });
+
+  it("speaks a readout only when its text changes", () => {
+    const output = { textContent: "" as string | null };
+    const write = readoutWriter(output);
+    expect(write("a")).toBe(true);
+    expect(write("a")).toBe(false);
+    expect(write("b")).toBe(true);
+    expect(output.textContent).toBe("b");
+  });
+
+  it("scalp maps: one tab stop for all maps, none on the group, and the legend says each map's range is its own", async () => {
+    let checked = 0;
+    for (const c of vectors.cases.filter((x) => x.view.kind === "nemar.sensor-field")) {
+      const b = await built(c);
+      if (b.model.type !== "sensor-field") continue;
+      const { tree } = await renderView(b, ctxOf(c));
+      const canvases = [...walk(tree)].filter((e) => e.tag === "canvas");
+      if (canvases.length === 0) continue;
+      expect(canvases.filter((e) => e.attrs.tabindex === "0")).toHaveLength(1);
+      expect(canvases.filter((e) => e.attrs.tabindex === "-1")).toHaveLength(canvases.length - 1);
+      const group = elements(tree, "qv-drawing")[0];
+      expect(group.attrs.role).toBe("group");
+      expect(group.attrs.tabindex).toBeUndefined();
+      expect(textOf(tree)).toContain(LEGEND_NOTE);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(10);
+  });
+
+  it("has a turbo legend whose stops are the turbo table's", async () => {
+    const css = fs.readFileSync(repoPath("src/styles/quality-views.css"), "utf8");
+    expect(css).toContain(".qv-legend-turbo");
+    const tokens = fs.readFileSync(repoPath("src/styles/tokens.css"), "utf8");
+    const { lookupTable } = await import("../src/lib/quality-views/colormap");
+    const lut = lookupTable("turbo");
+    [0, 64, 128, 191, 255].forEach((entry, k) => {
+      const hex = `#${[0, 1, 2].map((i) => lut[entry * 3 + i].toString(16).padStart(2, "0")).join("")}`;
+      expect(tokens).toContain(`--qv-turbo-${k}: ${hex};`);
+    });
   });
 });

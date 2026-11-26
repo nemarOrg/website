@@ -12,7 +12,8 @@
 import { type ColorMapName, entryFor, lookupTable } from "../colormap";
 import type { Download, HeatmapModel } from "../model";
 import { type Element, h } from "../tree";
-import { type ViewContext, dataTableToggle, figure, textTable } from "./figure";
+import { type ViewContext, figure, textTable } from "./figure";
+import { readoutWriter, step } from "./interact";
 import { columnHeader } from "./table";
 
 /** Labels printed along an axis, at most; the data table holds every one. */
@@ -78,6 +79,55 @@ export function heatmapDrawing(model: HeatmapModel): Element {
   );
 }
 
+/** The stored text of the cell holding the first value that `pick` prefers. */
+function cellText(model: HeatmapModel, better: (a: number, b: number) => boolean): string {
+  let at: [number, number] = [0, 0];
+  model.values.forEach((row, r) => {
+    row.forEach((v, c) => {
+      if (better(v, model.values[at[0]][at[1]])) at = [r, c];
+    });
+  });
+  return model.text[at[0]][at[1]];
+}
+
+/**
+ * The legend's ends, every number a stored cell's text: under `minmax` the smallest and the largest
+ * cell; under `absmax` the sign words and the cell of the largest magnitude, which the scale is
+ * centered on.
+ */
+export function heatmapLegend(model: HeatmapModel): {
+  readonly low: string;
+  readonly high: string;
+  readonly note: string | null;
+} {
+  const unit = model.unit ? ` ${model.unit}` : "";
+  if (model.limits.rule === "absmax") {
+    const largest = cellText(model, (a, b) => Math.abs(a) > Math.abs(b));
+    return {
+      low: "negative",
+      high: "positive",
+      note: `centered on 0; largest magnitude ${largest}${unit}`,
+    };
+  }
+  return {
+    low: `${cellText(model, (a, b) => a < b)}${unit}`,
+    high: `${cellText(model, (a, b) => a > b)}${unit}`,
+    note: null,
+  };
+}
+
+function legend(model: HeatmapModel): Element {
+  const { low, high, note } = heatmapLegend(model);
+  return h(
+    "div",
+    { class: "qv-legend" },
+    h("span", { class: "qv-legend-low" }, low),
+    h("span", { class: `qv-legend-bar qv-legend-${heatmapColorMap(model)}` }),
+    h("span", { class: "qv-legend-high" }, high),
+    note ? h("span", { class: "qv-legend-note" }, note) : null,
+  );
+}
+
 export function heatmapTable(model: HeatmapModel, caption: string): Element {
   const header = [
     columnHeader(model.rows.dim ?? "", model.rows.unit),
@@ -100,8 +150,41 @@ export function renderHeatmap(
     drawing: heatmapDrawing(model),
     label: heatmapLabel(model, ctx.caption),
     readout: true,
-    table: dataTableToggle(heatmapTable(model, ctx.caption)),
+    notes: [legend(model)],
+    table: () => heatmapTable(model, ctx.caption),
     downloads,
     colorMaps: true,
+  });
+}
+
+/** The page's side: paint the cells, and read one cell by pointer or arrow keys. */
+export function attachHeatmap(root: HTMLElement, model: HeatmapModel): void {
+  const canvas = root.querySelector<HTMLCanvasElement>(".qv-heatmap-cells");
+  const drawing = root.querySelector<HTMLElement>(".qv-drawing");
+  const output = root.querySelector<HTMLOutputElement>(".qv-readout");
+  const ctx = canvas?.getContext("2d");
+  if (!canvas || !ctx || !drawing || !output) return;
+  const write = readoutWriter(output);
+  const rows = model.values.length;
+  const columns = model.values[0].length;
+  const image = ctx.createImageData(columns, rows);
+  image.data.set(heatmapPixels(model));
+  ctx.putImageData(image, 0, 0);
+  let at: [number, number] = [0, 0];
+  canvas.addEventListener("pointermove", (event) => {
+    const box = canvas.getBoundingClientRect();
+    const r = Math.min(rows - 1, Math.floor(((event.clientY - box.top) / box.height) * rows));
+    const c = Math.min(columns - 1, Math.floor(((event.clientX - box.left) / box.width) * columns));
+    if (r < 0 || c < 0) return;
+    at = [r, c];
+    write(heatmapReadout(model, r, c));
+  });
+  drawing.addEventListener("keydown", (event) => {
+    const vertical = event.key === "ArrowUp" || event.key === "ArrowDown";
+    const next = vertical ? step(event.key, at[0], rows) : step(event.key, at[1], columns);
+    if (next === null) return;
+    event.preventDefault();
+    at = vertical ? [next, at[1]] : [at[0], next];
+    write(heatmapReadout(model, at[0], at[1]));
   });
 }

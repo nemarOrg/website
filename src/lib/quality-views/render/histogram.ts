@@ -17,7 +17,9 @@
 import { type Download, type HistogramModel, locateBin } from "../model";
 import { numberText } from "../read";
 import { type Child, type Element, h } from "../tree";
-import { type ViewContext, dataTableToggle, figure, textTable } from "./figure";
+import { type ViewContext, figure, textTable } from "./figure";
+import { readoutWriter, step } from "./interact";
+import { fraction } from "./scale";
 
 export const HISTOGRAM_SIZE = { width: 480, height: 240 } as const;
 const MARGIN = { left: 56, right: 12, top: 12, bottom: 44 } as const;
@@ -25,7 +27,10 @@ const MARGIN = { left: 56, right: 12, top: 12, bottom: 44 } as const;
 const END_SHARE = 1 / 14;
 
 export interface HistogramMark {
+  /** The marked value, which places it in a bin. */
   readonly value: number;
+  /** Its stored text, the only form of it printed. */
+  readonly text: string;
   /** What the mark is, e.g. "this recording". */
   readonly label: string;
 }
@@ -81,7 +86,7 @@ export function histogramBars(
   const span = width - left - (over ? end : 0);
   const first = model.items[0].lower!;
   const last = model.items[model.items.length - 1].upper!;
-  const at = (v: number): number => left + ((v - first) / (last - first)) * span;
+  const at = (v: number): number => left + fraction(v, first, last) * span;
   if (under) {
     bars.push({
       index: -1,
@@ -121,14 +126,33 @@ export function histogramBars(
   return bars;
 }
 
-/** The text alternative: the axes and units, and the counts through the data table. */
-export function histogramLabel(model: HistogramModel, caption: string): string {
+/** Where a mark falls, in words: its stored text and its bin's label. */
+export function markSentence(model: HistogramModel, mark: HistogramMark): string {
+  const bin = markedIndex(model, mark.value);
+  const where =
+    bin === null
+      ? "in no bin"
+      : bin < 0
+        ? `below the bins (${model.underflow!.label})`
+        : bin >= model.items.length
+          ? `above the bins (${model.overflow!.label})`
+          : `in the bin ${model.items[bin].label}`;
+  return `${mark.label}: ${mark.text}${model.unit ? ` ${model.unit}` : ""}, ${where}.`;
+}
+
+/** The text alternative: the axes and units, the mark, and the counts through the data table. */
+export function histogramLabel(
+  model: HistogramModel,
+  caption: string,
+  mark?: HistogramMark,
+): string {
   const bins =
     model.bins === "categories"
       ? `${model.items.length} categories`
       : `${model.items.length} bins from ${numberText(model.items[0].lower!)} to ${numberText(model.items[model.items.length - 1].upper!)}${model.unit ? ` ${model.unit}` : ""}`;
   const missing = model.missing ? `, and ${model.missing.count} missing` : "";
-  return `${caption} Histogram of ${bins}; ${valueAxisLabel(model)} on the value axis; ${model.total} values in all${missing}.`;
+  const marked = mark ? ` ${markSentence(model, mark)}` : "";
+  return `${caption} Histogram of ${bins}; ${valueAxisLabel(model)} on the value axis; ${model.total} values in all${missing}.${marked}`;
 }
 
 /** The data table's rows: each item, then the underflow and the overflow, then the missing count. */
@@ -257,7 +281,7 @@ export function histogramSvg(model: HistogramModel, mark?: HistogramMark): Eleme
       h(
         "text",
         { class: "qv-mark", x: plotW, y: 8, "text-anchor": "end" },
-        `${mark.label}: ${numberText(mark.value)}`,
+        `${mark.label}: ${mark.text}`,
       ),
     );
   }
@@ -275,23 +299,70 @@ export function histogramSvg(model: HistogramModel, mark?: HistogramMark): Eleme
   );
 }
 
+/** The data table: each bin with its count (and density), the ends and the missing count. */
+export function histogramTable(model: HistogramModel, caption: string): Element {
+  const header =
+    model.heights === "density" ? ["bin", "count", valueAxisLabel(model)] : ["bin", "count"];
+  return textTable(caption, header, histogramRows(model));
+}
+
 export function renderHistogram(
   model: HistogramModel,
   downloads: readonly Download[],
   ctx: ViewContext,
   mark?: HistogramMark,
 ): Element {
-  const header =
-    model.heights === "density" ? ["bin", "count", valueAxisLabel(model)] : ["bin", "count"];
   return figure({
     ctx,
     drawing: histogramSvg(model, mark),
-    label: histogramLabel(model, ctx.caption),
+    label: histogramLabel(model, ctx.caption, mark),
     readout: true,
     notes: model.missing
       ? [h("p", { class: "qv-note" }, `${model.missing.label}: ${model.missing.count}, in no bin`)]
       : [],
-    table: dataTableToggle(textTable(ctx.caption, header, histogramRows(model))),
+    table: () => histogramTable(model, ctx.caption),
     downloads,
+  });
+}
+
+/** What a pointer or a key on a bar reads: its label (with the unit, for bins by edges), its
+ *  count, and its density when the heights are densities. */
+export function histogramReadout(model: HistogramModel, bar: HistogramBar): string {
+  const unit = model.bins === "edges" && model.unit ? ` ${model.unit}` : "";
+  const item = bar.index >= 0 && bar.index < model.items.length ? model.items[bar.index] : null;
+  const density =
+    item && model.heights === "density" ? `, ${numberText(item.density!)} per unit width` : "";
+  return `${bar.label}${unit}: ${bar.count}${density}`;
+}
+
+/** The page's side: a pointer or the arrow keys select a bar and the readout prints it. */
+export function attachHistogram(root: HTMLElement, model: HistogramModel): void {
+  const drawing = root.querySelector<HTMLElement>(".qv-drawing");
+  const output = root.querySelector<HTMLOutputElement>(".qv-readout");
+  if (!drawing || !output) return;
+  const write = readoutWriter(output);
+  const bars = histogramBars(model, 1, 1);
+  let at = 0;
+  const show = (): void => {
+    write(histogramReadout(model, bars[at]));
+    for (const el of root.querySelectorAll(".qv-bar")) {
+      el.classList.toggle("qv-selected", el.getAttribute("data-index") === String(bars[at].index));
+    }
+  };
+  for (const el of root.querySelectorAll<SVGElement>(".qv-bar")) {
+    el.addEventListener("pointerenter", () => {
+      const k = bars.findIndex((bar) => String(bar.index) === el.getAttribute("data-index"));
+      if (k >= 0) {
+        at = k;
+        show();
+      }
+    });
+  }
+  drawing.addEventListener("keydown", (event) => {
+    const next = step(event.key, at, bars.length);
+    if (next === null) return;
+    event.preventDefault();
+    at = next;
+    show();
   });
 }

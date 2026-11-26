@@ -9,7 +9,9 @@
 
 import { type Download, type LinesModel, snapRow } from "../model";
 import { type Element, h } from "../tree";
-import { type ViewContext, dataTableToggle, figure, textTable } from "./figure";
+import { type ViewContext, figure, textTable } from "./figure";
+import { readoutWriter, step } from "./interact";
+import { fraction, lerp } from "./scale";
 import { columnHeader } from "./table";
 
 export const LINES_SIZE = { width: 640, height: 320 } as const;
@@ -32,15 +34,13 @@ export function linesPlot(model: LinesModel): Plot {
   const xs = model.x.values;
   const x0 = xs[0];
   const x1 = xs[xs.length - 1];
-  const xSpan = x1 - x0;
   const { min, max } = model.y;
-  const ySpan = max - min;
   return {
     width,
     height,
-    px: (x) => (xSpan > 0 ? ((x - x0) / xSpan) * width : width / 2),
-    xAt: (px) => (xSpan > 0 ? x0 + (px / width) * xSpan : x0),
-    py: (y) => (ySpan > 0 ? height - ((y - min) / ySpan) * height : height / 2),
+    px: (x) => fraction(x, x0, x1) * width,
+    xAt: (px) => (x1 > x0 ? lerp(px / width, x0, x1) : x0),
+    py: (y) => height - fraction(y, min, max) * height,
   };
 }
 
@@ -188,7 +188,54 @@ export function renderLines(
     drawing: linesSvg(model),
     label: linesLabel(model, ctx.caption),
     readout: true,
-    table: dataTableToggle(linesTable(model, ctx.caption)),
+    table: () => linesTable(model, ctx.caption),
     downloads,
+  });
+}
+
+/** The page's side: a pointer or the arrow keys pick a stored row (left, right) and a series (up,
+ *  down), and the readout prints their stored texts. */
+export function attachLines(root: HTMLElement, model: LinesModel): void {
+  const svg = root.querySelector<SVGSVGElement>("svg.qv-lines");
+  const cursor = root.querySelector<SVGLineElement>(".qv-cursor");
+  const drawing = root.querySelector<HTMLElement>(".qv-drawing");
+  const output = root.querySelector<HTMLOutputElement>(".qv-readout");
+  if (!svg || !drawing || !output) return;
+  const write = readoutWriter(output);
+  const plot = linesPlot(model);
+  let row = 0;
+  let series = 0;
+  const show = (): void => {
+    write(linesReadout(model, row, series));
+    const x = String(plot.px(model.x.values[row]));
+    cursor?.setAttribute("x1", x);
+    cursor?.setAttribute("x2", x);
+    cursor?.setAttribute("visibility", "visible");
+    for (const line of svg.querySelectorAll(".qv-series")) {
+      line.classList.toggle("qv-selected", line.getAttribute("data-series") === String(series));
+    }
+  };
+  svg.addEventListener("pointermove", (event) => {
+    const box = svg.getBoundingClientRect();
+    const px = ((event.clientX - box.left) / box.width) * LINES_SIZE.width - LINES_MARGIN.left;
+    const py = ((event.clientY - box.top) / box.height) * LINES_SIZE.height - LINES_MARGIN.top;
+    row = rowAtPointer(model, plot, px);
+    series = nearestSeries(model, plot, row, py);
+    show();
+  });
+  drawing.addEventListener("keydown", (event) => {
+    const vertical = event.key === "ArrowUp" || event.key === "ArrowDown";
+    const next = vertical
+      ? step(
+          event.key === "ArrowUp" ? "ArrowLeft" : "ArrowRight",
+          series,
+          model.series.items.length,
+        )
+      : step(event.key, row, model.x.values.length);
+    if (next === null) return;
+    event.preventDefault();
+    if (vertical) series = next;
+    else row = next;
+    show();
   });
 }

@@ -41,7 +41,9 @@
   fill: none;
   stroke: var(--chart-series-1);
   stroke-width: 1;
-  stroke-opacity: 0.45;
+  /* At 0.75 an unselected series still clears 3:1 on the page ground in both themes (6.6:1 light,
+     3.4:1 dark); the selected one is solid and wider. */
+  stroke-opacity: 0.75;
 }
 .qv-series.qv-selected {
   stroke: var(--chart-series-2);
@@ -160,6 +162,21 @@
     var(--qv-sequential-6),
     var(--qv-sequential-9)
   );
+}
+.qv-legend-turbo {
+  background: linear-gradient(
+    to right,
+    var(--qv-turbo-0),
+    var(--qv-turbo-1),
+    var(--qv-turbo-2),
+    var(--qv-turbo-3),
+    var(--qv-turbo-4)
+  );
+}
+.qv-legend-note,
+.qv-keys {
+  font-size: 0.85rem;
+  color: var(--color-fg-muted);
 }
 .qv-map-rows {
   font-size: 0.85rem;

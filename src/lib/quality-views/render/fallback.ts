@@ -19,12 +19,17 @@ export function fallbackReason(built: Pick<BuiltModel, "refused">, ctx: ViewCont
   return `This page does not draw ${ctx.kind} version ${ctx.kindVersion}, so its data are shown as tables.`;
 }
 
+/** Said when a renderer failed on a view: nothing of it is drawn, and its files are listed. */
+export const RENDER_FAILED =
+  "This view could not be drawn on this page; its files are listed below.";
+
 export function renderFallback(
   model: FallbackModel,
   built: Pick<BuiltModel, "refused" | "downloads">,
   ctx: ViewContext,
+  why?: string,
 ): Element {
-  const reason = fallbackReason(built, ctx);
+  const reason = why ?? fallbackReason(built, ctx);
   return figure({
     ctx,
     drawing: null,
