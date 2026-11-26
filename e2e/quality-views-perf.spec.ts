@@ -10,7 +10,10 @@
  * exactly as a page's import would. Each view is the heaviest of its size, one independent-component
  * map per sensor on the vectors' caps, with the 8 maps on screen asked for first. The first view is
  * timed on its own (it starts the worker and compiles its code); the budgets are gated on the median
- * of five later views, each with a layout the worker has not cached.
+ * of five later views, each with a layout the worker has not cached. The first view is the cold
+ * first view a page meets (website#592), and the page warms the worker for it as a panel does,
+ * as soon as the layout is known and before the values arrive (`SensorFieldClient.warm`), so it is
+ * gated at the same budgets.
  *
  * Run it with `bun run test:e2e e2e/quality-views-perf.spec.ts` (see playwright.config.ts). It needs
  * no network: the page's own requests to the API may fail without changing what is measured.
@@ -58,6 +61,8 @@ for (const [name, viewBudget] of [
           Float64Array.from(base, (v, s) => v * Math.cos(m + 1) + Math.sin(s * (m + 1))),
         );
         const client = new SensorFieldClient();
+        // The panel knows the layout before the values arrive, and warms the worker meanwhile.
+        const warm = await client.warm({ layoutKey: `${name}-0`, thetaDeg, radius });
         const runs: {
           firstMaps: number;
           view: number;
@@ -91,7 +96,13 @@ for (const [name, viewBudget] of [
           });
         }
         client.terminate();
-        return { runs, userAgent: navigator.userAgent, cores: navigator.hardwareConcurrency };
+        return {
+          runs,
+          warmMs: warm.ms,
+          warmed: warm.draw.kind,
+          userAgent: navigator.userAgent,
+          cores: navigator.hardwareConcurrency,
+        };
       },
       { name, data: sensors(name) },
     );
@@ -104,9 +115,12 @@ for (const [name, viewBudget] of [
     const firstMaps = median(later.map((r) => r.firstMaps));
     const view = median(later.map((r) => r.view));
     const worker = median(later.map((r) => r.worker));
-    const line = `${name} in ${timings.userAgent} (${timings.cores} cores): first view (worker start) first maps ${first.firstMaps.toFixed(1)} ms, view ${first.view.toFixed(1)} ms; median of 5: first maps ${firstMaps.toFixed(1)} ms, view ${view.toFixed(1)} ms (in the worker ${worker.toFixed(1)} ms)`;
+    const line = `${name} in ${timings.userAgent} (${timings.cores} cores): warm-up (worker start, geometry, ${timings.warmed}) ${timings.warmMs.toFixed(1)} ms; cold first view first maps ${first.firstMaps.toFixed(1)} ms, view ${first.view.toFixed(1)} ms (in the worker ${first.worker.toFixed(1)} ms); median of 5: first maps ${firstMaps.toFixed(1)} ms, view ${view.toFixed(1)} ms (in the worker ${worker.toFixed(1)} ms)`;
     info.annotations.push({ type: "quality-views perf", description: line });
     console.info(`[quality-views perf] ${line}`);
+    expect(timings.warmed).toBe("done");
+    expect(first.firstMaps).toBeLessThanOrEqual(BUDGET.firstMaps);
+    expect(first.view).toBeLessThanOrEqual(viewBudget);
     expect(firstMaps).toBeLessThanOrEqual(BUDGET.firstMaps);
     expect(view).toBeLessThanOrEqual(viewBudget);
   });
