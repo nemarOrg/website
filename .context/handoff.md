@@ -49,7 +49,7 @@ Branch `feature/issue-2020-authorize-post`, PR to `staging`. Astro's `security.c
 
 ## 2026-10-27: The mirror chip follows the API flag (website#478, PR #489)
 
-- **Release gate:** no `staging` to `main` promotion until `nemar admin upstream-backfill --execute` has run in production: once the API sends `mirror`, a mirror whose snapshot is not recorded yet reads `null` and has no chip, so a release before the backfill drops every chip.
+- **Release gate:** no `staging` to `main` promotion until `nemar admin repull upstream-backfill --apply` has run in production: once the API sends `mirror`, a mirror whose snapshot is not recorded yet reads `null` and has no chip, so a release before the backfill drops every chip.
 
 ## 2026-10-24 — Admin Mail tab (website#479, nemar-cli epic #1893 phase 5)
 
