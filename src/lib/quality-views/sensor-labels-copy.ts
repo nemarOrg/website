@@ -33,7 +33,7 @@ export const LABELS_SENTENCES: Readonly<Record<LabelsReason, string>> = {
  */
 export const MONTAGE_UNAVAILABLE = "montage_unavailable";
 export const MONTAGE_UNAVAILABLE_SENTENCE =
-  "The montage these sensors are placed on could not be loaded; reload the page to try again.";
+  "The montage for these sensors could not be loaded; reload the page to try again.";
 
 /** A sentence to follow a colon: its first letter lowered, and its final period kept. */
 export const asClause = (sentence: string): string =>

@@ -35,7 +35,6 @@ import {
   readJson,
   readTsv,
 } from "./read";
-import { MONTAGE_UNAVAILABLE } from "./sensor-labels-copy";
 import { MONTAGE_NAMES, clean, finish, typeClass } from "./sensor-names";
 import { type ColumnDecl, declaredColumns, typedColumn } from "./tsv";
 import { subtleSha256 } from "./verify";
@@ -230,22 +229,16 @@ export class ViewRefused extends Error {
 }
 
 /** A montage or a lazy chunk a scalp map's placement needs could not be loaded. */
-class MontageUnavailable extends Error {
-  constructor(
-    what: string,
-    readonly failure: unknown,
-  ) {
-    super(`${what} could not be loaded`);
-    this.name = "MontageUnavailable";
-  }
+class MontageUnavailable {
+  constructor(readonly failure: unknown) {}
 }
 
 /** `load()`, or `MontageUnavailable` when it rejects. */
-async function loaded<T>(what: string, load: () => Promise<T>): Promise<T> {
+async function loaded<T>(load: () => Promise<T>): Promise<T> {
   try {
     return await load();
   } catch (error) {
-    throw new MontageUnavailable(what, error);
+    throw new MontageUnavailable(error);
   }
 }
 
@@ -843,10 +836,10 @@ export async function placeSensors(
     // before any center is needed, so only a montage it holds is loaded.
     const center =
       montageName !== null && MONTAGE_NAMES.includes(montageName)
-        ? (await loaded(montageName, () => options.montage(montageName))).center
+        ? (await loaded(() => options.montage(montageName))).center
         : undefined;
     // Loaded only for a view placed by positions, so other views never fetch it.
-    const { sensorLayout } = await loaded("sensor-layout", () => import("./sensor-layout"));
+    const { sensorLayout } = await loaded(() => import("./sensor-layout"));
     const result = sensorLayout(
       { x: xyz.map((p) => p[0]), y: xyz.map((p) => p[1]), z: xyz.map((p) => p[2]) },
       frame,
@@ -886,7 +879,7 @@ export async function placeSensors(
       montage !== null &&
       MONTAGE_NAMES.includes(montage) &&
       !(await templateNamesKnown(sensors.labels, montage, (name) =>
-        loaded(name, () => options.montage(name)),
+        loaded(() => options.montage(name)),
       ))
     ) {
       placement.word = "template_name_unknown";
@@ -915,7 +908,6 @@ export async function placeSensors(
       placement.position_source = "template";
       // nemar.sensor-labels.v1 and the montages names reach load only for a map placed by name.
       const { MIN_CHANNELS, countCandidates, inferPositions, loadNameMontages } = await loaded(
-        "sensor-labels",
         () => import("./sensor-labels"),
       );
       const given = rows.map((k) => [sensors.labels[k], types[k]] as const);
@@ -924,11 +916,10 @@ export async function placeSensors(
       const inference =
         countCandidates(given) < MIN_CHANNELS
           ? inferPositions(given, [], sidecar)
-          : inferPositions(
-              given,
-              await loaded("the montages names reach", () => loadNameMontages(options.montage)),
-              { capModel: inputs.cap_model, reference: inputs.reference },
-            );
+          : inferPositions(given, await loaded(() => loadNameMontages(options.montage)), {
+              capModel: inputs.cap_model,
+              reference: inputs.reference,
+            });
       placement.montage = inference.montage;
       if (inference.outcome !== "placed") {
         placement.word = inference.reason;
@@ -970,8 +961,10 @@ export async function placeSensors(
     await place();
   } catch (error) {
     if (!(error instanceof MontageUnavailable)) throw error;
-    console.error(`[quality-views] ${error.message}:`, error.failure);
-    placement.word = MONTAGE_UNAVAILABLE;
+    console.error("[quality-views] a montage could not be loaded:", error.failure);
+    // The word of `MONTAGE_UNAVAILABLE` (sensor-labels-copy.ts), written out so the model does not
+    // import the sentences.
+    placement.word = "montage_unavailable";
     layout = null;
   }
   if (placement.word !== null) {
