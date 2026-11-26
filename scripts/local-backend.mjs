@@ -45,6 +45,16 @@
  *                   runner), and the same SQL the backend's grid test uses for a silent report and a
  *                   runner job. Open http://localhost:4321/admin/pipelines as `owner`.
  *
+ *   --seed-quality  also seeds the dataset page's quality panel (website phase W6, nemar-cli ADR 0137): the
+ *                   dataset row of nemar-ica's real product (`test/fixtures/quality/ica-views` of the
+ *                   checkout, `on007823`), a stored `catalog` derivative of it with the backend's own
+ *                   fixture helpers (`backend/test/helpers/quality-fixture.ts`), and the product under the
+ *                   derivative's key in Miniflare's R2 as the derivatives bucket, so the REAL public
+ *                   quality route answers at http://localhost:8787/data/on007823/quality/v1/nemar-ica/...
+ *                   (the record and every declared file). The record URL is printed. The site's dataset
+ *                   page reads the data plane, so `e2e/quality-panel.spec.ts` (captured answers) is the
+ *                   browser check; this is for looking at the route's answers by hand.
+ *
  *   --seed-compute-jobs  with --seed-compute and LOCAL_BACKEND_JOBS=1, also makes the job page's
  *                   (website phase E3, #496) jobs for `localjobs` through the REAL services and the
  *                   Tapis stand-in: a finished job (three outputs, a log), a running one, a second
@@ -832,6 +842,45 @@ async function seedPipelineRuns() {
 }
 if (SEED_PIPELINE) await seedPipelineRuns();
 
+/**
+ * The quality panel's derivative (--seed-quality): nemar-ica's real product, stored as the derivative
+ * store stores it, under a `catalog` row, as `backend/test/quality-route.test.ts` builds it.
+ */
+const SEED_QUALITY = process.argv.includes("--seed-quality");
+const qualityHost = SEED_QUALITY
+  ? new (await import(join(root, "node_modules/miniflare/dist/src/index.js"))).Miniflare({
+      modules: true,
+      script: "export default { fetch() { return new Response('ok') } }",
+      compatibilityDate: "2024-12-01",
+      r2Buckets: ["COMPUTE_DERIVATIVES"],
+    })
+  : null;
+let qualityRecordUrl = null;
+async function seedQuality() {
+  const qf = await import(join(root, "backend/test/helpers/quality-fixture.ts"));
+  const { qualityRecordPath } = await import(join(root, "shared/contract/quality-route.ts"));
+  const bucket = await qualityHost.getR2Bucket("COMPUTE_DERIVATIVES");
+  env.COMPUTE_DERIVATIVES = bucket;
+  env.COMPUTE_DERIVATIVES_BUCKET_NAME = "nemar-compute-derivatives";
+  const datasetId = "on007823";
+  db.query(
+    `INSERT OR IGNORE INTO datasets (dataset_id, name, owner_user_id, status, visibility, is_sandbox, anonymous,
+                                     modalities, first_published_at)
+     VALUES (?, ?, -1, 'active', 'public', 0, 0, 'eeg', '2026-01-01 00:00:00')`,
+  ).run(datasetId, datasetId);
+  const jobId = qf.newJobId();
+  const stampId = await qf.seedIcaStamp(env.DB, { datasetId, jobId });
+  const key = await qf.seedDerivative(env.DB, {
+    datasetId,
+    stampId,
+    jobId,
+    retention: "catalog",
+  });
+  for (const [path, bytes] of qf.productFiles()) await bucket.put(`d/${key}/${path}`, bytes);
+  qualityRecordUrl = `http://localhost:${PORT}/data${qualityRecordPath(datasetId, "nemar-ica", "sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_eeg.edf")}`;
+}
+if (SEED_QUALITY) await seedQuality();
+
 const cookies = {};
 for (const p of [...PERSONAS, ...ADMIN_PERSONAS])
   cookies[p.who] = await signIn(`${p.who}@nemar.test`);
@@ -937,6 +986,9 @@ if (SEED_PIPELINE) {
   console.log(
     "Admin Pipelines tab: sign in as `owner` and open http://localhost:4321/admin/pipelines.",
   );
+}
+if (qualityRecordUrl) {
+  console.log(`Quality route (real, seeded): curl -s ${qualityRecordUrl}`);
 }
 console.log(`Owner API key (grant from a terminal): ${OWNER_KEY}`);
 console.log(
