@@ -218,11 +218,15 @@ export function attachLines(root: HTMLElement, model: LinesModel): void {
       line.classList.toggle("qv-selected", line.getAttribute("data-series") === String(series));
     }
   };
-  svg.addEventListener("pointermove", (event) => {
+  const rowOf = (event: MouseEvent): number => {
     const box = svg.getBoundingClientRect();
     const px = ((event.clientX - box.left) / box.width) * LINES_SIZE.width - LINES_MARGIN.left;
+    return rowAtPointer(model, plot, px);
+  };
+  svg.addEventListener("pointermove", (event) => {
+    const box = svg.getBoundingClientRect();
     const py = ((event.clientY - box.top) / box.height) * LINES_SIZE.height - LINES_MARGIN.top;
-    row = rowAtPointer(model, plot, px);
+    row = rowOf(event);
     series = nearestSeries(model, plot, row, py);
     show();
   });
@@ -231,7 +235,13 @@ export function attachLines(root: HTMLElement, model: LinesModel): void {
   const pick = (): void => {
     root.dispatchEvent(new CustomEvent("qv-pick", { detail: { row } }));
   };
-  svg.addEventListener("click", pick);
+
+  // A click picks the row under the click itself, not the last row a pointer moved over.
+  svg.addEventListener("click", (event) => {
+    row = rowOf(event);
+    show();
+    pick();
+  });
   drawing.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
