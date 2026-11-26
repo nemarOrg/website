@@ -183,8 +183,8 @@ describe("nemar.ic-activity.v1: the refusals, each check in order", () => {
     // A channel the store holds twice is refused when matched by label.
     const archive = (vectors.cases as Case[]).find((c) => c.name === "archive_label_volts")!;
     const store = structuredClone(archive.store);
-    const column = (archive.view as { transform: { parameters: { columns: string[] } } }).transform
-      .parameters.columns[0];
+    const column = (archive.view as unknown as { transform: { parameters: { columns: string[] } } })
+      .transform.parameters.columns[0];
     store.labels = [...store.labels, column];
     store.units = [...store.units, "uV"];
     store.scale = [...store.scale, 1];
