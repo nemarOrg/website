@@ -178,8 +178,6 @@ export interface DrawStats {
   readonly totalMs: number;
   readonly cacheHits: number;
   readonly cacheMisses: number;
-  /** Geometries read back from the page's storage (an earlier visit built them). */
-  readonly storeHits: number;
   readonly batches: number;
 }
 
@@ -198,13 +196,9 @@ export type WorkerResponse =
       /** Milliseconds spent building the geometry, 0 when the cache held it. */
       readonly geometryMs: number;
       readonly cached: boolean;
-      /** Read back from the page's storage, built on an earlier visit. */
-      readonly stored: boolean;
     }
   | ({ readonly type: "checked"; readonly id: number } & ViewCheck)
   | { readonly type: "content-checked"; readonly id: number; readonly valid: boolean }
-  /** The worker does not hold this view's schemas (a computed preset): the page checks it. */
-  | { readonly type: "unchecked"; readonly id: number }
   | { readonly type: "failure"; readonly id: number | null; readonly message: string };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -352,14 +346,11 @@ export function isWorkerResponse(value: unknown): value is WorkerResponse {
       );
     case "content-checked":
       return Number.isInteger(value.id) && typeof value.valid === "boolean";
-    case "unchecked":
-      return Number.isInteger(value.id);
     case "prepared":
       return (
         Number.isInteger(value.id) &&
         typeof value.geometryMs === "number" &&
-        typeof value.cached === "boolean" &&
-        typeof value.stored === "boolean"
+        typeof value.cached === "boolean"
       );
     case "failure":
       return (value.id === null || Number.isInteger(value.id)) && typeof value.message === "string";

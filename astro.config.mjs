@@ -62,6 +62,10 @@ export default defineConfig({
     clientPrerender: true,
   },
   vite: {
+    // The quality views' map worker loads the computed presets' schemas as a lazy chunk of its own
+    // (src/lib/quality-views/worker.ts), which needs an ES module worker. It is the only worker
+    // Vite bundles here; the BIDS validator's is vendored.
+    worker: { format: "es" },
     define: {
       // Edge-cache namespace, fixed at build time (website#188).
       //

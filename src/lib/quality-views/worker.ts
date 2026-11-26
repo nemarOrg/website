@@ -17,7 +17,7 @@
  */
 
 import { contourLines } from "./contours";
-import { type GeometryStore, geometryKey, indexedDbStore } from "./geometry-store";
+import type { ViewCheck } from "./checks";
 import { checkContent, checkView } from "./kinds";
 import {
   type GeometryResult,
@@ -142,111 +142,30 @@ export function drawBatches(
 }
 
 /**
+ * A declaration's checks in the worker. The computed presets' schemas (`guards-computed.ts`) are a
+ * lazy chunk of the worker's own, loaded the first time a view names one, so the worker's base
+ * chunk stays within its budget and the page never loads the guards.
+ */
+async function checkHere(view: unknown): Promise<ViewCheck> {
+  const held = checkView(view);
+  if (held) return held;
+  const { COMPUTED_SCHEMAS } = await import("./guards-computed");
+  return checkView(view, COMPUTED_SCHEMAS)!;
+}
+
+/**
  * The worker's message handler, with its own cache. `post` sends an answer; each answer's buffers
  * are listed for transfer.
  */
-export interface HandlerOptions {
-  /** Where geometries outlive the worker (`indexedDbStore()` in a real worker); none by default. */
-  readonly store?: GeometryStore | null;
-}
-
-interface Tally {
-  hits: number;
-  misses: number;
-  stored: number;
-  geometryMs: number;
-}
-
-/** Whether a stored geometry is the one these places and usable rows give (a stored record is
- *  data from an earlier visit, read back, and is checked before it is used). */
-function storedMatches(
-  geometry: SensorFieldGeometry | undefined,
-  thetaDeg: Float64Array,
-  radius: Float64Array,
-  usable: Uint8Array,
-): geometry is SensorFieldGeometry {
-  return (
-    !!geometry &&
-    geometry.thetaDeg instanceof Float64Array &&
-    geometry.radius instanceof Float64Array &&
-    geometry.usable instanceof Uint8Array &&
-    geometry.evaluation instanceof Float64Array &&
-    geometry.factors?.lu instanceof Float64Array &&
-    geometry.factors.pivots instanceof Int32Array &&
-    sameNumbers(geometry.thetaDeg, thetaDeg) &&
-    sameNumbers(geometry.radius, radius) &&
-    geometry.usable.length === usable.length &&
-    geometry.usable.every((u, i) => u === usable[i]) &&
-    geometry.evaluation.length === geometry.inside.length * geometry.interpolated.length
-  );
-}
-
-export function createSensorFieldHandler(
-  post: Post,
-  options: HandlerOptions = {},
-): (data: unknown) => void {
+export function createSensorFieldHandler(post: Post): (data: unknown) => void {
   const cache = new Map<string, CacheEntry>();
-  const building = new Map<string, Promise<CacheEntry>>();
   const cancelled = new Set<number>();
-  const store = options.store ?? null;
-  // Geometries to store, written once the draw or prepare that built them has answered: storing
-  // copies the whole geometry, which must not delay the maps.
-  const writes = new Map<string, SensorFieldGeometry>();
-  function flushWrites(): void {
-    if (!store || writes.size === 0) return;
-    const batch = [...writes];
-    writes.clear();
-    setTimeout(() => {
-      for (const [key, geometry] of batch) void store.put(key, geometry);
-    }, 0);
-  }
 
-  function remember(key: string, entry: CacheEntry): void {
-    cache.delete(key);
-    cache.set(key, entry);
-    while (cache.size > CACHE_ENTRIES) cache.delete(cache.keys().next().value as string);
-  }
-
-  function entryOf(
-    thetaDeg: Float64Array,
-    radius: Float64Array,
-    result: GeometryResult,
-  ): CacheEntry {
-    return {
-      thetaDeg,
-      radius,
-      result,
-      message: result.kind === "geometry" ? geometryMessage(result.geometry) : null,
-    };
-  }
-
-  /** Compute a geometry here (the store, when there is one, has missed). */
-  function compute(
-    key: string,
-    thetaDeg: Float64Array,
-    radius: Float64Array,
-    usable: Uint8Array,
-    tally: Tally,
-    start: number,
-  ): CacheEntry {
-    const result = prepareSensorField(thetaDeg, radius, usable);
-    tally.misses++;
-    tally.geometryMs += now() - start;
-    const entry = entryOf(thetaDeg, radius, result);
-    remember(key, entry);
-    return entry;
-  }
-
-  /**
-   * The geometry for these places and usable rows: from this worker's cache, else from the page's
-   * storage (an earlier visit), else computed. Synchronous when there is no storage, so a draw
-   * without it runs as it always did; a promise only while storage is read.
-   */
   function geometryFor(
     request: DrawRequest | PrepareRequest,
     usable: Uint8Array,
-    tally: Tally,
-  ): CacheEntry | Promise<CacheEntry> {
+    tally: { hits: number; misses: number; geometryMs: number },
+  ): CacheEntry {
     const key = `${request.layoutKey}|${maskKey(usable)}`;
     const held = cache.get(key);
     if (
@@ -254,53 +173,31 @@ export function createSensorFieldHandler(
       sameNumbers(held.thetaDeg, request.thetaDeg) &&
       sameNumbers(held.radius, request.radius)
     ) {
-      remember(key, held);
+      cache.delete(key);
+      cache.set(key, held);
       tally.hits++;
       return held;
     }
     const start = now();
-    const thetaDeg = Float64Array.from(request.thetaDeg);
-    const radius = Float64Array.from(request.radius);
-    if (!store) return compute(key, thetaDeg, radius, usable, tally, start);
-    const inFlight = building.get(key);
-    const pending = (async (): Promise<CacheEntry> => {
-      if (inFlight) {
-        const entry = await inFlight;
-        if (sameNumbers(entry.thetaDeg, thetaDeg) && sameNumbers(entry.radius, radius)) {
-          tally.hits++;
-          return entry;
-        }
-      }
-      let storeKey: string | null = null;
-      try {
-        storeKey = await geometryKey(request.layoutKey, thetaDeg, radius, usable);
-        const stored = await store.get(storeKey);
-        if (storedMatches(stored, thetaDeg, radius, usable)) {
-          tally.stored++;
-          tally.geometryMs += now() - start;
-          const entry = entryOf(thetaDeg, radius, { kind: "geometry", geometry: stored });
-          remember(key, entry);
-          return entry;
-        }
-      } catch {
-        storeKey = null;
-      }
-      const entry = compute(key, thetaDeg, radius, usable, tally, start);
-      if (storeKey && entry.result.kind === "geometry") writes.set(storeKey, entry.result.geometry);
-      return entry;
-    })();
-    building.set(key, pending);
-    const settled = (): void => {
-      if (building.get(key) === pending) building.delete(key);
+    const result = prepareSensorField(request.thetaDeg, request.radius, usable);
+    const entry: CacheEntry = {
+      thetaDeg: Float64Array.from(request.thetaDeg),
+      radius: Float64Array.from(request.radius),
+      result,
+      message: result.kind === "geometry" ? geometryMessage(result.geometry) : null,
     };
-    pending.then(settled, settled);
-    return pending;
+    tally.geometryMs += now() - start;
+    tally.misses++;
+    cache.delete(key);
+    cache.set(key, entry);
+    while (cache.size > CACHE_ENTRIES) cache.delete(cache.keys().next().value as string);
+    return entry;
   }
 
   async function draw(request: DrawRequest): Promise<void> {
     const start = now();
     const sensors = request.thetaDeg.length;
-    const tally: Tally = { hits: 0, misses: 0, stored: 0, geometryMs: 0 };
+    const tally = { hits: 0, misses: 0, geometryMs: 0 };
     const traced = new Set(request.contours);
     // The geometries this draw has sent, by cache entry, with the number maps name them by.
     const sent = new Map<CacheEntry, number>();
@@ -314,7 +211,6 @@ export function createSensorFieldHandler(
     for (let b = 0; b < batches.length; b++) {
       if (cancelled.delete(request.id)) {
         post({ type: "cancelled", id: request.id }, []);
-        flushWrites();
         return;
       }
       const batch = batches[b];
@@ -332,8 +228,7 @@ export function createSensorFieldHandler(
       const geometries: GeometryEntry[] = [];
       const transfer: Transferable[] = [];
       for (const { usable, indices } of groups.values()) {
-        const found = geometryFor(request, usable, tally);
-        const entry = found instanceof Promise ? await found : found;
+        const entry = geometryFor(request, usable, tally);
         if (entry.result.kind === "refused") {
           for (const index of indices) {
             maps.set(index, {
@@ -410,13 +305,11 @@ export function createSensorFieldHandler(
           totalMs: now() - start,
           cacheHits: tally.hits,
           cacheMisses: tally.misses,
-          storeHits: tally.stored,
           batches: batches.length,
         },
       },
       [],
     );
-    flushWrites();
   }
 
   return (data: unknown) => {
@@ -435,17 +328,10 @@ export function createSensorFieldHandler(
       return;
     }
     if (request.type === "check") {
-      try {
-        const check = checkView(request.view);
-        post(
-          check
-            ? { type: "checked", id: request.id, ...check }
-            : { type: "unchecked", id: request.id },
-          [],
-        );
-      } catch (error) {
-        post({ type: "failure", id: request.id, message: describe(error) }, []);
-      }
+      checkHere(request.view).then(
+        (check) => post({ type: "checked", id: request.id, ...check }, []),
+        (error: unknown) => post({ type: "failure", id: request.id, message: describe(error) }, []),
+      );
       return;
     }
     if (request.type === "check-content") {
@@ -470,23 +356,21 @@ export function createSensorFieldHandler(
         request.radius,
         new Float64Array(request.thetaDeg.length),
       );
-      const tally: Tally = { hits: 0, misses: 0, stored: 0, geometryMs: 0 };
-      Promise.resolve(geometryFor(request, usable, tally)).then(
-        () => {
-          post(
-            {
-              type: "prepared",
-              id: request.id,
-              geometryMs: tally.geometryMs,
-              cached: tally.hits > 0,
-              stored: tally.stored > 0,
-            },
-            [],
-          );
-          flushWrites();
-        },
-        (error: unknown) => post({ type: "failure", id: request.id, message: describe(error) }, []),
-      );
+      const tally = { hits: 0, misses: 0, geometryMs: 0 };
+      try {
+        geometryFor(request, usable, tally);
+        post(
+          {
+            type: "prepared",
+            id: request.id,
+            geometryMs: tally.geometryMs,
+            cached: tally.hits > 0,
+          },
+          [],
+        );
+      } catch (error) {
+        post({ type: "failure", id: request.id, message: describe(error) }, []);
+      }
       return;
     }
     draw(request).catch((error: unknown) => {
@@ -501,11 +385,10 @@ export function createSensorFieldHandler(
  * `Worker` at all; a browser that has workers but cannot start this module worker gets
  * `unavailable`, not this. The tests use it too.
  */
-export function inThreadWorker(options: HandlerOptions = {}): WorkerLike {
+export function inThreadWorker(): WorkerLike {
   const channel = new MessageChannel();
-  const handle = createSensorFieldHandler(
-    (message, transfer) => channel.port2.postMessage(message, transfer),
-    options,
+  const handle = createSensorFieldHandler((message, transfer) =>
+    channel.port2.postMessage(message, transfer),
   );
   channel.port2.onmessage = (event) => handle(event.data);
   const port: WorkerLike = {
@@ -533,9 +416,8 @@ if (
   typeof scope.WorkerGlobalScope === "function" &&
   globalThis instanceof scope.WorkerGlobalScope
 ) {
-  const handle = createSensorFieldHandler(
-    (message, transfer) => scope.postMessage(message, transfer),
-    { store: indexedDbStore() },
+  const handle = createSensorFieldHandler((message, transfer) =>
+    scope.postMessage(message, transfer),
   );
   scope.onmessage = (event) => handle(event.data);
 }

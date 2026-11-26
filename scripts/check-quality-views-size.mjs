@@ -102,6 +102,8 @@ try {
     logLevel: "warn",
     publicDir: false,
     mode: "production",
+    // As the site builds it (astro.config.mjs): the map worker has a lazy chunk.
+    worker: { format: "es" },
     build: {
       outDir,
       assetsDir: "",
