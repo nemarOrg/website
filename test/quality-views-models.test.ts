@@ -6,17 +6,15 @@
  * model should have made 0 fails); every refusal is refused with its word and still offers its
  * downloads; every pointer snaps to the vector's row and every value lands in the vector's bin.
  *
- * Scalp maps placed by sensor name need `nemar.sensor-labels.v1`, phase W2b's. Until it lands
- * those cases (listed by count below, so the list cannot grow unnoticed) show the site's word
- * `labels_pending` in every map's place, and everything but the placement is still compared.
+ * Scalp maps placed by sensor name run `nemar.sensor-labels.v1` (`sensor-labels.ts`) on the
+ * montage files, and are compared whole like every other case (counted below, so a vectors update
+ * that drops them is seen).
  */
 
 import { describe, expect, it } from "vitest";
 import { localChecks } from "../src/lib/quality-views/local-checks";
 import {
-  type BuiltModel,
   type FileDecl,
-  LABELS_PENDING,
   type SensorFieldModel,
   ViewRefused,
   buildModel,
@@ -95,39 +93,15 @@ describe("model vectors", () => {
     expect(vectors.format).toBe("nemar.kinds-models.v1");
   });
 
-  const pending = vectors.cases.filter(placedByName);
-  it("leave exactly 21 cases placed by name to nemar.sensor-labels.v1 (W2b)", () => {
-    expect(pending.length).toBe(21);
+  it("hold 21 cases placed by name (nemar.sensor-labels.v1)", () => {
+    expect(vectors.cases.filter(placedByName).length).toBe(21);
   });
 
-  it.each(vectors.cases.filter((c) => !placedByName(c)).map((c) => [c.name, c] as const))(
-    "%s",
-    async (_name, c) => {
-      const built = await buildModel(c.view, source(c.files), options(c.caps));
-      const { layout: _layout, ...comparable } = built;
-      expect(same(comparable, c.model), c.covers).toBeNull();
-    },
-  );
-
-  it.each(pending.map((c) => [c.name, c] as const))(
-    "%s (placed by name: pending W2b)",
-    async (_name, c) => {
-      const built: BuiltModel = await buildModel(c.view, source(c.files), options(c.caps));
-      expect(same(built.drawing, c.model.drawing)).toBeNull();
-      expect(same(built.refused, c.model.refused)).toBeNull();
-      expect(same(built.downloads, c.model.downloads)).toBeNull();
-      const model = built.model as SensorFieldModel;
-      expect(model.placement.word).toBe(LABELS_PENDING);
-      expect(model.maps.items.every((item) => item.word === LABELS_PENDING)).toBe(true);
-      const expected = c.model.model as unknown as SensorFieldModel;
-      expect(
-        same(
-          model.maps.items.map((m) => m.text),
-          expected.maps.items.map((m) => m.text),
-        ),
-      ).toBeNull();
-    },
-  );
+  it.each(vectors.cases.map((c) => [c.name, c] as const))("%s", async (_name, c) => {
+    const built = await buildModel(c.view, source(c.files), options(c.caps));
+    const { layout: _layout, ...comparable } = built;
+    expect(same(comparable, c.model), c.covers).toBeNull();
+  });
 
   it.each(vectors.refusals.map((c) => [c.name, c] as const))("refusal %s", async (_name, c) => {
     const refusal = await buildModel(c.view, source(c.files), options(c.caps)).then(

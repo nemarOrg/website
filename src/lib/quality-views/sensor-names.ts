@@ -5,8 +5,7 @@
  * `src/neuroschema/views/sensor_labels.py`).
  *
  * The rest of that algorithm (the hyphen split, the aliases, matching against montages and its
- * refusals) is phase W2b's `sensor-labels.ts`, which builds on these definitions rather than
- * repeating them. `test/quality-views-sensor-names.test.ts` holds them to the channels of
+ * refusals) is `sensor-labels.ts`, which builds on these definitions rather than repeating them. `test/quality-views-sensor-names.test.ts` holds them to the channels of
  * `views/vectors/sensor-labels.v1.json` that need nothing more.
  *
  * Nothing here uses Unicode normalization: a name is folded by a fixed table (full-width ASCII and

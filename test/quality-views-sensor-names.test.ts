@@ -6,7 +6,7 @@
  * Each vector channel carries its status and normalized key. The parts these rules decide alone are
  * checked on every channel: a channel typed other than EEG is `excluded_type`; an untyped one whose
  * cleaned name starts with a non-EEG prefix is `excluded_name`; and for a channel with no hyphen
- * (the split at a hyphen is W2b's), the key is `finish(clean(name))` and it is a `fiducial` exactly
+ * (the split at a hyphen is `sensor-labels.ts`'s, tested in `quality-views-sensor-labels.test.ts`), the key is `finish(clean(name))` and it is a `fiducial` exactly
  * when that key is one.
  */
 

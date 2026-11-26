@@ -9,11 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import { localChecks } from "../src/lib/quality-views/local-checks";
-import {
-  type FileDecl,
-  LABELS_PENDING,
-  type SensorFieldModel,
-} from "../src/lib/quality-views/model";
+import type { FileDecl, SensorFieldModel } from "../src/lib/quality-views/model";
 import { type Montage, parseMontage } from "../src/lib/quality-views/montages";
 import { icClassesContent, icMapsRows } from "../src/lib/quality-views/preset-components";
 import { spectrumMaps } from "../src/lib/quality-views/preset-spectrum";
@@ -96,7 +92,7 @@ describe("nemar.spectrum's scalp maps (kinds-models.v1)", () => {
     }[];
   };
   const spectra = vectors.cases.filter((c) => c.view.kind === "nemar.spectrum");
-  it("holds the spectrum cases, one placed by name (pending W2b)", () => {
+  it("holds the spectrum cases, one placed by name", () => {
     expect(spectra.length).toBe(8);
     const byName = spectra.filter(
       (c) => (c.maps.model as SensorFieldModel | null)?.placement.source === "names",
@@ -108,16 +104,6 @@ describe("nemar.spectrum's scalp maps (kinds-models.v1)", () => {
     const expected = c.maps.model as SensorFieldModel | null;
     if (c.maps.rows === null) {
       expect(maps, c.covers).toBeNull();
-    } else if (expected?.placement.source === "names") {
-      // Placed by name: pending W2b's nemar.sensor-labels.v1, as in the model vectors' test.
-      expect(maps?.rows).toEqual(c.maps.rows);
-      expect(maps?.model?.placement.word).toBe(LABELS_PENDING);
-      expect(
-        same(
-          maps?.model?.maps.items.map((m) => [m.label, m.text]),
-          expected.maps.items.map((m) => [m.label, m.text]),
-        ),
-      ).toBeNull();
     } else {
       expect(maps?.rows).toEqual(c.maps.rows);
       expect(maps?.refused ?? null).toBe(c.maps.refused);

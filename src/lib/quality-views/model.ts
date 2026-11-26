@@ -228,32 +228,6 @@ export class ViewRefused extends Error {
   }
 }
 
-// ── Placing sensors by name (nemar.sensor-labels.v1) ─────────────────────
-
-export interface NamePlacement {
-  readonly outcome: "placed" | "refused";
-  /** The refusal's word when `outcome` is `refused`. */
-  readonly reason: string | null;
-  readonly montage: string | null;
-  /** The reference channel's name, as given, when the algorithm reports one. */
-  readonly reference: string | null;
-  /** One per channel given, in order: its montage electrode and RAS position in meters, or nulls. */
-  readonly channels: readonly {
-    readonly name: string;
-    readonly electrode: string | null;
-    readonly position: readonly [number, number, number] | null;
-  }[];
-}
-/** `nemar.sensor-labels.v1`'s `infer_positions`: phase W2b provides it. */
-export type PlaceByNames = (
-  channels: readonly { readonly name: string; readonly type: string | null }[],
-  inputs: { readonly cap_model: string | null; readonly reference: string | null },
-) => Promise<NamePlacement>;
-
-/** The word a scalp map placed by name shows while this site has no `nemar.sensor-labels.v1`
- *  (phase W2b): the site's own, not the specification's. */
-export const LABELS_PENDING = "labels_pending";
-
 // ── Options ─────────────────────────────────────────────────────────────
 
 /** A file's bytes by its declaration, or null when it is not there. */
@@ -268,7 +242,6 @@ export interface ModelOptions {
   readonly montage: (name: string) => Promise<Montage>;
   /** The SHA-256 of bytes, lowercase hex; SubtleCrypto's by default. */
   readonly sha256?: (bytes: Uint8Array) => Promise<string>;
-  readonly placeByNames?: PlaceByNames;
   /** Called once with a scalp map's drawn places as soon as its layout file is read (`warmInput`),
    *  before its values may have arrived: the page prepares the geometry with it. */
   readonly onLayout?: (places: {
@@ -913,49 +886,47 @@ export async function placeSensors(
     placement.source = "names";
     placement.coordinate_system = "n/a";
     placement.position_source = "template";
-    if (!options.placeByNames) {
-      placement.montage = null;
-      placement.word = LABELS_PENDING;
+    // nemar.sensor-labels.v1 and the montages names reach load only for a map placed by name.
+    const { inferPositions, loadNameMontages } = await import("./sensor-labels");
+    const inference = inferPositions(
+      rows.map((k) => [sensors.labels[k], types[k]] as const),
+      await loadNameMontages(options.montage),
+      { capModel: inputs.cap_model, reference: inputs.reference },
+    );
+    placement.montage = inference.montage;
+    if (inference.outcome !== "placed") {
+      placement.word = inference.reason;
     } else {
-      const inference = await options.placeByNames(
-        rows.map((k) => ({ name: sensors.labels[k], type: types[k] })),
-        inputs,
-      );
-      placement.montage = inference.montage;
-      if (inference.outcome !== "placed") {
-        placement.word = inference.reason;
-      } else {
-        const electrodes = new Array<string | null>(count).fill(null);
-        const xyz = new Array<readonly [number, number, number] | null>(count).fill(null);
-        let reference: number | null = null;
-        rows.forEach((k, i) => {
-          const channel = inference.channels[i];
-          if (channel.electrode !== null && channel.position !== null) {
-            electrodes[k] = channel.electrode;
-            xyz[k] = [channel.position[0] + 0, channel.position[1] + 0, channel.position[2] + 0];
-            if (channel.name === inference.reference) reference = k;
-          }
-        });
-        drawn = electrodes.map((e) => e !== null);
-        if (reference !== null) {
-          const ref: number = reference;
-          placement.reference = sensors.labels[ref];
-          if (maps.every(([, values]) => values[ref] === 0)) drawn[ref] = false;
+      const electrodes = new Array<string | null>(count).fill(null);
+      const xyz = new Array<readonly [number, number, number] | null>(count).fill(null);
+      let reference: number | null = null;
+      rows.forEach((k, i) => {
+        const channel = inference.channels[i];
+        if (channel.electrode !== null && channel.position !== null) {
+          electrodes[k] = channel.electrode;
+          xyz[k] = [channel.position[0] + 0, channel.position[1] + 0, channel.position[2] + 0];
+          if (channel.name === inference.reference) reference = k;
         }
-        rows = drawn.flatMap((d, k) => (d ? [k] : []));
-        places.electrodes = electrodes;
-        places.x = xyz.map((p) => (p ? p[0] : null));
-        places.y = xyz.map((p) => (p ? p[1] : null));
-        places.z = xyz.map((p) => (p ? p[2] : null));
-        const projected = await project(
-          rows.map((k) => xyz[k]!),
-          "n/a",
-          inference.montage,
-          rows,
-        );
-        if ("word" in projected) placement.word = projected.word;
-        else layout = projected;
+      });
+      drawn = electrodes.map((e) => e !== null);
+      if (reference !== null) {
+        const ref: number = reference;
+        placement.reference = sensors.labels[ref];
+        if (maps.every(([, values]) => values[ref] === 0)) drawn[ref] = false;
       }
+      rows = drawn.flatMap((d, k) => (d ? [k] : []));
+      places.electrodes = electrodes;
+      places.x = xyz.map((p) => (p ? p[0] : null));
+      places.y = xyz.map((p) => (p ? p[1] : null));
+      places.z = xyz.map((p) => (p ? p[2] : null));
+      const projected = await project(
+        rows.map((k) => xyz[k]!),
+        "n/a",
+        inference.montage,
+        rows,
+      );
+      if ("word" in projected) placement.word = projected.word;
+      else layout = projected;
     }
   }
   if (placement.word !== null) {
