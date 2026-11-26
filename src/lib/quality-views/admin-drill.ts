@@ -14,9 +14,10 @@
  * dataset, recipe and recording), each view's `nemar.view-digest.v1` compared before it is drawn,
  * and each file's size and SHA-256 before it is parsed (`buildModel`). The admin mount sends no
  * `ETag` (nothing of it may be cached), so a record is read without one, and checked against one
- * when it comes with one. Panel overlap: `panel.ts` holds the same drawing steps for the public
- * route; they are repeated here, not shared, while W7 and W8 change that file (a later refactor
- * can lift `drawView` out of both).
+ * when it comes with one. The views the record says were not written (`views_skipped`) are said
+ * in their group, in the public panel's words. Panel overlap: `panel.ts` holds the same drawing
+ * steps for the public route; they are repeated here, not shared, while W7 and W8 change that
+ * file. nemarOrg/website#600 lifts one shared `drawView` out of both once W7 and W8 land.
  */
 
 import { ADMIN_VIEW_SENTENCES, PIPELINE_QUALITY_LABELS } from "../pipeline-quality-labels";
@@ -31,7 +32,7 @@ import {
   buildModel,
   downloadsOf,
 } from "./model";
-import { TABS, tabOf } from "./panel-model";
+import { TABS, type TabId, tabOf } from "./panel-model";
 import { readLimited } from "./preloaded";
 import { type QualityRecord, readRecordAnswer } from "./record";
 import { type MountedView, mountView, renderRefusal, viewContext } from "./render/index";
@@ -52,6 +53,44 @@ const EXTRAS: Readonly<Record<string, () => Promise<{ draw(x: ExtraContext): Pro
 export async function adminSentence(word: string): Promise<string> {
   if (Object.hasOwn(ADMIN_VIEW_SENTENCES, word)) return ADMIN_VIEW_SENTENCES[word];
   return (await import("./panel-words")).sentenceOf(word);
+}
+
+/** The views a record says the run did not write (`views_skipped`), by the panel's tab of their kind. */
+export function skippedByTab(
+  skipped: QualityRecord["skipped"],
+): Map<TabId, { key: string; kind: string; reason: string }[]> {
+  const out = new Map<TabId, { key: string; kind: string; reason: string }[]>();
+  for (const s of skipped) {
+    const tab = tabOf(s.kind);
+    out.set(tab, [...(out.get(tab) ?? []), s]);
+  }
+  return out;
+}
+
+/**
+ * The drill-down's groups, in the panel's tab order: each tab with the stored views it draws and the
+ * views the run did not write; a tab with neither is left out.
+ */
+export function drillGroups<V extends { readonly kind: string }>(
+  stored: readonly V[],
+  skipped: QualityRecord["skipped"],
+): {
+  tab: (typeof TABS)[number];
+  views: V[];
+  skipped: { key: string; kind: string; reason: string }[];
+}[] {
+  const notWritten = skippedByTab(skipped);
+  return TABS.map((tab) => ({
+    tab,
+    views: stored.filter((v) => tabOf(v.kind) === tab.id),
+    skipped: notWritten.get(tab.id) ?? [],
+  })).filter((g) => g.views.length > 0 || g.skipped.length > 0);
+}
+
+/** A skipped view's sentence, the public panel's (`panel.ts`), its reason from the panel's words. */
+export async function skippedText(s: { key: string; reason: string }): Promise<string> {
+  const { sentenceOf } = await import("./panel-words");
+  return `The view ${s.key} was not written for this recording: ${sentenceOf(s.reason, "skipped_unknown")}.`;
 }
 
 export type AdminRecordOutcome =
@@ -315,9 +354,7 @@ export function mountAdminDrill(config: DrillConfig, deps: DrillDeps = {}): Dril
     listComputed(all.filter((v) => Object.hasOwn(v, "inputs")));
     const files = adminFiles(stampId, record, { signal, fetch: deps.fetch });
     const work: Promise<void>[] = [];
-    for (const tab of TABS) {
-      const mine = stored.filter((v) => tabOf(v.kind) === tab.id);
-      if (mine.length === 0) continue;
+    for (const { tab, views: mine, skipped: notWritten } of drillGroups(stored, record.skipped)) {
       const section = doc.createElement("section");
       section.className = "qd-group";
       section.dataset.qdGroup = tab.id;
@@ -325,6 +362,19 @@ export function mountAdminDrill(config: DrillConfig, deps: DrillDeps = {}): Dril
       h.textContent = tab.label;
       section.append(h);
       views.append(section);
+      // The views the run did not write, said as the public panel says them.
+      for (const s of notWritten) {
+        const p = doc.createElement("p");
+        p.className = "qv-note";
+        p.dataset.word = s.reason;
+        p.dataset.qdSkipped = s.key;
+        section.append(p);
+        work.push(
+          skippedText(s).then((text) => {
+            if (!signal.aborted) p.textContent = text;
+          }),
+        );
+      }
       for (const view of mine) {
         const container = doc.createElement("div");
         container.className = "qd-view";
