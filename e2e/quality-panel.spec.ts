@@ -97,6 +97,9 @@ interface MountOptions {
    *  `secondHasRecord`, the first's record without its views of other kinds (no Other tab). */
   readonly second?: string;
   readonly secondHasRecord?: boolean;
+  /** A view of the generic kind `nemar.lines` on the spectrum's values, with no preset of its own
+   *  (it is drawn under Other views): its declaration's digest recomputed to match. */
+  readonly genericLines?: boolean;
   /** Delay every file's answer by this many milliseconds. */
   readonly slowFiles?: number;
   /** Do not wait for the panel to be ready. */
@@ -137,6 +140,30 @@ async function mount(page: Page, options: MountOptions = {}): Promise<void> {
           }
           doc.view_digests[view.key] = await viewDigest(view);
         }
+        body = JSON.stringify(doc);
+        headers = { "Content-Type": "application/json", ETag: `"${await hexOf(body)}"` };
+      }
+      if (options.genericLines) {
+        const { viewDigest } = await import(/* @vite-ignore */ modules.verify);
+        const doc = JSON.parse(body);
+        const views = doc.dataQuality.recipes[provenance.recipe].views;
+        const spectrum = views.find((v: { key: string }) => v.key === "spectrum");
+        const lines = {
+          key: "lines",
+          kind: "nemar.lines",
+          kind_version: 1,
+          caption: "The spectrum's values as a generic line chart.",
+          source: spectrum.source,
+          // The values alone, their sensors named by the header (the spectrum's name the layout).
+          data: spectrum.data
+            .filter((d: { role: string }) => d.role === "values")
+            .map((d: { dims: { coords: object }[] }) => ({
+              ...d,
+              dims: [d.dims[0], { ...d.dims[1], coords: { header: true } }],
+            })),
+        };
+        views.push(lines);
+        doc.view_digests.lines = await viewDigest(lines);
         body = JSON.stringify(doc);
         headers = { "Content-Type": "application/json", ETag: `"${await hexOf(body)}"` };
       }
@@ -711,6 +738,22 @@ test.describe("export", () => {
     await expect(status).toHaveText("");
     await saved(page, view.getByRole("button", { name: "Save drawing (SVG)" }));
     await expect(status).toHaveText("Saved the drawing.");
+  });
+
+  test("a view of a generic kind, with no preset of its own, is exported too", async ({ page }) => {
+    await mount(page, { genericLines: true });
+    await page.locator('[data-qp-tab="other"]').click();
+    await ready(page);
+    const view = page.locator('[data-qp-view="lines"]');
+    await expect(view.locator("svg.qv-lines")).toHaveCount(1);
+    await openExport(page, "lines");
+    const bytes = new Uint8Array(
+      await saved(page, view.getByRole("button", { name: "Save image (PNG)" })),
+    );
+    const texts = Object.fromEntries(pngTexts(bytes));
+    expect(texts["nemar:kind"]).toBe("nemar.lines");
+    expect(texts["nemar:permalink"]).toMatch(/#quality\/.+\/lines$/);
+    await expect(view.getByRole("button", { name: "Save drawing (SVG)" })).toHaveCount(1);
   });
 
   test("every drawn map is exported with its contour lines, those never on screen too", async ({
