@@ -17,6 +17,19 @@ import type { Vec3 } from "../quality-views/sensor-layout";
  * Only the coordinates changed: they are neuroschema's, where the viewer kept its own copy of MNE's.
  * `nemar.sensor-field.v1` draws no map through fewer than 8 placed sensors, so a handful of
  * incidental matches draws nothing.
+ *
+ * ACCEPTED DEVIATION FROM ADR 0137, until phase W2b (website#588) replaces this file with
+ * `nemar.sensor-labels.v1` (owner's ruling on website#593):
+ * - EGI nets are chosen by names alone (`namedCap`: numbered `E` labels give a HydroCel net by the
+ *   highest number). The amendment forbids that: a recording is placed on a HydroCel net only
+ *   when its `CapManufacturersModelName` names that net, because older EGI nets number their
+ *   electrodes alike on other positions, so names alone never decide an EGI net.
+ * - There is no share rule: sensor-labels.v1 refuses a montage unless at least 80% of the
+ *   candidate channels match it (`share_too_low`); the #855 rule has none, only `MIN_MATCHED`
+ *   here and BioSemi's bank dominance (60% of the labels).
+ * - Ambiguity (`montage_ambiguous`), `duplicate_label`, `net_coverage_low` and the hyphen split
+ *   are not checked either.
+ * W2b removes all of this; do not extend it.
  */
 
 /** The montages this rule can choose, by their exact neuroschema names. */
