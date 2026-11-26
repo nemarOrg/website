@@ -1381,7 +1381,24 @@ test.describe("the Activations export", () => {
     await expect(view.getByRole("button", { name: "Save drawing (SVG)" })).toHaveCount(0);
     const before = { urls: urls.length, data: await dataRequests(page), chunks: served.chunks };
     const save = view.getByRole("button", { name: "Save image (PNG)" });
+    // Every text the export's canvas prints, observed as it paints.
+    await page.evaluate(() => {
+      const printed: string[] = [];
+      (window as unknown as { printed: string[] }).printed = printed;
+      const fill = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (t: string, x: number, y: number) {
+        printed.push(t);
+        return fill.call(this, t, x, y);
+      };
+    });
     const first = new Uint8Array(await saved(page, save));
+    // The notes are printed in the picture too, wrapped to its width.
+    const printed = (
+      await page.evaluate(() => (window as unknown as { printed: string[] }).printed)
+    ).join(" ");
+    expect(printed).toContain("not checked against a digest NEMAR recorded");
+    expect(printed).toContain("1 Hz high-pass for display only");
+    expect(printed).toContain("5 spans ASR repaired in this window are shaded (burst).");
     const chunks = pngChunks(first);
     expect(chunks.every((c) => c.crcOk)).toBe(true);
     const texts = Object.fromEntries(pngTexts(first));
