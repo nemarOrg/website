@@ -292,6 +292,24 @@ describe("the window", () => {
     expect((await plan(40)).word).toBeNull();
     expect((await plan(41)).word).toBe("window_too_long");
   });
+
+  it("may end at the store's last sample and not one past it", async () => {
+    const c = (vectors.cases as Case[]).find((x) => x.name === "last_window")!;
+    const files = await fetchInputs(c.view, source(c.files));
+    const samples = c.store.digital[0].length;
+    const plan = (start: number) =>
+      planActivity({
+        view: c.view,
+        files,
+        store: servingStore(c),
+        start,
+        count: 15,
+        burstsRepaired: null,
+        caps: CAPS,
+      });
+    expect((await plan(samples - 15)).word).toBeNull();
+    expect((await plan(samples - 14)).word).toBe("window_outside_store");
+  });
 });
 
 describe("the page's steps around the transform", () => {

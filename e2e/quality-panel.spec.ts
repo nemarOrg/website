@@ -602,6 +602,24 @@ test("the Activations tab draws the serving copy's activations, shaded and capti
   page,
 }) => {
   await serveZarr(page);
+  // Every figure put in the view's place, in order: a computed view is never first drawn as tables.
+  await page.addInitScript(() => {
+    const seen: string[] = [];
+    (window as unknown as { figures: string[] }).figures = seen;
+    new MutationObserver((records) => {
+      for (const r of records) {
+        for (const node of r.addedNodes) {
+          if (
+            node instanceof HTMLElement &&
+            node.matches("figure") &&
+            node.closest("[data-qp-view='icactivity']")
+          ) {
+            seen.push(node.className);
+          }
+        }
+      }
+    }).observe(document, { childList: true, subtree: true });
+  });
   await mount(page, { zarr: true, hash: `#quality/${provenance.recording}/icactivity` });
   await expect(page.locator('[data-qp-tab="activations"]')).toHaveAttribute(
     "aria-selected",
@@ -639,6 +657,24 @@ test("the Activations tab draws the serving copy's activations, shaded and capti
   await view.getByRole("button", { name: "Later" }).click();
   await expect(view.locator(".qp-activity__where")).toHaveText("10 s to 19.995 s of 30 s");
   await expect(view.getByRole("button", { name: "Earlier" })).toBeEnabled();
+  expect(await page.evaluate(() => (window as unknown as { figures: string[] }).figures)).toEqual([
+    "qv-figure qp-activity",
+  ]);
+});
+
+test("the Activations tab refuses a store of another recording", async ({ page }) => {
+  await serveZarr(page);
+  await mount(page, {
+    zarr: true,
+    hash: `#quality/${provenance.recording}/icactivity`,
+    patch: { key: "icactivity", recording: "sub-OTHER/eeg/sub-OTHER_task-COVID_eeg.edf" },
+  });
+  const view = page.locator('[data-qp-view="icactivity"]');
+  await expect(view.locator("[data-word]")).toHaveAttribute(
+    "data-word",
+    "signal_recording_mismatch",
+  );
+  await expect(view.locator("canvas")).toHaveCount(0);
 });
 
 test("the Activations tab refuses a serving copy whose channels differ", async ({ page }) => {
