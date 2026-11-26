@@ -24,7 +24,7 @@
  */
 
 import type { FileDecl, FileSource, ViewDecl } from "./model";
-import { subtleSha256, warmInput } from "./model";
+import { CAPS, subtleSha256, warmInput } from "./model";
 import { readTsv } from "./read";
 import {
   type PrepareOutcome,
@@ -52,8 +52,13 @@ export interface PrepareAheadInput {
 export interface PrepareAheadOptions {
   /** The client to warm and prepare in; the page's shared one by default. */
   readonly client?: SensorFieldClient;
-  /** Fetch a file's bytes, null when it is not there; a low-priority `fetch` by default. */
-  readonly fetchBytes?: (url: string, signal?: AbortSignal) => Promise<Uint8Array | null>;
+  /** Fetch a file's bytes, null when it is not there or longer than `limit` bytes; a low-priority
+   *  `fetch` by default. */
+  readonly fetchBytes?: (
+    url: string,
+    signal?: AbortSignal,
+    limit?: number,
+  ) => Promise<Uint8Array | null>;
 }
 
 export type Skipped = { readonly kind: "skipped"; readonly reason: string };
@@ -75,18 +80,58 @@ export function shouldPreload(nav: unknown = globalThis.navigator): boolean {
   return !["slow-2g", "2g"].includes(connection.effectiveType ?? "");
 }
 
-async function defaultFetch(url: string, signal?: AbortSignal): Promise<Uint8Array | null> {
-  const response = await fetch(url, { signal, priority: "low" } as RequestInit);
-  return response.ok ? new Uint8Array(await response.arrayBuffer()) : null;
+/** A response's body, or null when it is not OK or runs past `limit` bytes (read no further). */
+export async function readLimited(
+  response: Response,
+  limit = Number.POSITIVE_INFINITY,
+): Promise<Uint8Array | null> {
+  if (!response.ok) return null;
+  if (!response.body) return new Uint8Array(await response.arrayBuffer());
+  const reader = response.body.getReader();
+  const parts: Uint8Array[] = [];
+  let length = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    length += value.length;
+    if (length > limit) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    parts.push(value);
+  }
+  const bytes = new Uint8Array(length);
+  let at = 0;
+  for (const part of parts) {
+    bytes.set(part, at);
+    at += part.length;
+  }
+  return bytes;
 }
 
-/** Checked bytes by SHA-256, and the layouts prepared per client: shared by every call. */
+async function defaultFetch(
+  url: string,
+  signal?: AbortSignal,
+  limit?: number,
+): Promise<Uint8Array | null> {
+  const response = await fetch(url, { signal, priority: "low" } as RequestInit);
+  return readLimited(response, limit);
+}
+
+/** Checked bytes by SHA-256 (and, once settled, the bytes themselves), and the layouts prepared
+ *  per client: shared by every call. */
 const checked = new Map<string, Promise<Uint8Array | null>>();
+const settled = new Map<string, Uint8Array>();
 const prepared = new WeakMap<SensorFieldClient, Map<string, Promise<PrepareOutcome | Skipped>>>();
 
 const skipped = (reason: string): Skipped => ({ kind: "skipped", reason });
 const reasonOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+/** Whether `bytes` are `file`'s: its declared size and SHA-256. */
+async function verified(file: FileDecl, bytes: Uint8Array | null): Promise<boolean> {
+  return !!bytes && bytes.length === file.size && (await subtleSha256(bytes)) === file.sha256;
+}
 
 /** The bytes of `file`, checked against its size and SHA-256 once per page, or null. */
 function checkedBytes(
@@ -97,11 +142,16 @@ function checkedBytes(
   const held = checked.get(file.sha256);
   if (held) return held;
   const pending = (async () => {
-    const bytes = await fetchBytes(file.url, signal);
-    if (!bytes || bytes.length !== file.size) return null;
-    return (await subtleSha256(bytes)) === file.sha256 ? bytes : null;
+    const bytes = await fetchBytes(file.url, signal, file.size);
+    return (await verified(file, bytes)) ? bytes : null;
   })();
   checked.set(file.sha256, pending);
+  void pending.then(
+    (bytes) => {
+      if (bytes) settled.set(file.sha256, bytes);
+    },
+    () => {},
+  );
   // A failed or cancelled fetch is forgotten, so the panel or a later preload can try again.
   pending.then(
     (bytes) => {
@@ -125,7 +175,8 @@ export async function prepareAhead(
   const stopped = (): boolean => signal?.aborted === true;
   const fetchBytes = options.fetchBytes ?? defaultFetch;
   const client = (): SensorFieldClient => options.client ?? sharedSensorFieldClient();
-  let budget = input.maxBytes ?? Number.POSITIVE_INFINITY;
+  // Without a cap of its own, at most one file's worth under the registry's cap on bytes.
+  let budget = input.maxBytes ?? CAPS.bytes_per_role;
   const spend = (file: PreloadFile): boolean => {
     if (checked.has(file.sha256)) return true;
     if (file.size > budget) return false;
@@ -182,16 +233,51 @@ export async function prepareAhead(
   return { warm, layout, files };
 }
 
-/** A file source that serves preloaded bytes, and fetches any other file with `fallback`. */
+/**
+ * A file source that serves preloaded bytes, and fetches any other file with `fallback`. A file
+ * whose preload is still on its way is fetched again at once at the panel's own priority, never
+ * waited on: the first bytes that match the declared size and SHA-256 win, and when neither does,
+ * the fallback's answer stands (the model then says why).
+ */
 export function preloadedSource(fallback: FileSource): FileSource {
   return async (file) => {
+    const ready = settled.get(file.sha256);
+    if (ready) return ready;
     const held = checked.get(file.sha256);
-    const bytes = held ? await held.catch(() => null) : null;
-    return bytes ?? fallback(file);
+    if (!held) return fallback(file);
+    const direct = fallback(file);
+    return new Promise<Uint8Array | null>((resolve, reject) => {
+      let open = 2;
+      let directResult: { bytes: Uint8Array | null } | { error: unknown } | null = null;
+      const finish = (): void => {
+        if (--open > 0) return;
+        if (directResult && "error" in directResult) reject(directResult.error);
+        else resolve(directResult?.bytes ?? null);
+      };
+      held.then(
+        (bytes) => {
+          if (bytes) resolve(bytes);
+          finish();
+        },
+        () => finish(),
+      );
+      direct.then(
+        async (bytes) => {
+          directResult = { bytes };
+          if (await verified(file, bytes)) resolve(bytes);
+          finish();
+        },
+        (error: unknown) => {
+          directResult = { error };
+          finish();
+        },
+      );
+    });
   };
 }
 
 /** Forget every preloaded file (a page that leaves the dataset; the tests). */
 export function forgetPreloads(): void {
   checked.clear();
+  settled.clear();
 }

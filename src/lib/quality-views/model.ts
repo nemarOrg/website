@@ -310,7 +310,11 @@ class Reader {
   /** Start fetching a file the model will read, so it downloads beside the others. */
   prefetch(entry: FileDecl | null): void {
     if (!entry || entry.size > this.caps.bytes_per_role || this.bytes.has(entry.location)) return;
-    this.bytes.set(entry.location, this.source(entry));
+    const pending = this.source(entry);
+    // A prefetched file the model never reads (it was refused first) must not leave an unhandled
+    // rejection; a reader that does read it still gets the rejection.
+    pending.catch(() => {});
+    this.bytes.set(entry.location, pending);
   }
 
   entry(role: string): DataDecl | null {
@@ -1046,10 +1050,20 @@ export function warmInput(
   const declaredNames = new Set((entry.columns ?? []).map((c) => c.name));
   const place = (name: string): number[] | null => {
     if (!declaredNames.has(name) || !layout.header.includes(name)) return null;
-    return cells(layout, name).map((t) => (t === NO_PLACE ? Number.NaN : Number(t)));
+    // The model's own cell reader: a cell it refuses refuses the warm-up too.
+    return cells(layout, name).map((t) =>
+      t === NO_PLACE ? Number.NaN : (cellValue(t, "number") as number),
+    );
   };
-  const theta = place("theta_deg");
-  const radius = place("radius");
+  let theta: number[] | null;
+  let radius: number[] | null;
+  try {
+    theta = place("theta_deg");
+    radius = place("radius");
+  } catch (error) {
+    if (error instanceof KindRefused) return null;
+    throw error;
+  }
   if (!theta || !radius) return null;
   const types =
     declaredNames.has("sensor_type") && layout.header.includes("sensor_type")

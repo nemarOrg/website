@@ -26,13 +26,14 @@ import {
   forgetPreloads,
   preloadedSource,
   prepareAhead,
+  readLimited,
   shouldPreload,
 } from "../src/lib/quality-views/prepare-ahead";
 import { readTsv } from "../src/lib/quality-views/read";
 import { fieldDrawInput } from "../src/lib/quality-views/render/sensor-field-view";
 import { createSensorFieldHandler, inThreadWorker } from "../src/lib/quality-views/worker";
 import { SensorFieldClient } from "../src/lib/quality-views/worker-client";
-import { nodeFs, repoPath } from "./node";
+import { nodeFs, nodeProcess, repoPath } from "./node";
 import { MONTAGES_DIR, loadFieldVectors, mapOutcome } from "./quality-views-vectors";
 
 const fs = await nodeFs();
@@ -483,5 +484,121 @@ describe("preloading the first screen ahead of the panel (prepareAhead)", () => 
     expect(shouldPreload({ connection: { effectiveType: "slow-2g" } })).toBe(false);
     expect(shouldPreload({ connection: { effectiveType: "4g" } })).toBe(true);
     expect(shouldPreload({})).toBe(true);
+  });
+});
+
+describe("the review's repros (#594, round 2)", () => {
+  const layoutUrl = "https://data.example.invalid/layout.tsv";
+  const layoutFile = { ...view.data[1], url: layoutUrl };
+  const valuesFile = { ...view.data[0], url: "https://data.example.invalid/values.tsv" };
+
+  it("a panel opened while a preload fetch hangs fetches at once and draws, never waiting on it", async () => {
+    forgetPreloads();
+    let hung = 0;
+    // The preload's fetch never answers.
+    void prepareAhead(
+      { files: [valuesFile, layoutFile] },
+      {
+        client: new SensorFieldClient(inThreadWorker),
+        fetchBytes: () => {
+          hung++;
+          return new Promise<Uint8Array | null>(() => {});
+        },
+      },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(hung).toBe(1);
+    const built = await Promise.race([
+      buildModel(view, preloadedSource(source(files)), { checks: localChecks, montage }),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+    ]);
+    expect(built).not.toBeNull();
+    expect(built!.model.type).toBe("sensor-field");
+    forgetPreloads();
+  });
+
+  it("a preload's bytes that do not verify lose to the panel's own fetch", async () => {
+    forgetPreloads();
+    let release: (b: Uint8Array) => void = () => {};
+    void prepareAhead(
+      { files: [layoutFile] },
+      {
+        client: new SensorFieldClient(inThreadWorker),
+        fetchBytes: () =>
+          new Promise<Uint8Array | null>((resolve) => {
+            release = resolve;
+          }),
+      },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const reading = preloadedSource(source(files))(layoutFile);
+    release(encode("name\n"));
+    expect(new TextDecoder().decode((await reading)!)).toBe(layoutText);
+    forgetPreloads();
+  });
+
+  it("caps a preload at the registry's bytes per role when it names no cap", async () => {
+    forgetPreloads();
+    let calls = 0;
+    const big = { ...valuesFile, size: 4194305 };
+    const ahead = await prepareAhead(
+      { files: [big] },
+      {
+        client: new SensorFieldClient(inThreadWorker),
+        fetchBytes: async () => {
+          calls++;
+          return null;
+        },
+      },
+    );
+    expect(calls).toBe(0);
+    expect(ahead.files.get(big.sha256)).toMatchObject({ kind: "skipped" });
+  });
+
+  it("stops reading a response past the declared size", async () => {
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        controller.enqueue(new Uint8Array(1000));
+        if (pulled > 100) controller.close();
+      },
+    });
+    expect(await readLimited(new Response(body), 2500)).toBeNull();
+    expect(pulled).toBeLessThan(10);
+    expect(await readLimited(new Response(new Uint8Array(3)), 3)).toEqual(new Uint8Array(3));
+    expect(await readLimited(new Response("x", { status: 404 }))).toBeNull();
+  });
+
+  it("leaves no unhandled rejection when a prefetched layout fails and the model never reads it", async () => {
+    const process = await nodeProcess();
+    const unhandled: unknown[] = [];
+    const listener = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", listener);
+    const refusal = await buildModel(
+      view,
+      async (file) => {
+        if (file.location === LAYOUT) throw new Error("layout fetch failed");
+        return null; // the values are missing: the view is refused before the layout is read
+      },
+      { checks: localChecks, montage },
+    ).catch((error: unknown) => error);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    process.off("unhandledRejection", listener);
+    expect((refusal as { word?: string }).word).toBe("file_missing");
+    expect(unhandled).toEqual([]);
+  });
+
+  it("reads the layout's places with the model's cell reader", () => {
+    const withCell = (cell: string) =>
+      warmInput(
+        view as never,
+        readTsv(encode(layoutText.replace(`\t${rows[0].theta}\t`, `\t${cell}\t`))),
+      );
+    expect(withCell("")).toBeNull();
+    expect(withCell("0x10")).toBeNull();
+    expect(withCell("1e400")).toBeNull();
+    const zero = withCell("-0")!;
+    expect(Object.is(zero.thetaDeg[0], 0)).toBe(true);
   });
 });
