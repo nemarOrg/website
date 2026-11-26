@@ -11,6 +11,7 @@
 import { describe, expect, it } from "vitest";
 import { CONTENT_SCHEMAS, declarationValid } from "../src/lib/quality-views/guards";
 import { COMPUTED_SCHEMAS } from "../src/lib/quality-views/guards-computed";
+import { checkView } from "../src/lib/quality-views/kinds";
 import { nodeFs, repoPath } from "./node";
 
 interface VerdictCase {
@@ -58,5 +59,23 @@ describe("the verdict corpus", () => {
 
   it.each(replayed.map((c) => [`${c.schema}: ${c.name}`, c] as const))("%s", (_label, c) => {
     expect(verdict(c.schema, c.instance), c.covers).toBe(c.valid);
+  });
+});
+
+describe("the computed presets' schemas", () => {
+  const computed = corpus.cases.filter(
+    (c) =>
+      c.schema === "view" &&
+      /^nemar\.(ic-activity|signal-window)$/.test(String((c.instance as { kind?: unknown }).kind)),
+  );
+
+  it("are needed for every computed preset's case, and a check without them refuses to answer", () => {
+    expect(computed.length).toBeGreaterThan(40);
+    for (const c of computed) {
+      expect(() => declarationValid(c.instance), c.name).toThrow();
+      // The worker holds no such schemas: it leaves the view to the page.
+      expect(checkView(c.instance), c.name).toBeNull();
+      expect(checkView(c.instance, COMPUTED_SCHEMAS)?.valid, c.name).toBe(c.valid);
+    }
   });
 });
