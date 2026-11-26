@@ -5,13 +5,12 @@
  *
  * The digest words say the file does not match "the digest NEMAR recorded" and claim nothing more:
  * the same backend serves the files and their digests (nemar-cli ADR 0137 decision 6).
+ *
+ * `nemar.sensor-labels.v1`'s refusals are not in these tables: they load with the scalp map that
+ * needs them (`mapSentences`), so a panel's first screen carries none of them.
  */
 
-import {
-  LABELS_SENTENCES,
-  MONTAGE_UNAVAILABLE,
-  MONTAGE_UNAVAILABLE_SENTENCE,
-} from "../sensor-labels-copy";
+import { MONTAGE_UNAVAILABLE, MONTAGE_UNAVAILABLE_SENTENCE } from "../montage-unavailable-copy";
 
 export const VIEW_SENTENCES: Readonly<Record<string, string>> = {
   declaration_invalid: "This view's declaration does not meet the view schema, so it is not drawn.",
@@ -61,11 +60,27 @@ export const MAP_SENTENCES: Readonly<Record<string, string>> = {
   frame_unknown: "The positions name a coordinate system whose orientation is not known.",
   positions_flat: "The measured positions are too flat, or too few, to locate the head's center.",
   positions_partial: "The measured positions cover too little of the head to locate its center.",
-  // nemar.sensor-labels.v1's refusals, when the sensors are placed by name.
-  ...LABELS_SENTENCES,
+  // A montage or the chunk placing sensors by name could not be loaded: never loaded lazily itself.
   [MONTAGE_UNAVAILABLE]: MONTAGE_UNAVAILABLE_SENTENCE,
   worker: "The map could not be drawn on this page.",
 };
+
+/**
+ * The sentences for a scalp map whose placement word is `word`: `MAP_SENTENCES`, with
+ * `nemar.sensor-labels.v1`'s refusals (`sensor-labels-copy.ts`) when `word` is one it does not hold.
+ * Those load only for a map placed by name and refused; if they cannot be loaded, the word is shown
+ * as itself, as for any word a table does not hold. Never rejects.
+ */
+export async function mapSentences(word: string | null): Promise<Readonly<Record<string, string>>> {
+  if (word === null || Object.hasOwn(MAP_SENTENCES, word)) return MAP_SENTENCES;
+  try {
+    const { LABELS_SENTENCES } = await import("../sensor-labels-copy");
+    return { ...MAP_SENTENCES, ...LABELS_SENTENCES };
+  } catch (error) {
+    console.error("[quality-views] the sentences of a map placed by name did not load:", error);
+    return MAP_SENTENCES;
+  }
+}
 
 /** Why positions were not used, when the sensors were placed by name instead. */
 export const UNUSED_POSITIONS_SENTENCES: Readonly<Record<string, string>> = {

@@ -107,10 +107,15 @@ export function noteCaption(note: string, valueRange: number, unit: string | nul
   return note;
 }
 
-/** A map's text row: its label and the range of its drawn sensors' stored values, by text. */
-export function mapTextRow(model: SensorFieldModel, map: number): string {
+/** A map's text row: its label and the range of its drawn sensors' stored values, by text.
+ *  `sentences` words a map not drawn: `mapSentences(placement word)` for a map placed by name. */
+export function mapTextRow(
+  model: SensorFieldModel,
+  map: number,
+  sentences: Readonly<Record<string, string>> = MAP_SENTENCES,
+): string {
   const item = model.maps.items[map];
-  if (item.word !== null) return `${item.label}: not drawn. ${sentence(MAP_SENTENCES, item.word)}`;
+  if (item.word !== null) return `${item.label}: not drawn. ${sentence(sentences, item.word)}`;
   let low = -1;
   let high = -1;
   model.sensors.drawn.forEach((drawn, k) => {
@@ -170,10 +175,13 @@ export function fieldTable(model: SensorFieldModel, caption: string): Element {
   return textTable(caption, header, rows);
 }
 
+/** The scalp maps' figure; `sentences` (`mapSentences` of the placement word) words what is not
+ *  drawn, so a map placed by name and refused shows `nemar.sensor-labels.v1`'s sentence. */
 export function renderSensorField(
   model: SensorFieldModel,
   downloads: readonly Download[],
   ctx: ViewContext,
+  sentences: Readonly<Record<string, string>> = MAP_SENTENCES,
 ): Element {
   const [low, middle, high] = legendWords(model);
   const firstDrawn = model.maps.items.findIndex((item) => item.word === null);
@@ -193,11 +201,7 @@ export function renderSensorField(
             "aria-label": mapLabel(model, m),
             "aria-describedby": `${ctx.id}-readout`,
           })
-        : h(
-            "p",
-            { class: "qv-map-word", "data-word": item.word },
-            sentence(MAP_SENTENCES, item.word),
-          ),
+        : h("p", { class: "qv-map-word", "data-word": item.word }, sentence(sentences, item.word)),
       h("p", { class: "qv-map-label" }, item.label),
     ),
   );
@@ -217,7 +221,7 @@ export function renderSensorField(
         ? h(
             "p",
             { class: "qv-note", "data-word": placement.word },
-            sentence(MAP_SENTENCES, placement.word),
+            sentence(sentences, placement.word),
           )
         : null,
       h(
@@ -234,7 +238,9 @@ export function renderSensorField(
       h(
         "ul",
         { class: "qv-map-rows" },
-        ...model.maps.items.map((_, m) => h("li", { "data-map": m }, mapTextRow(model, m))),
+        ...model.maps.items.map((_, m) =>
+          h("li", { "data-map": m }, mapTextRow(model, m, sentences)),
+        ),
       ),
     ].filter((n): n is Element => n !== null),
     table: () => fieldTable(model, ctx.caption),

@@ -293,6 +293,32 @@ describe("scalp maps", () => {
     expect(checked).toBeGreaterThan(20);
   });
 
+  // nemar.sensor-labels.v1's sentences load with the renderer only for such a map (`mapSentences`),
+  // not with the first screen: the note, each map's word and each text row still say them.
+  it("a map placed by name and refused shows the sensor-labels sentence, never the word", async () => {
+    const { LABELS_SENTENCES } = await import("../src/lib/quality-views/sensor-labels-copy");
+    const table: Readonly<Record<string, string>> = LABELS_SENTENCES;
+    let checked = 0;
+    for (const c of field) {
+      const b = await built(c, true);
+      if (b.model.type !== "sensor-field") continue;
+      const word = b.model.placement.word;
+      if (word === null || !Object.hasOwn(table, word)) continue;
+      const { tree } = await renderView(b, ctxOf(c));
+      const note = elements(tree, "qv-note").find((e) => e.attrs["data-word"] === word);
+      expect(note && textOf(note), c.name).toBe(table[word]);
+      const words = elements(tree, "qv-map-word");
+      expect(words.length).toBe(b.model.maps.items.length);
+      for (const w of words) expect(textOf(w)).toBe(table[word]);
+      for (const row of elements(tree, "qv-map-rows")[0].children as Element[]) {
+        expect(textOf(row).endsWith(`: not drawn. ${table[word]}`)).toBe(true);
+      }
+      checked++;
+    }
+    // labels_unrecognized, too_few_channels, cap_model_unknown and share_too_low, among others.
+    expect(checked).toBeGreaterThanOrEqual(4);
+  });
+
   it("the readout is the hovered sensor's stored value, never a grid cell", async () => {
     const c = byName(
       vectors.cases.find((x) => {
