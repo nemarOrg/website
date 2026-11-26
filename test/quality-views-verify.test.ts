@@ -59,6 +59,18 @@ describe("nemar.view-digest.v1", () => {
     expect(await viewDigest(null)).toBeNull();
   });
 
+  it("has a digest for 64 levels of nesting and none for 65, however the value was made", async () => {
+    const nest = (levels: number): unknown => {
+      let value: unknown = 7;
+      for (let i = 1; i < levels; i++) value = [value];
+      return { x: value };
+    };
+    expect(await viewDigest(nest(64))).toMatch(/^[0-9a-f]{64}$/);
+    expect(await viewDigest(nest(65))).toBeNull();
+    expect(digestable(nest(64))).toBe(true);
+    expect(digestable(nest(65))).toBe(false);
+  });
+
   it("canonicalizes a member named __proto__ as any other member", async () => {
     const value = parseIJson('{"b":1,"__proto__":{"a":2}}');
     expect(canonicalJson(value)).toBe('{"__proto__":{"a":2},"b":1}');
