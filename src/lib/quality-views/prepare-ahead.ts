@@ -24,8 +24,9 @@
  */
 
 import type { FileDecl, FileSource, ViewDecl } from "./model";
-import { CAPS, subtleSha256, warmInput } from "./model";
+import { CAPS, warmInput } from "./model";
 import { readTsv } from "./read";
+import { verifyBytes } from "./verify";
 import {
   type PrepareOutcome,
   type SensorFieldClient,
@@ -130,7 +131,7 @@ const reasonOf = (error: unknown): string =>
 
 /** Whether `bytes` are `file`'s: its declared size and SHA-256. */
 async function verified(file: FileDecl, bytes: Uint8Array | null): Promise<boolean> {
-  return !!bytes && bytes.length === file.size && (await subtleSha256(bytes)) === file.sha256;
+  return (await verifyBytes(bytes, file)) === null;
 }
 
 /** The bytes of `file`, checked against its size and SHA-256 once per page, or null. */

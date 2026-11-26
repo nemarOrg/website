@@ -183,8 +183,21 @@ export function markedIndex(model: HistogramModel, value: number): number | null
   return locateBin(edges, value);
 }
 
+export interface HistogramDrawing {
+  /**
+   * Print stored numbers only (the dataset summary, C14): under `density` the value axis's top
+   * tick is a density, worked out from a count and a bin's width, so it is left out and the axis
+   * keeps its name alone. The counts, the edges and the zero of the axis are printed either way.
+   */
+  readonly storedTextOnly?: boolean;
+}
+
 /** The histogram as an SVG tree. */
-export function histogramSvg(model: HistogramModel, mark?: HistogramMark): Element {
+export function histogramSvg(
+  model: HistogramModel,
+  mark?: HistogramMark,
+  drawing: HistogramDrawing = {},
+): Element {
   const { width, height } = HISTOGRAM_SIZE;
   const plotW = width - MARGIN.left - MARGIN.right;
   const plotH = height - MARGIN.top - MARGIN.bottom;
@@ -196,7 +209,9 @@ export function histogramSvg(model: HistogramModel, mark?: HistogramMark): Eleme
     h("line", { class: "qv-axis", x1: 0, y1: plotH, x2: plotW, y2: plotH }),
     h("line", { class: "qv-axis", x1: 0, y1: 0, x2: 0, y2: plotH }),
     h("text", { class: "qv-tick", x: -6, y: plotH, "text-anchor": "end" }, "0"),
-    h("text", { class: "qv-tick", x: -6, y: 8, "text-anchor": "end" }, top),
+    ...(density && drawing.storedTextOnly
+      ? []
+      : [h("text", { class: "qv-tick", x: -6, y: 8, "text-anchor": "end" }, top)]),
     h(
       "text",
       {

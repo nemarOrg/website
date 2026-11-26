@@ -16,7 +16,8 @@
  * `contains` and the counts). A string's length is counted in code points, as JSON Schema counts it.
  */
 
-import { MAX_SAFE, forbiddenCharacter } from "./read";
+import { MAX_SAFE } from "./read";
+import { digestable } from "./verify";
 
 /** One rule: whether a value meets it. */
 export type Guard = (value: unknown) => boolean;
@@ -122,7 +123,9 @@ function objectRule(rule: ObjectRule, value: Json): boolean {
   const keys = Object.keys(value);
   if (rule.maxProps !== undefined && keys.length > rule.maxProps) return false;
   for (const key of keys) {
-    const guard = rule.props?.[key];
+    // An own member of `props` only: a member named `constructor` or `toString` must not find
+    // Object.prototype's function and pass a closed object.
+    const guard = rule.props && own(rule.props, key) ? rule.props[key] : undefined;
     if (guard ? !guard(value[key]) : rule.closed) return false;
   }
   return (rule.also ?? []).every((guard) => guard(value));
@@ -969,19 +972,6 @@ const envelope = obj({
     },
   ],
 });
-
-/**
- * Whether a value has a view digest's input (`nemar.view-digest.v1`): every string free of lone
- * surrogates and noncharacters, every number finite, at most 64 levels of nesting.
- */
-export function digestable(value: unknown, depth = 0): boolean {
-  if (typeof value === "string") return !forbiddenCharacter(value);
-  if (typeof value === "number") return Number.isFinite(value);
-  if (value === null || typeof value === "boolean") return true;
-  if (typeof value !== "object" || depth + 1 > 64) return false;
-  const members = Array.isArray(value) ? value : Object.entries(value).flat();
-  return members.every((member) => digestable(member, depth + 1));
-}
 
 /** Whether a declaration is valid: it has a digest, and it meets `view.schema.json#/$defs/view`. */
 export function declarationValid(view: unknown, schemas?: ExtraSchemas): boolean {
