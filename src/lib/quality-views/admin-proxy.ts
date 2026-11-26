@@ -28,7 +28,7 @@
  */
 
 import { adminGate } from "../admin-guard";
-import type { AuthSession } from "../auth";
+import { type AuthSession, type CookieJar, readSessionCookie } from "../auth";
 import {
   COMPUTE_PIPELINE_STAMP_ID_RE,
   QUALITY_ADMIN_SEGMENT,
@@ -43,8 +43,6 @@ export const RELAYED_HEADERS = ["content-type", "content-disposition", "x-conten
 export interface AdminProxyDeps {
   /** The signed-in caller, as the middleware resolved it from the session cookie. */
   readonly session: AuthSession | null;
-  /** The caller's session cookie as `name=value`, the one credential forwarded, or null. */
-  readonly sessionCookie: string | null;
   /** The API's origin (`apiBase()`). */
   readonly apiBase: string;
   /** `apiFetch` in the site: the service binding where there is one. */
@@ -94,6 +92,33 @@ async function readCapped(
   return out;
 }
 
+/** A jar over a raw `Cookie` header: the first value of each name, as a cookie jar keeps it. */
+function jarOf(raw: string): CookieJar {
+  const first = new Map<string, string>();
+  for (const part of raw.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    const name = part.slice(0, eq).trim();
+    if (!first.has(name)) first.set(name, part.slice(eq + 1).trim());
+  }
+  return {
+    has: (name) => first.has(name),
+    get: (name) => (first.has(name) ? { value: first.get(name) as string } : undefined),
+  };
+}
+
+/**
+ * The one credential the proxy forwards, as `name=value`: the caller's session cookie chosen by the
+ * rule the middleware and the API use (`readSessionCookie`: `__Host-nemar_session` when present,
+ * the legacy `nemar_session` only when it is absent, no session when `__Host-` is repeated), or null
+ * when there is none or its value is empty. No other cookie of the header is ever forwarded.
+ */
+export function sessionCookieOf(rawHeader: string | null): string | null {
+  if (!rawHeader) return null;
+  const found = readSessionCookie(jarOf(rawHeader), rawHeader);
+  return found && found.value !== "" ? `${found.name}=${found.value}` : null;
+}
+
 /** The stamp and the raw `rest` of a site path, or null when the path is not the proxy's. */
 export function splitSitePath(pathname: string): { stamp: string; rest: string } | null {
   const prefix = `${SITE_RUN_PATH}/`;
@@ -105,8 +130,9 @@ export function splitSitePath(pathname: string): { stamp: string; rest: string }
 
 export async function proxyAdminQuality(request: Request, deps: AdminProxyDeps): Promise<Response> {
   const url = new URL(request.url);
+  const sessionCookie = sessionCookieOf(request.headers.get("cookie"));
   // Who: an administrator, else the same 404 a page outside the admin surface gives.
-  if (adminGate(deps.session, url.pathname) !== null || !deps.sessionCookie) {
+  if (adminGate(deps.session, url.pathname) !== null || sessionCookie === null) {
     return refuse("not_found", 404);
   }
   if (request.method !== "GET") return refuse("method_not_allowed", 405, { Allow: "GET" });
@@ -127,7 +153,7 @@ export async function proxyAdminQuality(request: Request, deps: AdminProxyDeps):
   try {
     upstream = await deps.fetch(`${deps.apiBase}${forward}`, {
       method: "GET",
-      headers: { Accept: "application/json", Cookie: deps.sessionCookie },
+      headers: { Accept: "application/json", Cookie: sessionCookie },
       redirect: "manual",
     });
   } catch {
@@ -154,5 +180,7 @@ export async function proxyAdminQuality(request: Request, deps: AdminProxyDeps):
     if (value !== null) headers.set(name, value);
   }
   headers.set("X-Content-Type-Options", "nosniff");
-  return new Response(bytes, { status: upstream.status, headers });
+  // A status that carries no body is answered with none (a Response with a body would throw).
+  const empty = upstream.status === 204 || upstream.status === 205 || upstream.status === 304;
+  return new Response(empty ? null : bytes, { status: upstream.status, headers });
 }

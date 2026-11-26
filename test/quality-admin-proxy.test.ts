@@ -15,6 +15,7 @@ import type { AuthSession } from "../src/lib/auth";
 import {
   RELAYED_HEADERS,
   proxyAdminQuality,
+  sessionCookieOf,
   splitSitePath,
 } from "../src/lib/quality-views/admin-proxy";
 import { qualityAdminForwardPath } from "../src/lib/quality-views/admin-route-contract";
@@ -92,9 +93,11 @@ function call(
   } = {},
 ) {
   const as = init.as === undefined ? "admin" : init.as;
-  return proxyAdminQuality(new Request(`${SITE}${path}`, init), {
+  const headers = new Headers(init.headers);
+  const cookie = init.cookie === undefined ? COOKIE : init.cookie;
+  if (!headers.has("cookie") && cookie !== null) headers.set("cookie", cookie);
+  return proxyAdminQuality(new Request(`${SITE}${path}`, { ...init, headers }), {
     session: as === null ? null : session(as),
-    sessionCookie: init.cookie === undefined ? COOKIE : init.cookie,
     apiBase: origin,
     fetch: (url, i) => fetch(url, i),
     maxBytes: init.maxBytes,
@@ -134,6 +137,48 @@ describe("who: administrators only, and nothing reaches the API for anyone else"
     for (const name of ["authorization", "x-test-bypass", "x-api-key", "x-forwarded-for"]) {
       expect(h[name], name).toBeUndefined();
     }
+  });
+});
+
+describe("which credential is forwarded (sessionCookieOf)", () => {
+  it("forwards only __Host-nemar_session from a header with other cookies and a legacy one", async () => {
+    const header = `a=1; nemar_session=legacy; ${COOKIE}; b=2`;
+    expect(sessionCookieOf(header)).toBe(COOKIE);
+    const res = await call(RECORD_PATH, { headers: { cookie: header } });
+    expect(res.status).toBe(200);
+    expect(seen.map((s) => s.headers.cookie)).toEqual([COOKIE]);
+  });
+
+  it("forwards only the legacy cookie when it is the one session cookie", async () => {
+    const header = "a=1; nemar_session=legacy-own; b=2";
+    expect(sessionCookieOf(header)).toBe("nemar_session=legacy-own");
+    await call(RECORD_PATH, { headers: { cookie: header } });
+    expect(seen.map((s) => s.headers.cookie)).toEqual(["nemar_session=legacy-own"]);
+  });
+
+  it("answers 404 and forwards nothing for an empty __Host- value, even beside a legacy one", async () => {
+    for (const header of ["__Host-nemar_session=", "__Host-nemar_session=; nemar_session=legacy"]) {
+      expect(sessionCookieOf(header), header).toBeNull();
+      await expectRefused(
+        await call(RECORD_PATH, { headers: { cookie: header } }),
+        404,
+        "not_found",
+      );
+    }
+    expect(seen).toEqual([]);
+  });
+
+  it("answers 404 for a duplicated __Host-nemar_session", async () => {
+    const header = `${COOKIE}; __Host-nemar_session=someone-else`;
+    expect(sessionCookieOf(header)).toBeNull();
+    await expectRefused(await call(RECORD_PATH, { headers: { cookie: header } }), 404, "not_found");
+    expect(seen).toEqual([]);
+  });
+
+  it("forwards nothing with no Cookie header", () => {
+    expect(sessionCookieOf(null)).toBeNull();
+    expect(sessionCookieOf("")).toBeNull();
+    expect(sessionCookieOf("a=1; b=2")).toBeNull();
   });
 });
 
@@ -300,6 +345,17 @@ describe("every answer: no-store, the three headers, the cap", () => {
     expect(res.headers.get("content-disposition")).toBe("inline; filename*=UTF-8''x.tsv");
   });
 
+  it.each([204, 205])("relays a %i with no body, no-store", async (status) => {
+    handler = (_q, res) => {
+      res.statusCode = status;
+      res.end();
+    };
+    const res = await call(FILE_PATH);
+    expect(res.status).toBe(status);
+    expect(res.body).toBeNull();
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+
   it("always says nosniff, whatever the API said", async () => {
     handler = (_q, res) => {
       res.statusCode = 200;
@@ -357,12 +413,14 @@ describe("every answer: no-store, the three headers, the cap", () => {
   });
 
   it("says the API could not be reached, no-store", async () => {
-    const res = await proxyAdminQuality(new Request(`${SITE}${RECORD_PATH}`), {
-      session: session("admin"),
-      sessionCookie: COOKIE,
-      apiBase: "http://127.0.0.1:9",
-      fetch: (url, i) => fetch(url, i),
-    });
+    const res = await proxyAdminQuality(
+      new Request(`${SITE}${RECORD_PATH}`, { headers: { cookie: COOKIE } }),
+      {
+        session: session("admin"),
+        apiBase: "http://127.0.0.1:9",
+        fetch: (url, i) => fetch(url, i),
+      },
+    );
     await expectRefused(res, 502, "upstream_unreachable");
   });
 });

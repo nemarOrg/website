@@ -10,7 +10,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AuthSession } from "../src/lib/auth";
 import { ADMIN_VIEW_SENTENCES } from "../src/lib/pipeline-quality-labels";
-import { adminFiles, adminSentence, fetchAdminRecord } from "../src/lib/quality-views/admin-drill";
+import {
+  adminFiles,
+  adminSentence,
+  drillGroups,
+  fetchAdminRecord,
+  skippedByTab,
+  skippedText,
+} from "../src/lib/quality-views/admin-drill";
 import { proxyAdminQuality } from "../src/lib/quality-views/admin-proxy";
 import { PANEL_SENTENCES } from "../src/lib/quality-views/panel-words";
 import { nodeFs, repoPath } from "./node";
@@ -86,14 +93,18 @@ afterAll(async () => {
 
 /** The browser's fetch, answered by the real proxy on this site's origin. */
 const browserFetch = (async (input: RequestInfo | URL) =>
-  proxyAdminQuality(new Request(`https://app.example.invalid${String(input)}`), {
-    session: {
-      user: { id: "1", email: "o@nemar.test", role: "admin", status: "active" },
-    } as unknown as AuthSession,
-    sessionCookie: "__Host-nemar_session=owner",
-    apiBase: origin,
-    fetch: (url, init) => fetch(url, init),
-  })) as typeof fetch;
+  proxyAdminQuality(
+    new Request(`https://app.example.invalid${String(input)}`, {
+      headers: { cookie: "__Host-nemar_session=owner" },
+    }),
+    {
+      session: {
+        user: { id: "1", email: "o@nemar.test", role: "admin", status: "active" },
+      } as unknown as AuthSession,
+      apiBase: origin,
+      fetch: (url, init) => fetch(url, init),
+    },
+  )) as typeof fetch;
 
 describe("a record and its files through the proxy", () => {
   it("reads the run's record, checked whole, with no ETag", async () => {
@@ -145,5 +156,43 @@ describe("the expired, missing and failed states say so", () => {
     const outcome = await fetchAdminRecord(ASK, { fetch: browserFetch });
     expect(outcome).toEqual({ kind: "failed", word: "http_500" });
     expect(await adminSentence("http_500")).toBe(PANEL_SENTENCES.http_5xx);
+  });
+});
+
+describe("views the run did not write (views_skipped)", () => {
+  it("are grouped by the panel's tab of their kind and said in the panel's words", async () => {
+    refusal = null;
+    const outcome = await fetchAdminRecord(ASK, { fetch: browserFetch });
+    if (outcome.kind !== "ok") throw new Error(outcome.word);
+    const skipped = [
+      ...outcome.record.skipped,
+      { key: "spectrum2", kind: "nemar.spectrum", reason: "no_good_window" },
+      { key: "midsegment", kind: "nemar.signal-window", reason: "not_in_serving_index" },
+      { key: "odd", kind: "nemar.table", reason: "brand_new_reason" },
+    ];
+    const byTab = skippedByTab(skipped);
+    expect(byTab.get("spectrum")?.map((s) => s.key)).toContain("spectrum2");
+    expect(byTab.get("signal")?.map((s) => s.key)).toContain("midsegment");
+    expect(byTab.get("other")?.map((s) => s.key)).toContain("odd");
+    // A tab with only a skipped view still gets its group; a tab with neither gets none.
+    const stored = (
+      outcome.record.views as { key: string; kind: string; inputs?: unknown }[]
+    ).filter((v) => !Object.hasOwn(v, "inputs"));
+    const groups = drillGroups(stored, skipped);
+    expect(groups.map((g) => g.tab.id)).toEqual(["spectrum", "components", "signal", "other"]);
+    expect(groups.find((g) => g.tab.id === "signal")?.views).toEqual([]);
+    expect(groups.find((g) => g.tab.id === "signal")?.skipped.map((s) => s.key)).toEqual([
+      "midsegment",
+    ]);
+    expect(groups.find((g) => g.tab.id === "spectrum")?.views.map((v) => v.key)).toEqual([
+      "spectrum",
+    ]);
+    expect(drillGroups(stored, []).map((g) => g.tab.id)).toEqual(["spectrum", "components"]);
+    expect(await skippedText({ key: "spectrum2", reason: "no_good_window" })).toBe(
+      `The view spectrum2 was not written for this recording: ${PANEL_SENTENCES.no_good_window}.`,
+    );
+    expect(await skippedText({ key: "odd", reason: "brand_new_reason" })).toBe(
+      `The view odd was not written for this recording: ${PANEL_SENTENCES.skipped_unknown}.`,
+    );
   });
 });
