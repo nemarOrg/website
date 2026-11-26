@@ -143,10 +143,23 @@
   height: 0.6rem;
 }
 .qv-legend-diverging {
-  background: linear-gradient(to right, var(--qv-diverging-0), var(--qv-diverging-2), var(--qv-diverging-5), var(--qv-diverging-8), var(--qv-diverging-10));
+  background: linear-gradient(
+    to right,
+    var(--qv-diverging-0),
+    var(--qv-diverging-2),
+    var(--qv-diverging-5),
+    var(--qv-diverging-8),
+    var(--qv-diverging-10)
+  );
 }
 .qv-legend-sequential {
-  background: linear-gradient(to right, var(--qv-sequential-0), var(--qv-sequential-3), var(--qv-sequential-6), var(--qv-sequential-9));
+  background: linear-gradient(
+    to right,
+    var(--qv-sequential-0),
+    var(--qv-sequential-3),
+    var(--qv-sequential-6),
+    var(--qv-sequential-9)
+  );
 }
 .qv-map-rows {
   font-size: 0.85rem;
