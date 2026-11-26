@@ -5,7 +5,7 @@
  * a recording that draws carries none of it.
  */
 
-import { VIEW_SENTENCES } from "./render/words";
+import { MAP_SENTENCES, VIEW_SENTENCES } from "./render/words";
 
 // ── Words ───────────────────────────────────────────────────────────────
 
@@ -54,8 +54,37 @@ export const PANEL_SENTENCES: Readonly<Record<string, string>> = {
   window_outside: "The window holds no sample of the recording, so it is not opened.",
   group_missing: "The recording has no channel group the view names, so the window is not opened.",
   no_viewer: "This page has no signal viewer to open the window in.",
+  signal_recording_mismatch:
+    "The window's store is not this recording's, so the window is not opened.",
+  record_digest_missing:
+    "The recording's quality record came without the digest it is checked against, so nothing is drawn.",
+  recording_path_invalid: "The server did not take this recording's path, so nothing is drawn.",
+  view_not_declared: "The server did not recognize a file of this recording's views.",
+  view_data_missing: "A file of this recording's views is missing on the server.",
+  view_data_corrupt: "The server found a file of this recording's views damaged.",
+  failed: "The quality views could not be drawn. Try again later.",
+  // Why a run wrote no view for a recording (neuroschema docs/views.md and nemar-process's own).
+  labels_unusable: "the recording's channel labels could not be used",
+  plugin_failed: "the quality plugin that writes it failed",
+  step_failed: "the processing step that writes it failed",
+  step_skipped: "the processing step that writes it was skipped",
+  no_good_window: "the recording has no window of good samples long enough",
+  frame_rotated: "the positions' coordinate system is known to be turned",
+  no_serving_index: "the serving copy's index was not available to the run",
+  not_in_serving_index: "the recording is not in the serving copy's index",
+  serving_index_stale: "the serving copy's index was older than the recording",
+  serving_index_unusable: "the serving copy's index could not be used",
+  skipped_unknown: "a reason this page has no words for",
+  http_4xx: "The server refused the request for this recording's quality views.",
+  http_5xx: "The server could not answer for this recording's quality views. Try again later.",
 };
 
-/** A word's sentence: the panel's, else a view's, else the word itself (never hidden). */
-export const sentenceOf = (word: string): string =>
-  PANEL_SENTENCES[word] ?? VIEW_SENTENCES[word] ?? word;
+/** A word's sentence: the panel's, else a view's; an HTTP status by its class; any other word
+ *  the generic failure sentence, so no raw word is ever shown. */
+export function sentenceOf(word: string, fallback = "failed"): string {
+  const known = PANEL_SENTENCES[word] ?? VIEW_SENTENCES[word] ?? MAP_SENTENCES[word];
+  if (known) return known;
+  const status = /^http_([1-5])\d\d$/.exec(word);
+  if (status) return PANEL_SENTENCES[status[1] === "5" ? "http_5xx" : "http_4xx"];
+  return PANEL_SENTENCES[fallback] ?? PANEL_SENTENCES.failed;
+}
