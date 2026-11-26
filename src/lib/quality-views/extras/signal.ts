@@ -10,10 +10,25 @@ import { openSignal } from "../panel-bridge";
 import { PresetRefused } from "../preset-refused";
 import { numberText } from "../read";
 import { checkSignalWindow } from "../signal-window";
-import type { ExtraContext } from "./context";
+import { type ExtraContext, noteOf } from "./context";
+
+/** Why the window is not offered at all: an invalid declaration, or a store of another recording. */
+async function refusal(x: ExtraContext): Promise<string | null> {
+  if (!(await x.options.checks.view(x.view)).valid) return "declaration_invalid";
+  const signal = (x.view.inputs ?? []).find((i) => i.role === "signal") as
+    | { store?: { recording?: unknown } }
+    | undefined;
+  return signal?.store?.recording === x.record.recording ? null : "signal_recording_mismatch";
+}
 
 export async function draw(x: ExtraContext): Promise<void> {
   const { doc, view } = x;
+  const word = await refusal(x);
+  if (x.signal.aborted) return;
+  if (word !== null) {
+    x.container.replaceChildren(await noteOf(x, word));
+    return;
+  }
   const p = (view.parameters ?? {}) as { start_s?: number; duration_s?: number };
   const input = (view.inputs ?? []).find((i) => i.role === "signal") as
     | { store?: { group?: string } }
