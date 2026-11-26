@@ -867,10 +867,168 @@ test.describe("export", () => {
     // Six maps a row, three rows, at 3 times: the rows' 3 × 192 px with the text, under four rows.
     expect(result.width).toBe(3 * (6 * 176 - 16 + 24));
     expect(result.height).toBeGreaterThan(3 * 3 * 192);
-    expect(result.height).toBeLessThan(3 * 4 * 192);
+    // Four rows would add another 192 px to the rows and about 230 px of text.
+    expect(result.height).toBeLessThan(3 * (4 * 192 + 40));
     // Painted at 3 times on a light ground to its last pixel, the map where its square is.
     expect(result.corner).toEqual([255, 255, 255, 255]);
     expect(result.outside).toEqual([255, 255, 255, 255]);
     expect(result.mapCenter).not.toEqual([255, 255, 255, 255]);
+  });
+
+  test("a button keeps the keyboard's focus while it saves, and takes no second click", async ({
+    page,
+  }) => {
+    await mount(page);
+    await openExport(page, "spectrum");
+    const view = page.locator('[data-qp-view="spectrum"]');
+    const button = view.getByRole("button", { name: "Save image (PNG)" });
+    await view.getByLabel("Scale").selectOption("4");
+    await button.focus();
+    const downloads: unknown[] = [];
+    page.on("download", (d) => downloads.push(d));
+    // Enter twice, at once: one image, the button busy but never disabled.
+    const busy = await page.evaluate(() => {
+      const b = [...document.querySelectorAll("button")].find(
+        (x) => x.textContent === "Save image (PNG)",
+      )!;
+      b.click();
+      const during = {
+        aria: b.getAttribute("aria-disabled"),
+        disabled: b.disabled,
+        focused: document.activeElement === b,
+      };
+      b.click();
+      return during;
+    });
+    expect(busy).toEqual({ aria: "true", disabled: false, focused: true });
+    await expect(view.locator(".qv-export").getByRole("status")).toHaveText(/Saved the image/);
+    await expect(button).not.toHaveAttribute("aria-disabled");
+    await expect(button).toBeFocused();
+    await page.waitForTimeout(300);
+    expect(downloads).toHaveLength(1);
+    // The keyboard alone: Enter saves again, and the focus stays.
+    await page.keyboard.press("Enter");
+    await expect(button).toBeFocused();
+  });
+
+  test("an SVG's printed lines fit its width, measured by the browser", async ({ page }) => {
+    await mount(page);
+    await page.locator('[data-qp-tab="components"]').click();
+    await ready(page);
+    await openExport(page, "icclasses");
+    const text = (
+      await saved(
+        page,
+        page
+          .locator('[data-qp-view="icclasses"]')
+          .getByRole("button", { name: "Save drawing (SVG)" }),
+      )
+    ).toString("utf8");
+    const measured = await page.evaluate((svg) => {
+      const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+      const root = document.importNode(doc.documentElement, true) as unknown as SVGSVGElement;
+      document.body.append(root);
+      const width = Number(root.getAttribute("width"));
+      const lines = [...root.querySelectorAll<SVGTextElement>(".qv-export-text, .qv-export-title")];
+      const out = lines.map((t) => ({
+        right: (Number(t.getAttribute("x")) || 0) + t.getComputedTextLength(),
+        text: t.textContent,
+      }));
+      root.remove();
+      return { width, out };
+    }, text);
+    expect(measured.out.length).toBeGreaterThan(3);
+    for (const line of measured.out)
+      expect(line.right, line.text ?? "").toBeLessThanOrEqual(measured.width);
+  });
+
+  test("a heatmap's PNG prints its labels and its legend's stored texts", async ({ page }) => {
+    const models = JSON.parse(
+      readFileSync(
+        new URL("../test/fixtures/quality-views/vectors/kinds-models.v1.json", import.meta.url),
+        "utf8",
+      ),
+    ) as { cases: { name: string; view: unknown; model: unknown }[] };
+    const cases = ["heatmap_classes", "heatmap_absmax"].map((name) =>
+      models.cases.find((c) => c.name === name),
+    );
+    await page.goto("/robots.txt");
+    const printed = await page.evaluate(
+      async ({ cases, modules }) => {
+        const { mountView, viewContext } = await import(/* @vite-ignore */ modules.render);
+        const { SensorFieldClient } = await import(/* @vite-ignore */ modules.client);
+        const { paintPicture } = await import(/* @vite-ignore */ modules.raster);
+        const client = new SensorFieldClient();
+        // Each text the canvas is asked to print, observed as the export paints.
+        const fill = CanvasRenderingContext2D.prototype.fillText;
+        const out: { texts: string[]; ground: number[] }[] = [];
+        for (const c of cases) {
+          const built = c!.model as { model: { type: string } };
+          const target = document.createElement("div");
+          document.body.append(target);
+          await mountView(target, built, viewContext(c!.view, "h"), {
+            client: () => client,
+            layoutKey: "h",
+            colors: { foreground: "#000", background: "#fff", contour: "#000" },
+          });
+          const cells = target.querySelector("canvas.qv-heatmap-cells");
+          const seen: string[] = [];
+          CanvasRenderingContext2D.prototype.fillText = function (
+            t: string,
+            ...rest: [number, number]
+          ) {
+            seen.push(t);
+            return fill.call(this, t, ...rest);
+          };
+          const view = c!.view as { caption: string; kind: string; kind_version: number };
+          const canvas = await paintPicture(
+            document,
+            {
+              meta: {
+                caption: view.caption,
+                kind: view.kind,
+                kindVersion: view.kind_version,
+                digest: "0".repeat(64),
+                permalink: "https://nemar.org/dataset/x#quality",
+                colorMaps: true,
+              },
+              built,
+              fields: [],
+              heatmap: cells,
+            },
+            2,
+          );
+          CanvasRenderingContext2D.prototype.fillText = fill;
+          out.push({
+            texts: seen,
+            ground: Array.from(canvas.getContext("2d")!.getImageData(1, 1, 1, 1).data),
+          });
+        }
+        return out;
+      },
+      { cases, modules: MODULES },
+    );
+    const [classes, absmax] = printed;
+    const model = (
+      cases[0]!.model as {
+        model: {
+          rows: { labels: string[] };
+          columns: { labels: string[] };
+          values: number[][];
+          text: string[][];
+        };
+      }
+    ).model;
+    for (const label of [...model.rows.labels, ...model.columns.labels]) {
+      expect(classes.texts).toContain(label);
+    }
+    const values = model.values.flat();
+    const text = model.text.flat();
+    expect(classes.texts).toContain(`${text[values.indexOf(Math.min(...values))]} %`);
+    expect(classes.texts).toContain(`${text[values.indexOf(Math.max(...values))]} %`);
+    expect(absmax.texts).toContain("negative");
+    expect(absmax.texts).toContain("positive");
+    expect(absmax.texts.some((t) => t.startsWith("centered on 0; largest magnitude "))).toBe(true);
+    expect(classes.ground).toEqual([255, 255, 255, 255]);
   });
 });

@@ -11,20 +11,28 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
+import * as controls from "../src/lib/quality-views/export/controls";
 import * as download from "../src/lib/quality-views/export/download";
 import * as exportMetaModule from "../src/lib/quality-views/export/meta";
 import type { ExportMeta } from "../src/lib/quality-views/export/meta";
 import * as palette from "../src/lib/quality-views/export/palette";
 import * as png from "../src/lib/quality-views/export/png";
 import { MAP_PX } from "../src/lib/quality-views/export/raster";
+import * as raster from "../src/lib/quality-views/export/raster";
 import * as svg from "../src/lib/quality-views/export/svg";
 import { localChecks } from "../src/lib/quality-views/local-checks";
-import { type BuiltModel, type ViewDecl, buildModel } from "../src/lib/quality-views/model";
+import {
+  type BuiltModel,
+  type HeatmapModel,
+  type ViewDecl,
+  buildModel,
+} from "../src/lib/quality-views/model";
 import { type Montage, parseMontage } from "../src/lib/quality-views/montages";
 import { qualityPermalink } from "../src/lib/quality-views/panel-model";
 import { forgetPreloads, preloadedSource } from "../src/lib/quality-views/preloaded";
 import { recordFiles } from "../src/lib/quality-views/quality-files";
 import { type QualityRecord, readRecordAnswer } from "../src/lib/quality-views/record";
+import { heatmapLegend } from "../src/lib/quality-views/render/heatmap";
 import { MAP_SIZE } from "../src/lib/quality-views/render/sensor-field-view";
 import { escapeHtml, toHtml } from "../src/lib/quality-views/tree";
 import { nodeFs, repoPath } from "./node";
@@ -216,12 +224,16 @@ describe("the SVG export", () => {
     expect(text).toContain(
       `<title id="qv-export-title">${escapeHtml(viewOf("spectrum").caption)}</title>`,
     );
-    // Printed under the drawing too, so a printed copy names its view.
-    expect(text).toContain(
-      `>nemar.spectrum, version 1; view digest (nemar.view-digest.v1) ${record.digests.spectrum}</text>`,
+    // Printed under the drawing too, so a printed copy names its view: the kind and the digest
+    // each on a line of its own, the permalink over as many lines as it needs.
+    const printed = [...text.matchAll(/<text class="qv-export-text"[^>]*>([^<]*)<\/text>/g)].map(
+      (m) => m[1].replace(/&amp;/g, "&"),
     );
-    // The permalink is printed under the drawing, escaped as XML text.
-    expect(text).toContain(PERMALINK.replace(/&/g, "&amp;"));
+    expect(printed[0]).toBe("nemar.spectrum, version 1");
+    // The digest's line is too wide for the drawing: the digest goes on a line of its own.
+    expect(printed[1]).toBe("View digest (nemar.view-digest.v1):");
+    expect(printed[2]).toBe(record.digests.spectrum);
+    expect(printed.slice(3).join("")).toBe(PERMALINK);
     // Every series the page drew, and no cursor.
     const series = (model.model as { series: { items: unknown[] } }).series.items.length;
     expect(text.match(/<polyline class="qv-series"/g)).toHaveLength(series);
@@ -363,14 +375,119 @@ describe("the export's names and lines", () => {
 
   it("prints the kind, version, digest and permalink, and the notice only with a map", () => {
     const lines = exportMetaModule.footerLines(metaOf("icmaps", true));
-    expect(lines[0]).toBe(
-      `nemar.ic-maps, version 1; view digest (nemar.view-digest.v1) ${record.digests.icmaps}`,
-    );
-    expect(lines[1]).toBe(PERMALINK);
-    expect(lines[2]).toContain("https://nemar.org/licenses/quality-views/NOTICE.txt");
-    expect(exportMetaModule.footerLines(metaOf("icmaps"))).toHaveLength(2);
+    expect(lines[0]).toBe("nemar.ic-maps, version 1");
+    expect(lines[1]).toBe(`View digest (nemar.view-digest.v1): ${record.digests.icmaps}`);
+    expect(lines[2]).toBe(PERMALINK);
+    expect(lines[3]).toContain("https://nemar.org/licenses/quality-views/NOTICE.txt");
+    expect(exportMetaModule.footerLines(metaOf("icmaps"))).toHaveLength(3);
     expect(exportMetaModule.noticeUrl("https://test.example/dataset/x#quality")).toBe(
       "https://test.example/licenses/quality-views/NOTICE.txt",
     );
+  });
+});
+
+describe("the review's fixes (#601)", () => {
+  const models = json("test/fixtures/quality-views/vectors/kinds-models.v1.json") as {
+    cases: { name: string; model: { model: { type: string } } }[];
+  };
+  const heatmapOf = (name: string) =>
+    models.cases.find((c) => c.name === name)!.model.model as unknown as HeatmapModel;
+
+  it("a heatmap's picture prints its legend's stored texts and its labels", () => {
+    const model = heatmapOf("heatmap_classes");
+    const scale = raster.heatmapScale(model, heatmapLegend(model), { rows: 40, columns: 40 });
+    expect(scale.rows).toEqual(model.rows.labels.map((l, i) => [i, l]));
+    expect(scale.columns).toEqual(model.columns.labels.map((l, i) => [i, l]));
+    // minmax: the smallest and largest cells' stored texts, with the unit.
+    const cells = model.values.flat();
+    const text = model.text.flat();
+    expect(scale.low).toBe(`${text[cells.indexOf(Math.min(...cells))]} %`);
+    expect(scale.high).toBe(`${text[cells.indexOf(Math.max(...cells))]} %`);
+    expect(scale.note).toBeNull();
+  });
+
+  it("under absmax the legend prints the sign words and the largest magnitude", () => {
+    const model = heatmapOf("heatmap_absmax");
+    const scale = raster.heatmapScale(model, heatmapLegend(model), { rows: 40, columns: 40 });
+    expect([scale.low, scale.high]).toEqual(["negative", "positive"]);
+    expect(scale.note).toMatch(/^centered on 0; largest magnitude /);
+  });
+
+  it("prints as many labels as fit, evenly, from the first", () => {
+    const labels = Array.from({ length: 100 }, (_, i) => `r${i}`);
+    const model = {
+      ...heatmapOf("heatmap_classes"),
+      rows: { ...heatmapOf("heatmap_classes").rows, labels },
+    };
+    const legend = { low: "a", high: "b", note: null };
+    const ten = raster.heatmapScale(model as HeatmapModel, legend, { rows: 10, columns: 1 });
+    expect(ten.rows.map(([i]) => i)).toEqual([0, 10, 20, 30, 40, 50, 60, 70, 80, 90]);
+    expect(ten.columns.map(([i]) => i)).toEqual([0]);
+    expect(
+      raster.heatmapScale(model as HeatmapModel, legend, { rows: 0, columns: 0 }).rows,
+    ).toEqual([[0, "r0"]]);
+  });
+
+  it("breaks a printed line at spaces, and a word too long for a line where it must", () => {
+    const fits = (n: number) => (line: string) => line.length <= n;
+    expect(exportMetaModule.wrapText("a bb ccc", fits(4))).toEqual(["a bb", "ccc"]);
+    expect(exportMetaModule.wrapText("x 0123456789", fits(4))).toEqual(["x", "0123", "4567", "89"]);
+    // Nothing fits: one character a line, and the loop ends.
+    expect(exportMetaModule.wrapText("abc", () => false)).toEqual(["a", "b", "c"]);
+    expect(exportMetaModule.wrapText("", fits(4))).toEqual([]);
+  });
+
+  it("an SVG's printed lines each fit its width, the histogram's narrow one too", async () => {
+    const { model } = await built("icclasses");
+    const drawing = (await svg.svgDrawing(model))!;
+    const width = palette.viewBoxSize(drawing).width;
+    const long = { ...metaOf("icclasses", true), caption: `${"A long caption ".repeat(12)}end.` };
+    const text = svg.exportSvg(drawing, long, toHtml);
+    const lines = [...text.matchAll(/<text class="qv-export-(text|title)"[^>]*>([^<]*)<\/text>/g)];
+    expect(lines.length).toBeGreaterThan(5);
+    for (const [, kind, line] of lines) {
+      const size = kind === "title" ? 13 : 10;
+      expect(line.replace(/&amp;/g, "&").length * size * svg.EM_PER_CHARACTER).toBeLessThanOrEqual(
+        width - 16,
+      );
+    }
+    expect(text.match(/class="qv-export-title"/g)!.length).toBeGreaterThan(2);
+  });
+
+  it("the permalink names the canonical site, and the page's own only in local development", () => {
+    expect(controls.permalinkOrigin("https://test.nemar.org")).toBe("https://nemar.org");
+    expect(controls.permalinkOrigin("https://nemar-website.pages.dev")).toBe("https://nemar.org");
+    expect(controls.permalinkOrigin("https://nemar.org")).toBe("https://nemar.org");
+    expect(controls.permalinkOrigin("not an address")).toBe("https://nemar.org");
+    for (const local of [
+      "http://localhost:4321",
+      "http://127.0.0.1:8788",
+      "http://[::1]:4321",
+      "http://site.localhost:4321",
+    ]) {
+      expect(controls.permalinkOrigin(local)).toBe(local);
+    }
+    const input = {
+      view: viewOf("spectrum"),
+      record,
+      built: null,
+      files: async () => null,
+      fields: new Map(),
+      container: { contains: () => false } as unknown as HTMLElement,
+      colorOf: () => "diverging" as const,
+      version: "v1.0.0",
+    };
+    expect(controls.exportMeta({ ...input, origin: "https://test.nemar.org" }).permalink).toBe(
+      `https://nemar.org/dataset/${provenance.dataset_id}?v=v1.0.0#quality/${provenance.recording}/spectrum`,
+    );
+    expect(controls.exportMeta({ ...input, origin: "http://localhost:4321" }).permalink).toMatch(
+      /^http:\/\/localhost:4321\/dataset\//,
+    );
+  });
+
+  it("writes and prints a computed view's extra fields after the others", () => {
+    const meta = { ...metaOf("spectrum"), extra: [["nemar:window-start-s", "140"]] as const };
+    expect(exportMetaModule.metaEntries(meta).at(-1)).toEqual(["nemar:window-start-s", "140"]);
+    expect(exportMetaModule.footerLines(meta)).toContain("window-start-s: 140");
   });
 });
