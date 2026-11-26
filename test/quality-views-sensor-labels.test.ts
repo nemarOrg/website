@@ -149,6 +149,30 @@ describe("the rules", () => {
     expect(biosemi.channels.at(-1)?.electrode).toBeNull();
   });
 
+  it("applies the 10-05 aliases on no other family, even a montage with 10-20 names", () => {
+    // MNE-Python's biosemi64 names its electrodes by the 10-20 system (PROVENANCE.json's
+    // bank_labels give each bank label its 10-20 name): the same positions under those names, still
+    // family BioSemi. On it T7 is an electrode, and T3 must not be read as T7.
+    const biosemi = all.get("biosemi64")!;
+    const rows = (
+      provenance.montages.find((m) => m.name === "biosemi64") as unknown as {
+        bank_labels: { rows: [string, string][] };
+      }
+    ).bank_labels.rows;
+    const tenTwenty = new Map(rows);
+    const renamed: Montage = {
+      ...biosemi,
+      name: "biosemi64-10-20",
+      names: biosemi.names.map((label) => tenTwenty.get(label)!),
+    };
+    expect(renamed.names).toContain("T7");
+    const names = renamed.names.filter((n) => !["T7", "T8", "P7", "P8"].includes(n));
+    const legacy = inferPositions(typed([...names, "T3", "T4", "T5", "T6"]), [renamed]);
+    expect(legacy.montage).toBe("biosemi64-10-20");
+    expect(legacy.matched).toBe(60);
+    expect(legacy.channels.slice(-4).map((c) => c.electrode)).toEqual([null, null, null, null]);
+  });
+
   it("needs 8 matched names: 8 place, 7 refuse", () => {
     const eight = inferPositions(typed(TEN_TWENTY.slice(0, 8)), montages);
     expect(eight.outcome).toBe("placed");
