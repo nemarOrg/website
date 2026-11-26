@@ -94,6 +94,30 @@ const heatmapOf = (input: ExportInput): HTMLCanvasElement | null =>
     ? input.container.querySelector("canvas.qv-heatmap-cells")
     : null;
 
+/** The activations figure the view shows, when the view is a computed `nemar.ic-activity`. */
+const activityFigure = (input: ExportInput): Element | null =>
+  input.view.kind === "nemar.ic-activity" ? input.container.querySelector(".qp-activity") : null;
+
+/** The window on show of an activations figure (its chunk is loaded: it drew the figure), as the
+ *  picture paints it, and the fields that name it. */
+async function shownWindow(figure: Element) {
+  const m = await import("../activations");
+  const shown = m.shownActivity.get(figure)?.();
+  if (!shown) return null;
+  const { startS, lengthS } = m.activityWindow(shown.activity);
+  return {
+    picture: {
+      height: m.activityHeight(shown.activity.plan.components.length),
+      painter: (colors: Parameters<typeof m.activityPainter>[2]) =>
+        m.activityPainter(shown.activity, shown.label, colors),
+    },
+    extra: [
+      ["nemar:window-start-s", String(startS)],
+      ["nemar:window-length-s", String(lengthS)],
+    ] as const,
+  };
+}
+
 /** The metadata of the picture the view would export now. */
 export function exportMeta(input: ExportInput): ExportMeta {
   const { view, record } = input;
@@ -168,6 +192,7 @@ export function fillExport(host: HTMLElement, input: ExportInput): void {
   const picture =
     svg ||
     heatmapOf(input) !== null ||
+    activityFigure(input) !== null ||
     viewFields(input).some((f) => f.field.drawnMaps().length > 0);
   if (picture) {
     // Loaded as the controls open, so a click makes no request.
@@ -195,13 +220,17 @@ export function fillExport(host: HTMLElement, input: ExportInput): void {
     const png = button("Save image (PNG)", async () => {
       const scale = Number(select.value) as Scale;
       const { exportPng } = await images;
+      const figure = activityFigure(input);
+      const window = figure ? await shownWindow(figure) : null;
+      if (figure && !window) return "No window of activations is drawn to save.";
       const bytes = await exportPng(
         doc,
         {
-          meta: exportMeta(input),
+          meta: { ...exportMeta(input), extra: window?.extra },
           built: input.built,
           fields: viewFields(input),
           heatmap: heatmapOf(input),
+          activity: window?.picture,
         },
         scale,
       );

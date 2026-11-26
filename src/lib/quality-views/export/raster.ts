@@ -44,6 +44,8 @@ const TEXT = 14;
 export const MAP_CELL = 176;
 export const MAPS_PER_ROW = 6;
 export const HEATMAP_PICTURE_WIDTH = 656;
+/** A computed view's window, as wide as a line chart. */
+const ACTIVITY_WIDTH = 640;
 
 /** A paragraph of text wrapped to `width`. */
 export function textPart(
@@ -153,6 +155,16 @@ export interface PictureInput {
   readonly fields: readonly ExportField[];
   /** The page's canvas of a heatmap's cells (`.qv-heatmap-cells`), when the view is one. */
   readonly heatmap?: HTMLCanvasElement | null;
+  /** A computed view's drawn window (the activations): its height, and a painter of it in the
+   *  colors given (`activityPainter`), drawn again in 2D rather than read from the page. */
+  readonly activity?: {
+    readonly height: number;
+    painter(colors: {
+      background: string;
+      foreground: string;
+      grid: string;
+    }): Promise<(ctx: CanvasRenderingContext2D, width: number, height: number) => void>;
+  } | null;
 }
 
 /** Whether a view has a picture to export: a drawing, a heatmap or a drawn map. */
@@ -160,6 +172,7 @@ export function hasPicture(input: Omit<PictureInput, "meta">): boolean {
   return (
     hasSvg(input.built) ||
     !!input.heatmap ||
+    !!input.activity ||
     input.fields.some((f) => f.field.drawnMaps().length > 0)
   );
 }
@@ -179,6 +192,7 @@ export async function paintPicture(
     480,
     drawing ? viewBoxSize(drawing).width : 0,
     input.heatmap ? HEATMAP_PICTURE_WIDTH : 0,
+    input.activity ? ACTIVITY_WIDTH : 0,
     Math.min(MAPS_PER_ROW, maps) * MAP_CELL - (MAP_CELL - 160),
   );
   const font = `600 14px ${FONT}`;
@@ -193,6 +207,15 @@ export async function paintPicture(
       import("./heatmap-part"),
     ]);
     parts.push(heatmapPart(ctx, input.heatmap, model, heatmapLegend(model), PAINT));
+  }
+  if (input.activity) {
+    const { height } = input.activity;
+    const paint = await input.activity.painter({
+      background: LIGHT.background,
+      foreground: LIGHT.foreground,
+      grid: LIGHT.grid,
+    });
+    parts.push({ height, paint: (c) => paint(c, inner, height) });
   }
   if (input.fields.length > 0) {
     const { mapParts } = await import("./maps-part");

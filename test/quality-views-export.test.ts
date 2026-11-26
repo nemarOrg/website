@@ -274,6 +274,7 @@ describe("the SVG export", () => {
       end: light("--chart-series-4"),
       head: light("--qv-head-line"),
       contour: light("--qv-contour-line"),
+      grid: light("--color-border"),
     });
     const style = svg.exportStyle();
     expect(style).toContain(`.qv-series{stroke:${palette.LIGHT.series}`);
@@ -497,5 +498,22 @@ describe("the review's fixes (#601)", () => {
     const meta = { ...metaOf("spectrum"), extra: [["nemar:window-start-s", "140"]] as const };
     expect(exportMetaModule.metaEntries(meta).at(-1)).toEqual(["nemar:window-start-s", "140"]);
     expect(exportMetaModule.footerLines(meta)).toContain("window-start-s: 140");
+  });
+});
+
+describe("the Activations export", () => {
+  it("names the window on show by its first sample's time and its length, in seconds", async () => {
+    const { activityWindow, activityHeight } = await import("../src/lib/quality-views/activations");
+    const plan = (start: number, count: number, rate: number) =>
+      ({ plan: { start, count, rate, components: [] } }) as unknown as Parameters<
+        typeof activityWindow
+      >[0];
+    expect(activityWindow(plan(0, 2000, 200))).toEqual({ startS: 0, lengthS: 10 });
+    expect(activityWindow(plan(2000, 2000, 200))).toEqual({ startS: 10, lengthS: 10 });
+    expect(activityWindow(plan(125, 250, 250))).toEqual({ startS: 0.5, lengthS: 1 });
+    // The page's sizing: 18 px a component and 30 px of axis, between 160 and 640.
+    expect(activityHeight(18)).toBe(354);
+    expect(activityHeight(1)).toBe(160);
+    expect(activityHeight(64)).toBe(640);
   });
 });

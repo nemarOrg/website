@@ -12,12 +12,14 @@ import {
   type Activity,
   ActivityRefused,
   activity,
+  activityHeight,
   burstsRepaired,
   checkDeclaration,
   drawActivity,
   fetchInputs,
   firstWindow,
   openServingStore,
+  shownActivity,
   workerTransform,
 } from "../activations";
 import { CAPS, downloadsOf } from "../model";
@@ -122,13 +124,17 @@ export async function draw(x: ExtraContext): Promise<void> {
 
     let dispose = (): void => {};
     signal.addEventListener("abort", () => dispose(), { once: true });
+    // The window on show, for the view's export (W8).
+    let shownNow = first;
+    shownActivity.set(figure, () => ({ activity: shownNow, label }));
     const paint = async (a: Activity): Promise<void> => {
+      shownNow = a;
       const style = getComputedStyle(x.container);
       const token = (name: string, fallback: string) =>
         style.getPropertyValue(name).trim() || fallback;
       const n = a.plan.components.length;
       const width = Math.max(320, plot.clientWidth || x.container.clientWidth || 640);
-      const height = Math.min(640, Math.max(160, n * 18 + 30));
+      const height = activityHeight(n);
       plot.style.height = `${height}px`;
       dispose();
       const out = await drawActivity(

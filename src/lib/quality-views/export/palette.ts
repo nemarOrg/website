@@ -18,6 +18,7 @@ export const LIGHT = {
   end: "#334155", // --chart-series-4
   head: "#334155", // --qv-head-line
   contour: "rgb(15 23 42 / 45%)", // --qv-contour-line
+  grid: "#e2e8f0", // --color-border
 } as const;
 
 /** How an element of a drawing is painted, by its class. */

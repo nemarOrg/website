@@ -6,11 +6,13 @@
  */
 
 import type { ExportInput } from "./export/controls";
+import { downloadsOf } from "./model";
 import { h, toDom } from "./tree";
 
 export function attachExport(container: HTMLElement, input: ExportInput): void {
-  // A view drawn from stored files: a computed view (the Signal tab's window) has none to export.
-  if (!input.view.data?.length) return;
+  // A view with files to hand over: a stored view's data, or a computed view's input files (the
+  // activations' weights, components and bad segments; the Signal window's tables).
+  if (downloadsOf(input.view).length === 0) return;
   const details = toDom(
     h("details", { class: "qv-export" }, h("summary", {}, "Export this view"), h("div", {})),
     container.ownerDocument,

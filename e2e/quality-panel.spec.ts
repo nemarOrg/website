@@ -593,10 +593,15 @@ test.describe("export", () => {
     expect(urls.filter((u) => u.includes("/quality-views/export/"))).toEqual([]);
     await openExport(page, "spectrum");
     expect(urls.some((u) => u.includes("/quality-views/export/controls.ts"))).toBe(true);
-    // The Signal tab's window has neither a model nor a file: no toggle.
+    // The Signal tab's window is computed: its input files, verified, and no image.
     await page.locator('[data-qp-tab="signal"]').click();
     await ready(page);
-    await expect(page.locator('[data-qp-view="midsegment"] details.qv-export')).toHaveCount(0);
+    const signal = page.locator('[data-qp-view="midsegment"]');
+    await signal.locator("details.qv-export > summary").click();
+    await expect(
+      signal.getByRole("list", { name: "Save a file of this view, as recorded" }),
+    ).toBeVisible();
+    await expect(signal.getByRole("button", { name: "Save image (PNG)" })).toHaveCount(0);
   });
 
   test("a PNG at 2 to 4 times, light, its text chunks naming the view, with no request", async ({
@@ -1322,4 +1327,72 @@ test("a decoy bad-segment table is refused before the serving copy is asked for"
   const view = page.locator('[data-qp-view="icactivity"]');
   await expect(view.locator("[data-word]")).toHaveAttribute("data-word", "table_location_mismatch");
   await expect(view.locator("canvas")).toHaveCount(0);
+});
+
+/** The panel's own rule for the activations plot (`QualityPanel.astro`'s scoped style, which the
+ *  shell written into this page does not carry): its two canvases stacked in the plot's box, so
+ *  the second does not spill over what follows. */
+const activityPlotStyle = (page: Page) =>
+  page.addStyleTag({
+    content:
+      ".qp-activity__plot{position:relative;inline-size:100%;block-size:240px}.qp-activity__plot canvas{position:absolute;inset:0;inline-size:100%;block-size:100%}",
+  });
+
+test.describe("the Activations export", () => {
+  test("saves the drawn window as a light PNG naming the view and the window, with no request", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme: "dark" });
+    const served = await serveZarr(page);
+    const urls = recordRequests(page);
+    await mount(page, { zarr: true, hash: `#quality/${provenance.recording}/icactivity` });
+    await activityPlotStyle(page);
+    const view = page.locator('[data-qp-view="icactivity"]');
+    await expect(view.locator(".qp-activity__where")).toHaveText("0 s to 9.995 s of 30 s");
+    await openExport(page, "icactivity");
+    // A computed view: no SVG, its image and its input files.
+    await expect(view.getByRole("button", { name: "Save drawing (SVG)" })).toHaveCount(0);
+    const before = { urls: urls.length, data: await dataRequests(page), chunks: served.chunks };
+    const save = view.getByRole("button", { name: "Save image (PNG)" });
+    const first = new Uint8Array(await saved(page, save));
+    const chunks = pngChunks(first);
+    expect(chunks.every((c) => c.crcOk)).toBe(true);
+    const texts = Object.fromEntries(pngTexts(first));
+    expect(texts["nemar:kind"]).toBe("nemar.ic-activity");
+    expect(texts["nemar:view-digest"]).toBe(JSON.parse(record.body).view_digests.icactivity);
+    expect(texts["nemar:permalink"]).toMatch(/#quality\/.+\/icactivity$/);
+    expect(texts["nemar:window-start-s"]).toBe("0");
+    expect(texts["nemar:window-length-s"]).toBe("10");
+    expect(texts["nemar:color-maps"]).toBeUndefined();
+    const pixels = inflateSync(
+      Buffer.concat(chunks.filter((c) => c.type === "IDAT").map((c) => c.data)),
+    );
+    expect(Array.from(pixels.subarray(1, 5))).toEqual([255, 255, 255, 255]);
+    // Exporting read nothing: no data, no code, no sample of the serving copy.
+    expect(urls.slice(before.urls)).toEqual([]);
+    expect(await dataRequests(page)).toBe(before.data);
+    expect(served.chunks).toBe(before.chunks);
+    // The next window: the export saves the window on show.
+    await view.getByRole("button", { name: "Later window" }).click();
+    await expect(view.locator(".qp-activity__where")).toHaveText("10 s to 19.995 s of 30 s");
+    const second = Object.fromEntries(pngTexts(new Uint8Array(await saved(page, save))));
+    expect(second["nemar:window-start-s"]).toBe("10");
+    expect(second["nemar:window-length-s"]).toBe("10");
+  });
+
+  test("hands over the verified input files as the exact bytes recorded", async ({ page }) => {
+    await serveZarr(page);
+    await mount(page, { zarr: true, hash: `#quality/${provenance.recording}/icactivity` });
+    await activityPlotStyle(page);
+    const view = page.locator('[data-qp-view="icactivity"]');
+    await expect(view.locator(".qp-activity__plot canvas")).toHaveCount(2);
+    await openExport(page, "icactivity");
+    const before = await dataRequests(page);
+    for (const suffix of ["_servingunmixing.tsv", "_components.tsv", "_badsegments.tsv"]) {
+      const name = files[shaOf(suffix)].location.split("/").pop()!;
+      const bytes = await saved(page, view.getByRole("button", { name: `Save ${name}` }));
+      expect(bytes.equals(read(`files/${shaOf(suffix)}`))).toBe(true);
+    }
+    expect(await dataRequests(page)).toBe(before);
+  });
 });
