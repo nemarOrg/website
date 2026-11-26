@@ -241,3 +241,22 @@ describe("the sidecar and the cap model", () => {
     expect(capModelNets(null)).toEqual([]);
   });
 });
+
+describe("the refusal sentences", () => {
+  it("are one per reason, in one copy, shown by the quality views and the viewer alike", async () => {
+    const { LABELS_SENTENCES, asClause } = await import(
+      "../src/lib/quality-views/sensor-labels-copy"
+    );
+    const { MAP_SENTENCES } = await import("../src/lib/quality-views/render/words");
+    const { SCALP_MAP_SENTENCES } = await import("../src/lib/eeg-viewer/scalp-map");
+    expect(Object.keys(LABELS_SENTENCES).sort()).toEqual([...REASONS].sort());
+    for (const reason of REASONS) {
+      const text = LABELS_SENTENCES[reason];
+      // The first word is capitalized only as a sentence's first word, so it reads after a colon.
+      expect(text, reason).toMatch(/^[A-Z][a-z]+ /);
+      expect(MAP_SENTENCES[reason]).toBe(text);
+      expect(SCALP_MAP_SENTENCES[reason]).toBe(`No scalp map: ${asClause(text)}`);
+    }
+    expect(Object.keys(MAP_SENTENCES)).not.toContain("labels_pending");
+  });
+});
