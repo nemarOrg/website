@@ -6,6 +6,10 @@
  * bytes are handed to the model (`model.ts`), which checks their size and SHA-256 before it parses
  * them; this client reads no more than the declared size, so a longer answer is a missing file.
  *
+ * The record's `ETag` digest is required unless the data plane is this page's own origin or a
+ * loopback host (`lenientBase`): local development and the browser tests against a local backend,
+ * and nothing a visitor reaches.
+ *
  * Every answer but a record is one of three states, which the panel words:
  * - `none`: the route says this recording has no quality (`quality_not_found`: no promoted
  *   derivative, no record for the recording, or a dataset that is not public);
@@ -52,6 +56,23 @@ function routeWord(bytes: Uint8Array | null): string | null {
   }
 }
 
+/** Whether `base` is local development (this page's own origin, or a loopback host), the one
+ *  place a record is read without its `ETag` digest. */
+export function lenientBase(base: string, pageOrigin = globalThis.location?.origin): boolean {
+  let url: URL;
+  try {
+    url = new URL(base);
+  } catch {
+    return false;
+  }
+  return (
+    url.origin === pageOrigin ||
+    url.hostname === "localhost" ||
+    url.hostname === "127.0.0.1" ||
+    url.hostname === "[::1]"
+  );
+}
+
 /** Fetch and read one recording's record. Never rejects, except when `signal` aborts. */
 export async function fetchRecord(
   ask: RecordAsk,
@@ -70,7 +91,11 @@ export async function fetchRecord(
     return { kind: "failed", word: "network" };
   }
   if (!response.ok) {
-    const word = routeWord(await readLimited(new Response(response.body), 4096));
+    const body = await readLimited(new Response(response.body), 4096).catch((error: unknown) => {
+      if (options.signal?.aborted) throw error;
+      return null;
+    });
+    const word = routeWord(body);
     if (word === "quality_not_found") return { kind: "none" };
     if (word !== null) return { kind: "failed", word };
     return response.status === 404
@@ -82,7 +107,12 @@ export async function fetchRecord(
     return null;
   });
   if (!bytes) return { kind: "failed", word: "record_too_large" };
-  const record = await readRecordAnswer(bytes, response.headers.get("ETag"), ask);
+  const record = await readRecordAnswer(
+    bytes,
+    response.headers.get("ETag"),
+    ask,
+    !lenientBase(ask.base),
+  );
   return typeof record === "string" ? { kind: "failed", word: record } : { kind: "ok", record };
 }
 

@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 import { declarationValid } from "../src/lib/quality-views/guards";
 import { COMPUTED_SCHEMAS } from "../src/lib/quality-views/guards-computed";
-import { fetchRecord, fileUrl, recordFiles } from "../src/lib/quality-views/quality-api";
+import { fetchRecord, fileUrl, lenientBase, recordFiles } from "../src/lib/quality-views/quality-api";
 import {
   type QualityRecord,
   etagDigest,
@@ -81,11 +81,43 @@ describe("a record answer", () => {
     // Bytes that are not JSON at all: parsed first, they would be `record_invalid`.
     const garbage = new Uint8Array([0xff, 0xfe, 0x7b]);
     expect(await readRecordAnswer(garbage, ETAG, ASK)).toBe("record_digest_mismatch");
-    expect(await readRecordAnswer(garbage, null, ASK)).toBe("record_invalid");
+    expect(await readRecordAnswer(garbage, null, ASK, false)).toBe("record_invalid");
   });
 
-  it("is read without an ETag the browser does not expose", async () => {
-    expect(await readRecordAnswer(BODY, null, ASK)).toMatchObject({ recipe: ASK.recipe });
+  it("refuses an answer from the data plane without a readable ETag digest, and reads one locally", async () => {
+    for (const etag of [null, "", '"not-a-digest"', 'W/"abc"']) {
+      expect(await readRecordAnswer(BODY, etag, ASK), String(etag)).toBe("record_digest_missing");
+    }
+    // Local development only (a same-origin or loopback base).
+    expect(await readRecordAnswer(BODY, null, ASK, false)).toMatchObject({ recipe: ASK.recipe });
+  });
+
+  it("was captured with the ETag the panel requires, exposed to the site when the route says so", () => {
+    expect(etagDigest(captured.headers.ETag)).toMatch(/^[0-9a-f]{64}$/);
+    const exposed = captured.headers["Access-Control-Expose-Headers"];
+    if (exposed === undefined) {
+      console.info("[quality record] the captured answer carries no Access-Control-Expose-Headers yet (nemar-cli epic #2324 adds ETag to it); re-capture once it does.");
+    } else {
+      expect(exposed.split(",").map((h) => h.trim().toLowerCase())).toContain("etag");
+    }
+  });
+
+  it("is lenient only for this page's own origin or a loopback host", () => {
+    expect(lenientBase("https://data.nemar.org", "https://nemar.org")).toBe(false);
+    expect(lenientBase("https://data.example.invalid", "https://nemar.org")).toBe(false);
+    expect(lenientBase("http://localhost:8787/data", "https://nemar.org")).toBe(true);
+    expect(lenientBase("http://127.0.0.1:8787/data", "https://nemar.org")).toBe(true);
+    expect(lenientBase("https://nemar.org/data", "https://nemar.org")).toBe(true);
+    expect(lenientBase("not a url", "https://nemar.org")).toBe(false);
+  });
+
+  it("refuses a fetched record whose ETag the data plane does not expose", async () => {
+    const hidden = { ...captured.headers };
+    delete hidden.ETag;
+    expect(await fetchRecord(ASK, { fetch: answering(200, hidden, captured.body) })).toEqual({
+      kind: "failed",
+      word: "record_digest_missing",
+    });
   });
 
   it("refuses an answer for another recording, dataset or recipe", async () => {
@@ -111,12 +143,12 @@ describe("a record answer", () => {
     ];
     for (const variant of variants) {
       const bytes = new TextEncoder().encode(JSON.stringify(variant));
-      expect(await readRecordAnswer(bytes, null, ASK)).toBe("record_invalid");
+      expect(await readRecordAnswer(bytes, null, ASK, false)).toBe("record_invalid");
     }
     const shuffled = structuredClone(body);
     shuffled.dataQuality.recipes["nemar-ica"].views[1].key = "icmaps";
     expect(
-      await readRecordAnswer(new TextEncoder().encode(JSON.stringify(shuffled)), null, ASK),
+      await readRecordAnswer(new TextEncoder().encode(JSON.stringify(shuffled)), null, ASK, false),
     ).toBe("record_checks_failed");
   });
 });

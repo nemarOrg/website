@@ -5,8 +5,11 @@
  *
  * 1. The bytes, against the digest the answer names (its `ETag`, the SHA-256 of the body), BEFORE
  *    they are parsed: a body that is not the one served is never read (`record_digest_mismatch`).
- *    A cross-origin answer whose `ETag` the browser does not expose is read on the strength of the
- *    route's own checks, and its views' digests below still hold.
+ *    From the data plane the digest is REQUIRED: the route sends a strong `ETag` and exposes it to
+ *    the site's origins (`Access-Control-Expose-Headers`), and an answer with none, or one that
+ *    names no SHA-256, is refused (`record_digest_missing`), never read unchecked. Only local
+ *    development reads an answer without one (`requireDigest: false`, which `quality-api.ts` gives
+ *    for a same-origin or loopback base alone).
  * 2. The text, as Internet JSON (`read.ts`).
  * 3. The answer's envelope (an open contract: an extra member is tolerated, a missing or wrongly
  *    typed one refuses it), and that it is the dataset, recipe and recording asked for.
@@ -186,14 +189,16 @@ export function etagDigest(etag: string | null): string | null {
 
 /**
  * Read a record answer's bytes for the recording asked for. The digest is checked first; nothing
- * is parsed when it differs. Resolves with the record, or with the fixed word it is refused with.
+ * is parsed when it differs or, with `requireDigest` (the default), when there is none. Resolves with the record, or with the fixed word it is refused with.
  */
 export async function readRecordAnswer(
   bytes: Uint8Array,
   etag: string | null,
   asked: { readonly datasetId: string; readonly recipe: string; readonly recording: string },
+  requireDigest = true,
 ): Promise<QualityRecord | string> {
   const digest = etagDigest(etag);
+  if (digest === null && requireDigest) return "record_digest_missing";
   if (digest !== null && (await subtleSha256(bytes)) !== digest) {
     return "record_digest_mismatch";
   }

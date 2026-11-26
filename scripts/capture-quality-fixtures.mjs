@@ -119,7 +119,11 @@ try {
   });
   const key = await derivative();
 
+  // As a page on the site asks (an Origin), so the answer's CORS headers, which must expose the
+  // ETag the panel requires, are captured too.
   const HEADERS = [
+    "Access-Control-Allow-Origin",
+    "Access-Control-Expose-Headers",
     "Content-Type",
     "Cache-Control",
     "ETag",
@@ -127,7 +131,7 @@ try {
     "Content-Disposition",
   ];
   const answer = async (path) => {
-    const res = await app.request(path, {}, env);
+    const res = await app.request(path, { headers: { Origin: "https://nemar.org" } }, env);
     const bytes = new Uint8Array(await res.arrayBuffer());
     const headers = {};
     for (const name of HEADERS) {
