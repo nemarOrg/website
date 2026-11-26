@@ -634,6 +634,18 @@ test.describe("export", () => {
         .locator('[data-qp-view="icclasses"]')
         .getByRole("button", { name: "Save drawing (SVG)" }),
     ).toHaveCount(1);
+    // With the Components tab's scalp maps drawn, the histogram's image shows none of them.
+    const classes = new Uint8Array(
+      await saved(
+        page,
+        page
+          .locator('[data-qp-view="icclasses"]')
+          .getByRole("button", { name: "Save image (PNG)" }),
+      ),
+    );
+    const texts = Object.fromEntries(pngTexts(classes));
+    expect(texts["nemar:kind"]).toBe("nemar.ic-classes");
+    expect(texts["nemar:color-maps"]).toBeUndefined();
     await page.locator('[data-qp-view="icmaps"] details.qv-export > summary').click();
     await expect(
       page.locator('[data-qp-view="icmaps"]').getByRole("button", { name: "Save image (PNG)" }),
@@ -785,7 +797,14 @@ test.describe("export", () => {
           3,
         );
         handle.destroy();
+        const ctx = canvas.getContext("2d")!;
+        const pixel = (x: number, y: number) => Array.from(ctx.getImageData(x, y, 1, 1).data);
+        // The first map's center (12 px of margin, a caption line, then the map's 160 px square).
+        const top = 12 + 18 + 6;
         return {
+          corner: pixel(canvas.width - 1, canvas.height - 1),
+          mapCenter: pixel(3 * (12 + 80), 3 * (top + 80)),
+          outside: pixel(3 * (12 + 1040 + 6), 3 * (top + 80)),
           maps: maps.length,
           untraced,
           same,
@@ -802,8 +821,13 @@ test.describe("export", () => {
     // …and the export draws every map's lines, traced as the worker traces them.
     expect(result.same).toBe(true);
     expect(result.everyHasLines).toBe(true);
-    // Six maps a row, three rows, at 3 times.
+    // Six maps a row, three rows, at 3 times: the rows' 3 × 192 px with the text, under four rows.
     expect(result.width).toBe(3 * (6 * 176 - 16 + 24));
     expect(result.height).toBeGreaterThan(3 * 3 * 192);
+    expect(result.height).toBeLessThan(3 * 4 * 192);
+    // Painted at 3 times on a light ground to its last pixel, the map where its square is.
+    expect(result.corner).toEqual([255, 255, 255, 255]);
+    expect(result.outside).toEqual([255, 255, 255, 255]);
+    expect(result.mapCenter).not.toEqual([255, 255, 255, 255]);
   });
 });

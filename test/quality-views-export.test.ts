@@ -163,12 +163,15 @@ describe("the PNG's text chunks", () => {
     const out = png.withTextChunks(original, [
       ["Title", "Spectrum – µV²/Hz, 脑电"],
       ["Comment", "µV² is Latin-1"],
+      ["Dash", "1–2 Hz"],
     ]);
     const types = png.pngChunks(out).map((c) => c.type);
-    expect(types.slice(1, 3)).toEqual(["iTXt", "tEXt"]);
-    expect(png.pngTexts(out).slice(0, 2)).toEqual([
+    // An en dash alone is past Latin-1 too.
+    expect(types.slice(1, 4)).toEqual(["iTXt", "tEXt", "iTXt"]);
+    expect(png.pngTexts(out).slice(0, 3)).toEqual([
       ["Title", "Spectrum – µV²/Hz, 脑电"],
       ["Comment", "µV² is Latin-1"],
+      ["Dash", "1–2 Hz"],
     ]);
     expect(png.pngChunks(out).every((c) => c.crcOk)).toBe(true);
   });
@@ -213,7 +216,10 @@ describe("the SVG export", () => {
     expect(text).toContain(
       `<title id="qv-export-title">${escapeHtml(viewOf("spectrum").caption)}</title>`,
     );
-    expect(text).toContain(record.digests.spectrum);
+    // Printed under the drawing too, so a printed copy names its view.
+    expect(text).toContain(
+      `>nemar.spectrum, version 1; view digest (nemar.view-digest.v1) ${record.digests.spectrum}</text>`,
+    );
     // The permalink is printed under the drawing, escaped as XML text.
     expect(text).toContain(PERMALINK.replace(/&/g, "&amp;"));
     // Every series the page drew, and no cursor.
