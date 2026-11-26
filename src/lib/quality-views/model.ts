@@ -909,59 +909,24 @@ export async function placeSensors(
       }
     }
     if (placement.word === null && layout === null) {
-      const types = sensors.types ?? new Array<string | null>(count).fill(null);
       placement.source = "names";
       placement.coordinate_system = "n/a";
       placement.position_source = "template";
-      // nemar.sensor-labels.v1 and the montages names reach load only for a map placed by name.
-      const { MIN_CHANNELS, countCandidates, inferPositions, loadNameMontages } = await loaded(
-        () => import("./sensor-labels"),
-      );
-      const given = rows.map((k) => [sensors.labels[k], types[k]] as const);
-      const sidecar = { capModel: inputs.cap_model, reference: inputs.reference };
-      // Too few candidates is refused before any montage is fetched (the algorithm's own answer).
-      const inference =
-        countCandidates(given) < MIN_CHANNELS
-          ? inferPositions(given, [], sidecar)
-          : inferPositions(given, await loaded(() => loadNameMontages(options.montage)), {
-              capModel: inputs.cap_model,
-              reference: inputs.reference,
-            });
-      placement.montage = inference.montage;
-      if (inference.outcome !== "placed") {
-        placement.word = inference.reason;
-      } else {
-        const electrodes = new Array<string | null>(count).fill(null);
-        const xyz = new Array<readonly [number, number, number] | null>(count).fill(null);
-        let reference: number | null = null;
-        rows.forEach((k, i) => {
-          const channel = inference.channels[i];
-          if (channel.electrode !== null && channel.position !== null) {
-            electrodes[k] = channel.electrode;
-            xyz[k] = [channel.position[0] + 0, channel.position[1] + 0, channel.position[2] + 0];
-            if (channel.name === inference.reference) reference = k;
-          }
-        });
-        drawn = electrodes.map((e) => e !== null);
-        if (reference !== null) {
-          const ref: number = reference;
-          placement.reference = sensors.labels[ref];
-          if (maps.every(([, values]) => values[ref] === 0)) drawn[ref] = false;
-        }
-        rows = drawn.flatMap((d, k) => (d ? [k] : []));
-        places.electrodes = electrodes;
-        places.x = xyz.map((p) => (p ? p[0] : null));
-        places.y = xyz.map((p) => (p ? p[1] : null));
-        places.z = xyz.map((p) => (p ? p[2] : null));
-        const projected = await project(
-          rows.map((k) => xyz[k]!),
-          "n/a",
-          inference.montage,
-          rows,
-        );
-        if ("word" in projected) placement.word = projected.word;
-        else layout = projected;
-      }
+      // nemar.sensor-labels.v1, the montages names reach and the rest of this placement load only
+      // for a map placed by name (`place-by-name.ts`).
+      const { placeByName } = await loaded(() => import("./place-by-name"));
+      const placed = await placeByName({
+        sensors,
+        rows,
+        maps,
+        inputs,
+        placement,
+        places,
+        montage: options.montage,
+        loaded,
+        project,
+      });
+      if (placed) [drawn, layout] = placed;
     }
   };
   try {
@@ -969,8 +934,8 @@ export async function placeSensors(
   } catch (error) {
     if (!(error instanceof MontageUnavailable)) throw error;
     console.error("[quality-views] a montage could not be loaded:", error.failure);
-    // The word of `MONTAGE_UNAVAILABLE` (sensor-labels-copy.ts), written out so the model does not
-    // import the sentences.
+    // The word of `MONTAGE_UNAVAILABLE` (montage-unavailable-copy.ts), written out so the model
+    // imports no copy module.
     placement.word = "montage_unavailable";
     layout = null;
   }

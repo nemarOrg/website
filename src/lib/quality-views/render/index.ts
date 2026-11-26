@@ -9,14 +9,14 @@
  * one recorded). The figure frame, the fallback and the words are small and load with this file.
  */
 
-import type { BuiltModel, Download, Model, ViewDecl } from "../model";
+import type { BuiltModel, Download, Model, SensorFieldModel, ViewDecl } from "../model";
 import { type Element, h, toDom } from "../tree";
 import type { SensorFieldClient } from "../worker-client";
 import { RENDER_FAILED, renderFallback } from "./fallback";
 import { type ViewContext, figure } from "./figure";
 import { attachLazyTable } from "./interact";
 import type { PaintColors, SensorFieldHandle } from "./sensor-field-view";
-import { VIEW_SENTENCES, sentence } from "./words";
+import { VIEW_SENTENCES, mapSentences, sentence } from "./words";
 
 export type { ViewContext } from "./figure";
 
@@ -49,8 +49,8 @@ interface Renderer {
   attach?(root: HTMLElement, built: BuiltModel, deps: PageDeps): SensorFieldHandle | undefined;
 }
 
-/** Each model type's renderer, loaded on demand. */
-const RENDERERS: Readonly<Record<string, () => Promise<Renderer>>> = {
+/** Each model type's renderer, loaded on demand for the model it draws. */
+const RENDERERS: Readonly<Record<string, (model: Model) => Promise<Renderer>>> = {
   table: () =>
     import("./table").then((m) => ({
       render: (b, ctx) => ({ tree: m.renderTable(b.model as never, b.downloads, ctx) }),
@@ -88,10 +88,15 @@ const RENDERERS: Readonly<Record<string, () => Promise<Renderer>>> = {
         return undefined;
       },
     })),
-  "sensor-field": () =>
-    import("./sensor-field-view").then((m) => ({
+  // With the sentences its placement word needs: nemar.sensor-labels.v1's load only for a map
+  // placed by name and refused (`mapSentences`).
+  "sensor-field": (model) =>
+    Promise.all([
+      import("./sensor-field-view"),
+      mapSentences((model as SensorFieldModel).placement.word),
+    ]).then(([m, sentences]) => ({
       render: (b, ctx) => ({
-        tree: m.renderSensorField(b.model as never, b.downloads, ctx),
+        tree: m.renderSensorField(b.model as never, b.downloads, ctx, sentences),
         table: () => m.fieldTable(b.model as never, ctx.caption),
       }),
       attach: (root, b, deps) =>
@@ -108,7 +113,7 @@ async function rendererOf(model: Model): Promise<Renderer | null> {
   const load = Object.prototype.hasOwnProperty.call(RENDERERS, model.type)
     ? RENDERERS[model.type]
     : undefined;
-  return load ? load() : null;
+  return load ? load(model) : null;
 }
 
 /** The tree of a built view and its data table, its renderer loaded on demand. */

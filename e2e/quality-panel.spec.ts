@@ -25,6 +25,8 @@ import { inflateSync } from "node:zlib";
 import { type Page, expect, test } from "@playwright/test";
 import { pngChunks, pngTexts } from "../src/lib/quality-views/export/png";
 import { svgMetadata } from "../src/lib/quality-views/export/svg";
+import { MONTAGE_UNAVAILABLE_SENTENCE } from "../src/lib/quality-views/montage-unavailable-copy";
+import { LABELS_SENTENCES } from "../src/lib/quality-views/sensor-labels-copy";
 
 const ROUTE = new URL("../test/fixtures/quality-views/route/", import.meta.url);
 const read = (name: string) => readFileSync(new URL(name, ROUTE));
@@ -109,6 +111,11 @@ interface MountOptions {
   /** A view of the generic kind `nemar.lines` on the spectrum's values, with no preset of its own
    *  (it is drawn under Other views): its declaration's digest recomputed to match. */
   readonly genericLines?: boolean;
+  /** The spectrum's maps placed by name (`nemar.sensor-labels.v1`): its layout dropped and its
+   *  sensors named by the values' header, the names as recorded (`placed`) or renamed to names no
+   *  montage holds (`refused`, `labels_unrecognized`); the values file served is those bytes, its
+   *  declared size, digest and the view's digest recomputed as the route would. */
+  readonly byName?: "placed" | "refused";
   /** Delay every file's answer by this many milliseconds. */
   readonly slowFiles?: number;
   /** Do not wait for the panel to be ready. */
@@ -155,6 +162,40 @@ async function mount(page: Page, options: MountOptions = {}): Promise<void> {
           }
           doc.view_digests[view.key] = await viewDigest(view);
         }
+        body = JSON.stringify(doc);
+        headers = { "Content-Type": "application/json", ETag: `"${await hexOf(body)}"` };
+      }
+      if (options.byName) {
+        const { viewDigest } = await import(/* @vite-ignore */ modules.verify);
+        const doc = JSON.parse(body);
+        type Entry = { role: string; sha256: string; size: number; columns: { name: string }[] };
+        type Dim = { name: string; coords: object };
+        const view = doc.dataQuality.recipes[provenance.recipe].views.find(
+          (v: { key: string }) => v.key === "spectrum",
+        );
+        const values = view.data.find((d: Entry) => d.role === "values") as Entry & {
+          dims: Dim[];
+        };
+        let tsv = files[values.sha256];
+        if (options.byName === "refused") {
+          const text = new TextDecoder().decode(tsv);
+          const end = text.indexOf("\n");
+          const named = (name: string, i: number) => (i === 0 ? name : `Q${i}`);
+          const header = text.slice(0, end).split("\t").map(named);
+          tsv = new TextEncoder().encode(header.join("\t") + text.slice(end));
+          values.columns = values.columns.map((c, i) => ({ ...c, name: named(c.name, i) }));
+        }
+        const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", tsv)), (b) =>
+          b.toString(16).padStart(2, "0"),
+        ).join("");
+        files[sha] = tsv;
+        values.sha256 = sha;
+        values.size = tsv.length;
+        values.dims = values.dims.map((d) =>
+          d.name === "sensor" ? { ...d, coords: { header: true } } : d,
+        );
+        view.data = view.data.filter((d: Entry) => d.role !== "layout");
+        doc.view_digests.spectrum = await viewDigest(view);
         body = JSON.stringify(doc);
         headers = { "Content-Type": "application/json", ETag: `"${await hexOf(body)}"` };
       }
@@ -354,6 +395,63 @@ test("a declaration that does not match its digest is not drawn", async ({ page 
   const view = page.locator('[data-qp-view="spectrum"]');
   await expect(view.locator('[data-word="view_digest_mismatch"]')).toHaveCount(1);
   await expect(view.locator(".qv-drawing, canvas, svg")).toHaveCount(0);
+});
+
+// A map placed by name loads two lazy chunks a first screen never carries: the placement
+// (`place-by-name`, with nemar.sensor-labels.v1) and, for a refusal, its sentences
+// (`sensor-labels-copy`). Either one that cannot be fetched (the page offline, or deployed again)
+// leaves the maps saying `montage_unavailable`'s sentence, which says to reload, and the view drawn.
+test.describe("the spectrum's maps placed by name", () => {
+  const spectrum = (page: Page) => page.locator('[data-qp-view="spectrum"]');
+  const mapWords = (page: Page) => spectrum(page).locator(".qp-spectrum-maps .qv-map-word");
+  /** Abort every request for a chunk of this module, in the dev server or a build; count them. */
+  const abort = async (page: Page, module: string) => {
+    const aborted = { count: 0 };
+    await page.route(new RegExp(`/${module}(\\.[\\w-]+)?\\.(ts|js)(\\?|$)`), (route) => {
+      aborted.count++;
+      return route.abort();
+    });
+    return aborted;
+  };
+
+  test("are drawn when the names are placed", async ({ page }) => {
+    await mount(page, { byName: "placed" });
+    await expect(spectrum(page).locator("svg.qv-lines")).toHaveCount(1);
+    await expect(spectrum(page).locator(".qp-spectrum-maps canvas.qv-map-canvas")).toHaveCount(4);
+    await expect(spectrum(page).locator(".qv-placement").first()).toContainText(
+      "matched by sensor name on the standard_1005 montage",
+    );
+  });
+
+  test("say the sensor-labels sentence when the names are refused", async ({ page }) => {
+    await mount(page, { byName: "refused" });
+    await expect(spectrum(page).locator("svg.qv-lines")).toHaveCount(1);
+    await expect(mapWords(page)).toHaveText(Array(4).fill(LABELS_SENTENCES.labels_unrecognized));
+  });
+
+  test("a placement chunk that cannot load leaves the maps montage_unavailable", async ({
+    page,
+  }) => {
+    const aborted = await abort(page, "place-by-name");
+    const errors: string[] = [];
+    page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+    await mount(page, { byName: "placed" });
+    await expect(spectrum(page).locator("svg.qv-lines")).toHaveCount(1);
+    await expect(mapWords(page)).toHaveText(Array(4).fill(MONTAGE_UNAVAILABLE_SENTENCE));
+    expect(aborted.count).toBeGreaterThan(0);
+    expect(errors.some((e) => e.includes("a montage could not be loaded"))).toBe(true);
+  });
+
+  test("a refusal whose sentences cannot load leaves the maps montage_unavailable", async ({
+    page,
+  }) => {
+    const aborted = await abort(page, "sensor-labels-copy");
+    await mount(page, { byName: "refused" });
+    await expect(spectrum(page).locator("svg.qv-lines")).toHaveCount(1);
+    await expect(mapWords(page)).toHaveText(Array(4).fill(MONTAGE_UNAVAILABLE_SENTENCE));
+    await expect(spectrum(page)).not.toContainText("labels_unrecognized");
+    expect(aborted.count).toBeGreaterThan(0);
+  });
 });
 
 test("the deep link round-trips: a link opens its tab and view, a tab writes its link", async ({

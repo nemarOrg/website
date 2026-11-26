@@ -33,6 +33,7 @@
  */
 
 import { SEQUENTIAL_STOPS, lookupTable, paintGrid } from "../quality-views/colormap";
+import { MONTAGE_UNAVAILABLE_SENTENCE } from "../quality-views/montage-unavailable-copy";
 import type { Montage } from "../quality-views/montages";
 import { mapFrame, markerPoints, toCanvas } from "../quality-views/render/map-frame";
 import {
@@ -42,11 +43,7 @@ import {
   inferPositions,
   loadNameMontages,
 } from "../quality-views/sensor-labels";
-import {
-  LABELS_SENTENCES,
-  MONTAGE_UNAVAILABLE_SENTENCE,
-  asClause,
-} from "../quality-views/sensor-labels-copy";
+import { LABELS_SENTENCES, asClause } from "../quality-views/sensor-labels-copy";
 import { type SensorLayoutWord, sensorLayout } from "../quality-views/sensor-layout";
 import { isFiducial, typeClass } from "../quality-views/sensor-names";
 import type { DrawOutcome, DrawnMap } from "../quality-views/worker-client";
