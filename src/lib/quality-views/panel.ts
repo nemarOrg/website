@@ -134,17 +134,16 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
   const source = (r: QualityRecord, signal: AbortSignal) =>
     preloadedSource(recordFiles(base, r, { signal, fetch: deps.fetch }));
 
-  /** Draw one view as the admin drill-down draws it (`draw-view.ts`), the computed ones too. */
+  /** Draw one view as the admin drill-down draws it (`draw-view.ts`). The panel draws the computed
+   *  presets too; the drill-down leaves them out (by `inputs`) before it calls. */
   const draw = (view: ViewDecl, r: QualityRecord, container: HTMLElement, signal: AbortSignal) =>
     drawView(view, r, container, signal, {
-      doc,
       idPrefix: "qp",
       fileUrl: (file) => fileUrl(base, r, file),
       files: source(r, signal),
       client,
       mount: maps.mount,
       sentence,
-      computed: true,
     });
 
   function drawTab(tab: TabId): Promise<void> {

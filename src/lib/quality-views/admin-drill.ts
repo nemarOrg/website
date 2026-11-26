@@ -199,7 +199,6 @@ export function mountAdminDrill(config: DrillConfig, deps: DrillDeps = {}): Dril
     signal: AbortSignal,
   ) =>
     drawView(view, record, container, signal, {
-      doc,
       idPrefix: "qd",
       fileUrl: (file) => siteAdminFilePath(stampId, file.sha256, record.recording),
       files,

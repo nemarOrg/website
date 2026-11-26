@@ -4,17 +4,18 @@
  * (nemarOrg/website#600):
  *
  * 1. the view's declaration digest (`nemar.view-digest.v1`) is recomputed and compared with the
- *    record's before anything is drawn (`view_digest_mismatch` draws nothing);
+ *    record's before anything is drawn: a mismatch draws the refusal `view_digest_mismatch` with
+ *    the view's files, and nothing of the view itself;
  * 2. its files are checked against their sizes and SHA-256 as the model is built (`buildModel`),
- *    and a `ViewRefused` draws the refusal with the view's downloads;
+ *    and a `ViewRefused` draws the refusal with the view's other files, the failing one left out;
  * 3. the base is mounted on the page's one map client, its geometry cached by the layout file's
  *    SHA-256 (`layoutKeyOf`);
  * 4. its kind's extras draw on, and a preset's own word is said under the base (`noteOf`), in the
  *    caller's sentences.
  *
- * The computed presets (the Signal window, the activations) are drawn only by a caller that asks
- * for them (`computed`): they have no stored data for a base, and the admin drill-down lists them
- * instead of drawing them.
+ * The computed presets (the Signal window, the activations) have no stored data for a base: their
+ * extras draw them whole. A caller that must not draw them leaves them out before calling (the
+ * admin drill-down drops every view that declares `inputs`, and lists them instead).
  */
 
 import type { ExtraContext } from "./extras/context";
@@ -40,7 +41,7 @@ import { toDom } from "./tree";
 import { viewDigest } from "./verify";
 import type { SensorFieldClient } from "./worker-client";
 
-export type FieldHandle = NonNullable<MountedView["field"]>;
+type FieldHandle = NonNullable<MountedView["field"]>;
 
 /** Each kind's extras beyond its base, a chunk of its own. */
 const EXTRAS: Readonly<Record<string, () => Promise<{ draw(x: ExtraContext): Promise<void> }>>> = {
@@ -55,7 +56,7 @@ const EXTRAS: Readonly<Record<string, () => Promise<{ draw(x: ExtraContext): Pro
 const COMPUTED = ["nemar.signal-window", "nemar.ic-activity"];
 
 /** Paint colors from the page's tokens. */
-export function paintColors(root: HTMLElement) {
+function paintColors(root: HTMLElement) {
   const style = getComputedStyle(root);
   const token = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
   return {
@@ -66,24 +67,24 @@ export function paintColors(root: HTMLElement) {
 }
 
 /** The model's options on the page's client. */
-export const modelOptions = (client: () => SensorFieldClient): ModelOptions => ({
+const modelOptions = (client: () => SensorFieldClient): ModelOptions => ({
   checks: client().checks(),
   // Montages are needed only for template positions: loaded with the first that is.
   montage: (name) => import("./montage-loader").then((m) => m.loadMontage(name)),
 });
 
 /** The key the worker caches a view's geometry by: its layout file's SHA-256, else the view's. */
-export const layoutKeyOf = (view: ViewDecl): string =>
+const layoutKeyOf = (view: ViewDecl): string =>
   view.data?.find((d) => d.role === "layout")?.sha256 ?? `view:${view.key}`;
 
 /** A scalp map drawn, with what it was drawn from (the Turbo toggle and the export read them). */
-export interface DrawnField {
+interface DrawnField {
   readonly field: FieldHandle;
   readonly model: SensorFieldModel;
   readonly built: BuiltModel & { model: SensorFieldModel };
 }
 
-export type Mount = (
+type Mount = (
   target: HTMLElement,
   built: BuiltModel,
   ctx: ViewContext,
@@ -148,8 +149,7 @@ export function mapKeeper(
 }
 
 /** What a caller draws a view with. */
-export interface DrawDeps {
-  readonly doc: Document;
+interface DrawDeps {
   /** The view's element id, before its key (`qp`, `qd`). */
   readonly idPrefix: string;
   /** A declared file's address, for the view's download links. */
@@ -160,12 +160,10 @@ export interface DrawDeps {
   readonly mount: Mount;
   /** A word's sentence, for a preset's own word under its base. */
   readonly sentence: (word: string) => Promise<string>;
-  /** Draw the computed presets (the panel's Signal and Activations tabs). */
-  readonly computed?: boolean;
 }
 
 /** What a view drew, for its export; undefined when it drew nothing to export. */
-export type Drawn = { readonly built: BuiltModel | null; readonly files: FileSource } | undefined;
+type Drawn = { readonly built: BuiltModel | null; readonly files: FileSource } | undefined;
 
 /** Draw one view into `container` (see the module's docblock for the steps). */
 export async function drawView(
@@ -175,7 +173,8 @@ export async function drawView(
   signal: AbortSignal,
   deps: DrawDeps,
 ): Promise<Drawn> {
-  const { doc, files, client, sentence } = deps;
+  const doc = container.ownerDocument;
+  const { files, client, sentence } = deps;
   const ctx = viewContext(view, `${deps.idPrefix}-${view.key}`, deps.fileUrl);
   const refuse = (word: string, downloads = downloadsOf(view)): undefined => {
     if (!signal.aborted) container.replaceChildren(toDom(renderRefusal(word, downloads, ctx), doc));
@@ -185,13 +184,11 @@ export async function drawView(
   if (digest === null || digest !== record.digests[view.key]) return refuse("view_digest_mismatch");
   const opts = modelOptions(client);
   const layoutKey = layoutKeyOf(view);
-  const computed = COMPUTED.includes(view.kind);
-  const extras =
-    Object.hasOwn(EXTRAS, view.kind) && (deps.computed || !computed) ? EXTRAS[view.kind] : null;
+  const extras = Object.hasOwn(EXTRAS, view.kind) ? EXTRAS[view.kind] : null;
   const loading = extras?.();
   let built: BuiltModel | null = null;
   let figure: HTMLElement | null = null;
-  if (!(deps.computed && computed)) {
+  if (!COMPUTED.includes(view.kind)) {
     try {
       built = await buildModel(view, files, {
         ...opts,
