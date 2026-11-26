@@ -150,6 +150,7 @@ src/
     reset.css global.css
     eeg-viewer.css                    global signal-viewer styles (runtime-built DOM), imported by BidsTree and the embed
     quality-views.css                 the quality views' figures (render/), imported by the panel that draws them and by the dataset summary
+vitest.config.ts vitest.astro.config.ts vitest.workspace.ts   two Vitest projects run by `bun run test`: the unit tests, and `test/*.astro.test.ts`, which render `.astro` components through Astro's container, compiled by Astro's compiler in the project's own plugin (Astro 6's Vite config does not load under Vitest 2)
 test/
   fixtures/                           qa-aggregates, qa-file-dataqual, qa-hed-summary (Phase 3)
   fixtures/compute/                   captured from the real nemar-cli routes, never hand-written: `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-fixtures.mjs` (access, E1), `bun scripts/capture-compute-read-fixtures.mjs` (me, usage, jobs, errors; E2) and `bun scripts/capture-compute-job-fixtures.mjs` (job, log, results, cancel, refusals; E3, on the backend's lifecycle fixture and Tapis stand-in); `fixtures/compute/cli-help/` is the real `nemar ... --help-all` text the dialog's commands are checked against: `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-cli-help.mjs` (E5)

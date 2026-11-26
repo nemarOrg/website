@@ -4,8 +4,8 @@
  * page's static imports, relative ones, through `.astro` and `.ts` files, so a summary reached by
  * any path is found; the dataset page itself is the control that the walk reaches it.
  *
- * And DatasetTabs: no "coming soon" placeholder, and a Data quality tab only when the summary shows
- * something (a summary, or the sentence saying why it is not shown).
+ * And DatasetTabs' source: no "coming soon" placeholder, and the dataset page hands it the summary
+ * it read. What DatasetTabs renders for each summary is test/dataset-tabs.astro.test.ts.
  */
 
 import { describe, expect, it } from "vitest";
@@ -89,20 +89,6 @@ describe("DatasetTabs", () => {
   it("has no placeholder left", () => {
     expect(tabs).not.toMatch(/coming soon/i);
     expect(tabs).not.toMatch(/dtabs__soon|dtabs__tab--soon|nemar-cli\/issues\/511/);
-  });
-
-  it("draws the Data quality tab and its panel only when the summary shows something", () => {
-    expect(tabs).toMatch(/const showQuality = quality !== undefined && quality\.kind !== "none";/);
-    const tab = tabs.indexOf("Data quality\n");
-    const panel = tabs.indexOf("<DatasetQualitySummary");
-    expect(tab).toBeGreaterThan(0);
-    expect(panel).toBeGreaterThan(0);
-    // Each sits inside a {showQuality && (...)} block.
-    for (const at of [tab, panel]) {
-      const opened = tabs.lastIndexOf("{showQuality && (", at);
-      expect(opened).toBeGreaterThan(0);
-      expect(tabs.indexOf(")}", opened)).toBeGreaterThan(at);
-    }
   });
 
   it("is given the summary the dataset page read from metadata.json", () => {
