@@ -24,13 +24,13 @@ import {
   compareFieldCase,
   loadFieldVectors,
   loadLayoutVectors,
-  montageCentersFrom,
+  montageCentersFromFiles,
   numbers,
 } from "./quality-views-vectors";
 
 const field = await loadFieldVectors();
 const layoutVectors = await loadLayoutVectors();
-const centers = montageCentersFrom([...field.cases, ...layoutVectors.cases]);
+const centers = await montageCentersFromFiles();
 const byName = new Map(field.cases.map((c) => [c.name, c]));
 
 describe("the sensor-field vectors", () => {

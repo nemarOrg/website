@@ -36,13 +36,13 @@ import {
   compareCells,
   loadFieldVectors,
   loadLayoutVectors,
-  montageCentersFrom,
+  montageCentersFromFiles,
   numbers,
 } from "./quality-views-vectors";
 
 const field = await loadFieldVectors();
 const layoutVectors = await loadLayoutVectors();
-const centers = montageCentersFrom([...field.cases, ...layoutVectors.cases]);
+const centers = await montageCentersFromFiles();
 const cap = field.cases.find((c) => c.name === "montage_64")!;
 const THETA = numbers(cap.sensors.theta_deg!);
 const RADIUS = numbers(cap.sensors.radius!);

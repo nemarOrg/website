@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { WindowData } from "../eeg-viewer/store";
-import { VIRIDIS_CSS, viridisColor } from "../eeg-viewer/topo";
+import { SEQUENTIAL_STOPS, colorAt } from "../quality-views/colormap";
 import {
   BANDS,
   type BandName,
@@ -14,6 +14,7 @@ import {
   minWindowSamples,
   welchSegmentSamples,
 } from "./activity";
+import { LUT_SIZE, lutChannel } from "./live-activity";
 
 const FIXTURE_DIR = new URL("../../../test/fixtures/ieeg-activity/", import.meta.url);
 
@@ -509,18 +510,20 @@ describe("color scales", () => {
     expect(scale.lo).toBeCloseTo(2, 12);
     expect(scale.hi).toBeCloseTo(98, 12);
     expect(scale.unit).toBe("µV");
-    expect(scale.css).toBe(VIRIDIS_CSS);
+    expect(scale.css).toBe(
+      "#440154, #482878, #3e4a89, #31688e, #26828e, #1f9e89, #35b779, #6ece58, #b5de2b, #fde725",
+    );
     expect(scale.nLocated).toBe(101);
     // Clipped at the ends; the middle lands mid-scale.
-    expect(colorFor(scale, 0)).toEqual(viridisColor(-1));
-    expect(colorFor(scale, 1e6)).toEqual(viridisColor(1));
-    expect(colorFor(scale, 50)).toEqual(viridisColor(0));
+    expect(colorFor(scale, 0)).toEqual([68, 1, 84]);
+    expect(colorFor(scale, 1e6)).toEqual([253, 231, 37]);
+    expect(colorFor(scale, 50)).toEqual([...colorAt(SEQUENTIAL_STOPS, 0.5)]);
   });
 
   it("paints no data as null and flat or empty inputs as the middle color", () => {
     const flat = buildScale([4, 4, 4], "sequential", "µV");
     expect(flat.degenerate).toBe(true);
-    expect(colorFor(flat, 4)).toEqual(viridisColor(0));
+    expect(colorFor(flat, 4)).toEqual([...colorAt(SEQUENTIAL_STOPS, 0.5)]);
     expect(colorFor(flat, null)).toBeNull();
     expect(colorFor(flat, Number.NaN)).toBeNull();
     const none = buildScale([null, Number.NaN], "zscore", "µV");
@@ -528,5 +531,38 @@ describe("color scales", () => {
     expect(none.nLocated).toBe(0);
     expect(colorFor(none, 1)).toEqual(divergingColor(0));
     expect(buildScale([2, 2], "zscore", "µV").degenerate).toBe(true);
+  });
+});
+
+/**
+ * The overlay's colors moved from the signal viewer's `viridisColor` to the quality views'
+ * `colormap.ts` (website#588 phase W3) and must not change: these digests were taken from the
+ * former code, the 256-entry table of the live overlay and `colorFor` at every integer of a
+ * sequential scale from 2,000 to 98,000 and 3,000 past each end, rounding ties included.
+ */
+describe("the sequential colors are the ones the overlay always drew", () => {
+  const digest = async (value: unknown): Promise<string> => {
+    const bytes = new TextEncoder().encode(JSON.stringify(value));
+    const hash = await crypto.subtle.digest("SHA-256", bytes);
+    return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  };
+
+  it("in the live overlay's color table", async () => {
+    const table: number[] = [];
+    for (let i = 0; i < LUT_SIZE; i++) for (let c = 0; c < 3; c++) table.push(lutChannel(i, c));
+    expect(await digest(table)).toBe(
+      "81b0cc4ed9099f6720f202189ad366431f29baebcb153e7bda6bdf19497294cb",
+    );
+  });
+
+  it("in colorFor, at every value of a scale", async () => {
+    const scale = buildScale([0, 100000], "sequential", "uV");
+    expect([scale.lo, scale.hi]).toEqual([2000, 98000]);
+    const samples: unknown[] = [];
+    for (let v = -1000; v <= 101000; v++) samples.push(colorFor(scale, v));
+    expect(await digest(samples)).toBe(
+      "1f970e1a679618ea8839e0baabc72ba548c67575fa877e3900f28393f65eb117",
+    );
+    expect(colorFor(buildScale([5, 5], "sequential", "uV"), 5)).toEqual([35, 144, 140]);
   });
 });

@@ -8,13 +8,13 @@
  * whether any contact's color changed. Nothing here touches the DOM, the layout or the network.
  */
 
-import { viridisColor } from "../eeg-viewer/topo";
 import {
   type ActivityMatrix,
   type ActivityScale,
   type CursorMetric,
   contactMeans,
   contactSlots,
+  sequentialColor,
   shortWindowValues,
 } from "./activity";
 
@@ -29,7 +29,7 @@ export function lutChannel(i: number, c: number): number {
   if (!lut) {
     lut = new Uint8Array(LUT_SIZE * 3);
     for (let k = 0; k < LUT_SIZE; k++) {
-      lut.set(viridisColor((2 * k) / (LUT_SIZE - 1) - 1), k * 3);
+      lut.set(sequentialColor(k / (LUT_SIZE - 1)), k * 3);
     }
   }
   return lut[i * 3 + c];

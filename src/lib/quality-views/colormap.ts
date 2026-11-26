@@ -8,9 +8,9 @@
  *   Mark Harrower, and The Pennsylvania State University; licensed under the Apache License,
  *   Version 2.0 (THIRD_PARTY_NOTICES.md). This product includes color specifications and designs
  *   developed by Cynthia Brewer (https://colorbrewer2.org/);
- * - `sequential`, for `minmax` limits: viridis (public domain, CC0), the same stops the signal
- *   viewer's `viridisColor` uses today, so phase W3 can move the viewer onto this module with no
- *   color change (`test/quality-views-colormap.test.ts` holds them equal);
+ * - `sequential`, for `minmax` limits: viridis (public domain, CC0), the stops the signal viewer's
+ *   former `viridisColor` used; the viewer's scalp map and the iEEG activity overlay now draw with
+ *   it, color for color as before (`test/quality-views-colormap.test.ts` pins the table);
  * - `turbo`, the optional toggle (Apache-2.0, `turbo-lut.ts`).
  *
  * Both Apache-2.0 notices ship with the site, with the license's full text, at
@@ -73,8 +73,7 @@ export function hexToRgb(hex: string): Rgb {
   return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
 }
 
-/** The color at `t` in [0, 1] (clamped) along `stops`, interpolated linearly in sRGB and rounded,
- *  as the signal viewer's `viridisColor` does. */
+/** The color at `t` in [0, 1] (clamped) along `stops`, interpolated linearly in sRGB and rounded. */
 export function colorAt(stops: readonly (readonly [number, string])[], t: number): Rgb {
   const u = Math.max(0, Math.min(1, t));
   for (let i = 0; i < stops.length - 1; i++) {

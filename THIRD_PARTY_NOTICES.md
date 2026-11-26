@@ -48,6 +48,23 @@ distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
 This product includes color specifications and designs developed by Cynthia Brewer (<https://colorbrewer2.org/>).
 The notice ships with the site in the same file as Turbo's, `public/licenses/quality-views/NOTICE.txt`.
 
+### Electrode montages (quality views and the signal viewer's scalp map)
+
+The montages that place sensors on a scalp map by name are neuroschema 0.6.0's `views/montages`,
+copied by digest into `src/lib/quality-views/vocabulary/montages/` (website ADR 0035 decision 2) and shipped in the site's scripts.
+Their `PROVENANCE.json`, copied with them, records each montage's source, the digest of its source file and its upstream.
+
+- MNE-Python 1.13.2 writes every montage but the six older EGI nets, under its BSD-3-Clause license (Copyright 2011-2025 MNE-Python authors),
+  whose second condition asks a binary redistribution to reproduce the notice, the conditions and the disclaimer.
+- The six older EGI nets (`GSN64v2_0`, `GSN65v2_0`, `GSN128`, `GSN129`, `GSN256`, `GSN257`) come from EEGLAB's `sample_locs`;
+  EEGLAB's BSD 2-Clause license (Copyright (c) 2024, Swartz Center for Computational Neuroscience) covers `eeglab.m` and its functions folder and states none for `sample_locs`,
+  and it is reproduced as well.
+- Upstream of those, as `PROVENANCE.json` records: FieldTrip's 10-05 positions (Oostenveld and Praamstra 2001) for `standard_1005`,
+  Electrical Geodesics, Inc. (EGI) net layouts for the HydroCel and older nets, and BioSemi's cap layouts; none of them states a license.
+
+Both license texts ship with the site, in `public/licenses/quality-views/NOTICE.txt` beside the color maps' notices,
+and `test/quality-views-montages.test.ts` holds them to the texts `PROVENANCE.json` carries.
+
 ## Acknowledged
 
 These credits are voluntary.
