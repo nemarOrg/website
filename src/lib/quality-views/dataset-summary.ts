@@ -43,7 +43,7 @@ export type SummaryWord =
   | "document_other_dataset"
   | "summary_invalid"
   | WriterRuleWord
-  | "histogram_unreadable";
+  | "histogram_too_large";
 
 const NOT_SHOWN = "The quality summary NEMAR published for this dataset is not shown:";
 
@@ -56,7 +56,7 @@ export const SUMMARY_SENTENCES: Readonly<Record<SummaryWord, string>> = {
   listing_mismatch: `${NOT_SHOWN} the recordings it lists as not processed are not the failed and skipped recordings it counts.`,
   distribution_invalid: `${NOT_SHOWN} one of its histograms does not agree with its own counts or values.`,
   observed_range_mismatch: `${NOT_SHOWN} an observed range is not the lowest and highest value of its metric.`,
-  histogram_unreadable: `${NOT_SHOWN} one of its histograms has bins too narrow to draw.`,
+  histogram_too_large: `${NOT_SHOWN} one of its histograms holds numbers too large to draw exactly, a bin wider than the largest number or more recordings than can be counted exactly.`,
 };
 
 export interface MetricSummary {
@@ -118,10 +118,19 @@ export function readQualitySummary(document: unknown, datasetId: string): Qualit
       try {
         model = histogramOf({ ...distribution.histogram, unit: distribution.unit });
       } catch (error) {
-        if (error instanceof KindRefused) return refuse("histogram_unreadable");
+        // Past the writer's rules, the builder refuses only a number too large (`cap_exceeded`:
+        // a bin's width or density past binary64, or a total past 2^53 - 1 with the missing count).
+        if (error instanceof KindRefused) {
+          return refuse(
+            error.word === "cap_exceeded" ? "histogram_too_large" : "distribution_invalid",
+          );
+        }
         throw error;
       }
-      metrics.push({ name, distribution, range: entry.observed_range[name], model });
+      // The writer's rules gave every distribution its own observed range.
+      const range = Object.hasOwn(entry.observed_range, name) ? entry.observed_range[name] : null;
+      if (range === null) return refuse("observed_range_mismatch");
+      metrics.push({ name, distribution, range, model });
     }
     shown.push({ recipe, entry, metrics });
   }
@@ -145,17 +154,25 @@ export function metricLabel(metric: MetricSummary): string {
     model.heights === "density"
       ? " The bins differ in width, so a bar's height is its count per unit width and its area is its count."
       : "";
-  return `${name}, in ${distribution.unit}: histogram of ${integer(distribution.n)} values.${heights} Bins and counts: ${bars.join("; ")}.`;
+  const values = distribution.n === 1 ? "1 value" : `${integer(distribution.n)} values`;
+  return `${name}, in ${distribution.unit}: histogram of ${values}.${heights} Bins and counts: ${bars.join("; ")}.`;
 }
 
 function metricFigure(metric: MetricSummary, id: string): Element {
   const { distribution: d, range, model, name } = metric;
   const captionId = `${id}-caption`;
-  const stats: [string, string][] = [
-    ["Values", integer(d.n)],
-    ["Median", stored(d.median)],
-    ["Observed range", `${stored(range.min)} to ${stored(range.max)}`],
-  ];
+  // With no value there is no median and no range: "none" once, not three times.
+  const stats: [string, string][] =
+    d.n === 0
+      ? [
+          ["Values", integer(d.n)],
+          ["Median and observed range", "none"],
+        ]
+      : [
+          ["Values", integer(d.n)],
+          ["Median", stored(d.median)],
+          ["Observed range", `${stored(range.min)} to ${stored(range.max)}`],
+        ];
   if (d.histogram.missing !== undefined) stats.push(["Missing", integer(d.histogram.missing)]);
   return h(
     "figure",
@@ -233,7 +250,7 @@ function recipeSection(summary: RecipeSummary, id: string): Element {
     "section",
     { class: "qs-recipe", "aria-labelledby": headingId },
     h(
-      "h4",
+      "h3",
       { id: headingId },
       recipe,
       h("span", { class: "qs-version" }, `, version ${entry.recipe_version}`),

@@ -195,8 +195,8 @@ describe("a refused summary", () => {
       },
     ],
     [
-      "histogram",
-      "histogram_unreadable",
+      "histogram, a density past binary64",
+      "histogram_too_large",
       (d) => {
         // Edges that rise by the smallest subnormal: a bin's density is past binary64.
         ica(d).distributions.icaRank.histogram.edges = [
@@ -204,7 +204,79 @@ describe("a refused summary", () => {
         ];
       },
     ],
+    [
+      "histogram, a bin wider than binary64 (review of #595)",
+      "histogram_too_large",
+      (d) => {
+        const h = ica(d).distributions.icaRank.histogram;
+        h.edges = [-1.7e308, 1.7e308, 1.75e308, 1.79e308];
+        h.counts = [1, 0, 0];
+      },
+    ],
+    [
+      "histogram, a total past 2^53 - 1 with the missing count (review of #595)",
+      "histogram_too_large",
+      (d) => {
+        ica(d).distributions.icaRank.histogram.missing = 9007199254740991;
+      },
+    ],
+    [
+      "a metric named constructor with no observed range",
+      "observed_range_mismatch",
+      (d) => {
+        // As many ranges as distributions, but none of its own for `constructor`.
+        const e = ica(d);
+        e.distributions.constructor = e.distributions.icaRank;
+        e.observed_range.other = e.observed_range.icaRank;
+      },
+    ],
   ];
+
+  it("the review's two inputs meet the schema and the writer's rules", () => {
+    for (const change of [
+      (d: Loose) => {
+        const h = ica(d).distributions.icaRank.histogram;
+        h.edges = [-1.7e308, 1.7e308, 1.75e308, 1.79e308];
+        h.counts = [1, 0, 0];
+      },
+      (d: Loose) => {
+        ica(d).distributions.icaRank.histogram.missing = 9007199254740991;
+      },
+    ]) {
+      const doc = documentOf("spread");
+      change(doc);
+      const quality = doc.extensions.dataQuality;
+      expect(datasetQualityValid(quality)).toBe(true);
+      expect(writerRuleBroken(quality.recipes["nemar-ica"])).toBeNull();
+    }
+  });
+
+  it("the writer's rules read only an entry's own ranges", () => {
+    // An entry built in code can inherit a range; JSON never makes one, so this is the contract
+    // of writerRuleBroken itself: an inherited range that matches is still no range of its own.
+    const e = ica(documentOf("spread"));
+    const { icaRank, ...others } = e.observed_range;
+    const inherited = Object.assign(Object.create({ icaRank }), others, { other: icaRank });
+    expect(writerRuleBroken({ ...e, observed_range: inherited } as DatasetRecipeSummary)).toBe(
+      "observed_range_mismatch",
+    );
+  });
+
+  it("a metric named constructor is a metric like any other", () => {
+    const doc = documentOf("spread");
+    const e = ica(doc);
+    e.distributions.constructor = e.distributions.icaRank;
+    e.observed_range.constructor = e.observed_range.icaRank;
+    const summary = readQualitySummary(doc, doc.dataset_id);
+    expect(summary.kind).toBe("shown");
+    if (summary.kind !== "shown") return;
+    const metric = summary.recipes[0].metrics.find((m) => m.name === "constructor")!;
+    expect(metric.range).toEqual(e.observed_range.icaRank);
+    // Without its own range, the writer's rules refuse it, never Object.prototype's.
+    const { constructor: _own, ...others } = e.observed_range;
+    e.observed_range = { ...others, other: e.observed_range.icaRank };
+    expect(writerRuleBroken(e as DatasetRecipeSummary)).toBe("observed_range_mismatch");
+  });
 
   it.each(refusals)("%s: draws nothing and says why in one sentence", (_name, word, change) => {
     const doc = documentOf("spread");
@@ -303,11 +375,13 @@ describe("a shown summary", () => {
       const stats = [...walk(figures[k])].filter((e) => e.tag === "dd").map(textOf);
       const range = entry.observed_range[name];
       const text = (v: number | null) => (v === null ? "none" : numberText(v));
-      expect(stats.slice(0, 3)).toEqual([
-        String(d.n),
-        text(d.median),
-        `${text(range.min)} to ${text(range.max)}`,
-      ]);
+      if (d.n === 0) expect(stats.slice(0, 2)).toEqual(["0", "none"]);
+      else
+        expect(stats.slice(0, 3)).toEqual([
+          String(d.n),
+          text(d.median),
+          `${text(range.min)} to ${text(range.max)}`,
+        ]);
     },
   );
 
@@ -370,7 +444,25 @@ describe("a shown summary", () => {
     for (const details of elements.filter((e) => e.tag === "details")) {
       expect(details.children[0]).toMatchObject({ tag: "summary" });
     }
-    expect(elements.filter((e) => e.tag === "h4").length).toBe(summary.recipes.length);
+    // The panel sits under the page's h2s: each recipe is an h3, and nothing deeper is skipped to.
+    expect(elements.filter((e) => e.tag === "h3").length).toBe(summary.recipes.length);
+    expect(elements.some((e) => /^h[1245]$/.test(e.tag))).toBe(false);
+  });
+
+  it("says 1 value in the singular, and none once for a metric with no value", () => {
+    const one = summary.recipes[0].metrics.find((m) => m.distribution.n === 1)!;
+    expect(metricLabel(one)).toContain("histogram of 1 value.");
+    const many = summary.recipes[0].metrics.find((m) => m.distribution.n > 1)!;
+    expect(metricLabel(many)).toContain(`histogram of ${many.distribution.n} values.`);
+    const k = names.indexOf("channelsInterpolated");
+    expect(entry.distributions.channelsInterpolated.n).toBe(0);
+    const stats = [...walk(figures[k])].filter((e) => e.tag === "dl")[0];
+    expect(textOf(stats).match(/none/g)).toEqual(["none"]);
+    expect([...walk(stats)].filter((e) => e.tag === "dt").map(textOf)).toEqual([
+      "Values",
+      "Median and observed range",
+      "Missing",
+    ]);
   });
 
   it("escapes every stored text", () => {

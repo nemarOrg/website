@@ -241,9 +241,11 @@ export function writerRuleBroken(entry: DatasetRecipeSummary): WriterRuleWord | 
   const names = Object.keys(entry.distributions);
   if (names.length !== Object.keys(entry.observed_range).length) return "observed_range_mismatch";
   for (const name of names) {
+    // Own members only: a metric named `constructor` must not find Object.prototype's.
+    if (!Object.hasOwn(entry.observed_range, name)) return "observed_range_mismatch";
     const range = entry.observed_range[name];
     const d = entry.distributions[name];
-    if (range === undefined || range.min !== d.min || range.max !== d.max) {
+    if (range.min !== d.min || range.max !== d.max) {
       return "observed_range_mismatch";
     }
   }
