@@ -498,6 +498,10 @@ describe("the review's fixes (#601)", () => {
     const meta = { ...metaOf("spectrum"), extra: [["nemar:window-start-s", "140"]] as const };
     expect(exportMetaModule.metaEntries(meta).at(-1)).toEqual(["nemar:window-start-s", "140"]);
     expect(exportMetaModule.footerLines(meta)).toContain("window-start-s: 140");
+    const noted = { ...meta, extra: [...meta.extra, ["nemar:notes", "A note."]] as const };
+    expect(exportMetaModule.metaEntries(noted).at(-1)).toEqual(["nemar:notes", "A note."]);
+    // Notes are painted as the picture's paragraphs, not printed again in the footer.
+    expect(exportMetaModule.footerLines(noted).join(" ")).not.toContain("A note.");
   });
 });
 

@@ -58,7 +58,10 @@ export function footerLines(meta: ExportMeta): string[] {
   const lines = [
     `${meta.kind}, version ${meta.kindVersion}`,
     `View digest (nemar.view-digest.v1): ${meta.digest}`,
-    ...(meta.extra ?? []).map(([k, v]) => `${k.replace(/^nemar:/, "")}: ${v}`),
+    // The notes are the picture's own paragraphs (`PictureInput.notes`), not a footer line.
+    ...(meta.extra ?? [])
+      .filter(([k]) => k !== "nemar:notes")
+      .map(([k, v]) => `${k.replace(/^nemar:/, "")}: ${v}`),
     meta.permalink,
   ];
   if (meta.colorMaps) lines.push(`${COLOR_MAPS_SENTENCE} ${noticeUrl(meta.permalink)}`);
