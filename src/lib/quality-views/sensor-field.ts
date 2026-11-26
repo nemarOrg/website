@@ -340,13 +340,9 @@ export function prepareSensorField(
 
   // 8. The interpolation matrix, G[a][b] = g(|p_a − p_b|) with g(0) = 0, factorized once.
   const matrix = new Float64Array(k * k);
-  for (let a = 0; a < k; a++) {
-    for (let b = 0; b < k; b++) {
-      const dx = px[a] - px[b];
-      const dy = py[a] - py[b];
-      matrix[a * k + b] = a === b ? 0 : green(dx * dx + dy * dy);
-    }
-  }
+  // Row a is g from sensor a to each sensor: the evaluation matrix's row function, whose g(0) = 0
+  // is the diagonal's 0.
+  for (let a = 0; a < k; a++) greenRow(matrix, a * k, px[a], py[a], px, py, k);
   const factors = luFactor(matrix, k);
 
   // 9. The evaluation matrix: g from every inside cell to every interpolated sensor.
@@ -355,12 +351,7 @@ export function prepareSensorField(
     const cell = inside[c];
     const qx = gx[(cell / GRID_SIZE) | 0];
     const qy = gy[cell % GRID_SIZE];
-    const base = c * k;
-    for (let s = 0; s < k; s++) {
-      const dx = qx - px[s];
-      const dy = qy - py[s];
-      evaluation[base + s] = green(dx * dx + dy * dy);
-    }
+    greenRow(evaluation, c * k, qx, qy, px, py, k);
   }
 
   return {
@@ -485,6 +476,27 @@ function evaluateCells(
       for (let s = 0; s < k; s++) sum += evaluation[base + s] * w[s];
       grid[inside[c]] = mean + sum;
     }
+  }
+}
+
+/**
+ * One row of g from the point (qx, qy) to each interpolated sensor, into `out` from `base`. The
+ * interpolation matrix and the evaluation matrix both fill their rows with it, so the engine has
+ * optimized it on the first's rows before the second's many.
+ */
+function greenRow(
+  out: Float64Array,
+  base: number,
+  qx: number,
+  qy: number,
+  px: Float64Array,
+  py: Float64Array,
+  k: number,
+): void {
+  for (let s = 0; s < k; s++) {
+    const dx = qx - px[s];
+    const dy = qy - py[s];
+    out[base + s] = green(dx * dx + dy * dy);
   }
 }
 
