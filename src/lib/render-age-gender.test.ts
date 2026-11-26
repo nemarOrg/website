@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { renderAgeGenderStackedSvg } from "./render-age-gender";
 
-const rects = (svg: string) => [...svg.matchAll(/<rect [^>]*height="([\d.]+)"[^>]*><title>([^<]*)<\/title><\/rect>/g)];
+const rects = (svg: string) => [
+  ...svg.matchAll(/<rect [^>]*height="([\d.]+)"[^>]*><title>([^<]*)<\/title><\/rect>/g),
+];
 const labels = (svg: string) =>
-  [...svg.matchAll(/<text [^>]*font-family="var\(--font-mono\)"[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]);
+  [...svg.matchAll(/<text [^>]*font-family="var\(--font-mono\)"[^>]*>([^<]*)<\/text>/g)].map(
+    (m) => m[1],
+  );
 const count = (svg: string, re: RegExp) => (svg.match(re) ?? []).length;
 
 describe("renderAgeGenderStackedSvg", () => {
