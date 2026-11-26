@@ -1,13 +1,19 @@
 /**
  * The one copy of the sentences a page shows when `nemar.sensor-labels.v1` refuses to place a
  * recording's sensors by name (neuroschema 0.6.0 `docs/views/sensor-labels.md`, Choosing a
- * montage). The quality views (`render/words.ts`) show a sentence as it is; the signal viewer's map
- * (`eeg-viewer/scalp-map.ts`) shows it after "No scalp map:" through `asClause`.
+ * montage). A lazy chunk a panel's first screen never loads: the quality views load it when a scalp
+ * map placed by name is refused (`place-by-name.ts`, read by `mapSentences` in `render/words.ts`)
+ * and with the panel's own sentences (`panel-words.ts`), and show a sentence as it is; the signal
+ * viewer's map (`eeg-viewer/scalp-map.ts`) shows it after "No scalp map:" through `asClause`.
  *
  * Every sentence starts with a word whose capital is only the sentence's, so `asClause` may lower it.
  */
 
 import type { LabelsReason } from "./sensor-labels";
+
+// `montage_unavailable`'s sentence is not here: it is shown when a lazy load fails, so it cannot be
+// in a lazy chunk (`montage-unavailable-copy.ts`). This module imports nothing at run time, so its
+// chunk depends on no other.
 
 export const LABELS_SENTENCES: Readonly<Record<LabelsReason, string>> = {
   too_few_channels:
@@ -25,15 +31,6 @@ export const LABELS_SENTENCES: Readonly<Record<LabelsReason, string>> = {
   net_coverage_low:
     "The channel names match fewer than 90% of the electrodes of the net they point to, so they may come from another cap with the same numbering.",
 };
-
-/**
- * A montage file that could not be loaded (the page is offline, or was deployed again since it
- * loaded): the sensors are not placed, and no map is drawn. The site's word, `montage_unavailable`;
- * no specification word says it.
- */
-export const MONTAGE_UNAVAILABLE = "montage_unavailable";
-export const MONTAGE_UNAVAILABLE_SENTENCE =
-  "The montage for these sensors could not be loaded; reload the page to try again.";
 
 /** A sentence to follow a colon: its first letter lowered, and its final period kept. */
 export const asClause = (sentence: string): string =>

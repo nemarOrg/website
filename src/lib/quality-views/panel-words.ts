@@ -6,6 +6,7 @@
  */
 
 import { MAP_SENTENCES, VIEW_SENTENCES } from "./render/words";
+import { LABELS_SENTENCES } from "./sensor-labels-copy";
 
 // ── Words ───────────────────────────────────────────────────────────────
 
@@ -121,7 +122,11 @@ export function sentenceOf(word: string, fallback = "failed"): string {
     const own = word.slice(9);
     return ACTIVITY_SENTENCES[own] ?? sentenceOf(own, fallback);
   }
-  const known = PANEL_SENTENCES[word] ?? VIEW_SENTENCES[word] ?? MAP_SENTENCES[word];
+  const known =
+    PANEL_SENTENCES[word] ??
+    VIEW_SENTENCES[word] ??
+    MAP_SENTENCES[word] ??
+    (LABELS_SENTENCES as Readonly<Record<string, string>>)[word];
   if (known) return known;
   const status = /^http_([1-5])\d\d$/.exec(word);
   if (status) return PANEL_SENTENCES[status[1] === "5" ? "http_5xx" : "http_4xx"];
