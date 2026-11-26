@@ -2,6 +2,7 @@
   "path": "/on007823/quality/v1/nemar-ica/record/sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_eeg.edf",
   "status": 200,
   "headers": {
+    "Access-Control-Expose-Headers": "ETag",
     "Content-Type": "application/json",
     "Cache-Control": "public, max-age=300",
     "ETag": "\"b0b8435eebdfe5ada285640936b277470b8bc5258d98fb7b27d124fea7798ad8\"",
