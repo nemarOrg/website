@@ -26,16 +26,17 @@ import {
   prepareSensorField,
   usableMask,
 } from "./sensor-field";
-import {
-  type DrawRequest,
-  type GeometryEntry,
-  type MapGeometryMessage,
-  type MapMessage,
-  type PrepareRequest,
-  type WorkerRequest,
-  type WorkerResponse,
-  requestProblem,
+import type {
+  ActivityRequest,
+  DrawRequest,
+  GeometryEntry,
+  MapGeometryMessage,
+  MapMessage,
+  PrepareRequest,
+  WorkerRequest,
+  WorkerResponse,
 } from "./worker-protocol";
+import { requestProblem } from "./worker-requests";
 
 /** Geometries kept: a few views' worth. One geometry at 256 sensors holds about 7 MB. */
 export const CACHE_ENTRIES = 6;
@@ -312,6 +313,43 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
     );
   }
 
+  /** nemar.ic-activity.v1 (W7): a lazy chunk of the worker's own, loaded for a view that needs it.
+   *  The compute runs one component at a time and yields between batches, so a `cancel` (a
+   *  recording switch) stops it and the next view's maps do not wait behind it. */
+  async function activity(request: ActivityRequest): Promise<void> {
+    const m = await import("./transforms/ic-activity");
+    const { id } = request;
+    if (request.step !== "compute") {
+      const outcome =
+        request.step === "prepare"
+          ? await m.prepareActivity(request.input)
+          : await m.planActivity(request.input);
+      const plan = (outcome as { plan?: { weights: Float64Array } }).plan;
+      post({ type: "activity-done", id, outcome }, plan ? [plan.weights.buffer] : []);
+      return;
+    }
+    const job = m.activityJob(request.plan, request.digital, request.scale, request.offset);
+    let since = now();
+    for (let i = 0; i < job.components; i++) {
+      if (now() - since > 8) {
+        await yieldToEvents();
+        since = now();
+      }
+      if (cancelled.delete(id)) {
+        post({ type: "cancelled", id }, []);
+        return;
+      }
+      job.run(i);
+    }
+    cancelled.delete(id);
+    const out = job.result;
+    post({ type: "activity-done", id, outcome: out }, [
+      out.activations.buffer,
+      out.filtered.buffer,
+      out.time.buffer,
+    ]);
+  }
+
   return (data: unknown) => {
     const problem = requestProblem(data);
     const id = (data as { id?: unknown } | null)?.id;
@@ -350,32 +388,9 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
       return;
     }
     if (request.type === "activity") {
-      // nemar.ic-activity.v1 (W7): a lazy chunk of the worker's own, loaded for a view that needs it.
-      import("./transforms/ic-activity")
-        .then(async (m) => {
-          if (request.step === "plan") {
-            const outcome = await m.planActivity(request.input);
-            post(
-              { type: "activity-done", id: request.id, outcome },
-              outcome.plan ? [outcome.plan.weights.buffer] : [],
-            );
-            return;
-          }
-          const out = m.computeActivity(
-            request.plan,
-            request.digital,
-            request.scale,
-            request.offset,
-          );
-          post({ type: "activity-done", id: request.id, outcome: out }, [
-            out.activations.buffer,
-            out.filtered.buffer,
-            out.time.buffer,
-          ]);
-        })
-        .catch((error: unknown) =>
-          post({ type: "failure", id: request.id, message: describe(error) }, []),
-        );
+      activity(request).catch((error: unknown) =>
+        post({ type: "failure", id: request.id, message: describe(error) }, []),
+      );
       return;
     }
     if (request.type === "prepare") {

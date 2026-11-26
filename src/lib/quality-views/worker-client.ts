@@ -111,7 +111,7 @@ export interface LayoutInput {
   readonly radius: ArrayLike<number>;
 }
 
-interface Unavailable {
+export interface Unavailable {
   readonly type: "unavailable";
   readonly reason: string;
 }
@@ -277,18 +277,29 @@ export class SensorFieldClient {
   }
 
   /**
-   * A step of `nemar.ic-activity.v1` in the worker (W7), its buffers transferred; null when the
-   * worker cannot answer, and the page then runs the step itself (`activations.ts`).
+   * A step of `nemar.ic-activity.v1` in the worker (W7), its buffers transferred: the worker's own
+   * answer (`activity-done`, or a `failure` with its message), `unavailable` when the worker cannot
+   * start, or `cancelled` once `signal` aborts, which also tells the worker to stop.
    */
-  async activity(
+  activity(
     request: DistributiveOmit<ActivityRequest, "id" | "type">,
     transfer: Transferable[],
-  ): Promise<object | null> {
-    const answer = await this.ask(
-      { ...request, type: "activity", id: this.nextId++ } as ActivityRequest,
-      transfer,
+    signal?: AbortSignal,
+  ): Promise<WorkerResponse | Unavailable> {
+    const id = this.nextId++;
+    const answer = this.ask({ ...request, type: "activity", id } as ActivityRequest, transfer);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        this.asks.get(id)?.({ type: "cancelled", id });
+        this.worker?.then(
+          (worker) => worker.postMessage({ type: "cancel", id }),
+          () => {},
+        );
+      },
+      { once: true },
     );
-    return answer.type === "activity-done" ? answer.outcome : null;
+    return answer;
   }
 
   /**
