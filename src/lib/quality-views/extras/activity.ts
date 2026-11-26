@@ -25,7 +25,6 @@ import { storeUrlOf } from "../panel-bridge";
 import { numberText } from "../read";
 import { renderRefusal } from "../render/index";
 import { toDom } from "../tree";
-import { sharedSensorFieldClient } from "../worker-client";
 import type { ExtraContext } from "./context";
 
 type Json = Record<string, unknown>;
@@ -59,7 +58,7 @@ export async function draw(x: ExtraContext): Promise<void> {
     if (signal.aborted) return;
     // Checks 2 to 4 in the worker before the store is opened: a view whose tables or files are
     // not the record's is refused for that, whether or not the page can read a serving copy.
-    const run = workerTransform(sharedSensorFieldClient());
+    const run = workerTransform(x.client);
     const prepared = await run.prepare({ view, files, caps: x.options.caps ?? CAPS });
     if (signal.aborted) return;
     if (prepared.word !== null) return refuse(prepared.word);

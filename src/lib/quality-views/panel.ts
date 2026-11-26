@@ -273,6 +273,7 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
         ctx,
         signal,
         mount: async (target, b, c) => void (await mountInto(target, b, c, layoutKey, signal)),
+        client: client(),
         sentence,
       });
     } catch (error) {

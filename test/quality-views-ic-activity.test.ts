@@ -521,6 +521,28 @@ describe("the tables are checked once per view", () => {
     expect(steps).toEqual(["plan", "prepare", "plan"]);
   });
 
+  it("checks a window's view against the record's locations, even on tables it holds", async () => {
+    const files = await fetchInputs(c.view, source(c.files));
+    expect((await prepareActivity({ view: c.view, files, caps: CAPS })).word).toBeNull();
+    // The same files, so the same tables held; the view names another matrix location.
+    const decoy = structuredClone(c.view) as unknown as {
+      transform: { parameters: { matrix: string } };
+    };
+    decoy.transform.parameters.matrix = decoy.transform.parameters.matrix.replace(
+      "servingunmixing",
+      "unmixing",
+    );
+    const outcome = await planActivity({
+      view: decoy,
+      store: servingStore(c),
+      start: 40,
+      count: 40,
+      burstsRepaired: null,
+      caps: CAPS,
+    });
+    expect(outcome.word).toBe("table_location_mismatch");
+  });
+
   it("checks the bytes it is given each time it prepares", async () => {
     const caps = { ...CAPS, cells_per_role: CAPS.cells_per_role - 3 };
     const files = await fetchInputs(c.view, source(c.files), caps);
@@ -622,12 +644,16 @@ describe("the worker's answers", () => {
 describe("openServingStore on a Zarr store", () => {
   /** A Zarr v3 group as the converter writes one, in memory: `channels` in the group's
    *  attributes, level-0 int16 rows by samples. */
-  async function store(channels: Record<string, unknown>[], data: number[][]) {
+  async function store(
+    channels: Record<string, unknown>[],
+    data: number[][],
+    extra: Record<string, unknown> = {},
+  ) {
     const zarr = await import("zarrita");
     const map = new Map<string, Uint8Array>();
     const root = zarr.root(map);
     await zarr.create(root.resolve("eeg"), {
-      attributes: { rate: 100, n_samples: data[0].length, channels },
+      attributes: { rate: 100, n_samples: data[0].length, channels, ...extra },
     });
     const array = await zarr.create(root.resolve("eeg/0"), {
       shape: [data.length, data[0].length],
@@ -665,6 +691,13 @@ describe("openServingStore on a Zarr store", () => {
     expect(Array.from(await s.read([2, 0], 1, 3, new AbortController().signal))).toEqual([
       31, 32, 11, 12,
     ]);
+  });
+
+  it("publishes no digest, whatever the group's attributes hold, until nemar-cli#2343", async () => {
+    const s = (await store([row("A", 0), row("B", 1), row("C", 2)], data, {
+      content_sha256: "a".repeat(64),
+    }))!;
+    expect(s.published_sha256).toBeNull();
   });
 
   it("states no label where the store states none, so no column matches it", async () => {
