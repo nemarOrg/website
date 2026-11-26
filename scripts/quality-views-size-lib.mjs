@@ -57,6 +57,37 @@ export function dynamicImports(text, files) {
     .filter((file) => files.has(file));
 }
 
+/**
+ * The one chunk of a build named for a module: its file name starts with `prefix` (Vite names a
+ * chunk after its module, `panel.<hash>.js` for `panel.ts`) and, when `marker` is given, its text
+ * holds `marker` too. Exactly one must match: `{ name }`, else `{ error }` saying that none does, or
+ * which several do.
+ *
+ * Never the first match alone: a directory lists its files in its file system's order (APFS and
+ * ext4 differ, and every content hash moves it), so a lookup that takes the first of two matches
+ * measures one chunk on one machine and another on the next. The panel's loading sentence is also
+ * in the admin drill-down's chunk (`admin-drill.<hash>.js`), and another component's chunk is also
+ * named `panel.<hash>.js`, so the panel is found by both (website#608).
+ */
+export function namedChunk(files, prefix, marker) {
+  const matches = [...files.keys()]
+    .filter(
+      (name) =>
+        name.startsWith(prefix) &&
+        (marker === undefined || files.get(name).toString("utf8").includes(marker)),
+    )
+    .sort();
+  if (matches.length === 1) return { name: matches[0], error: null };
+  const what = marker === undefined ? `named ${prefix}*` : `named ${prefix}* holds "${marker}"`;
+  return {
+    name: null,
+    error:
+      matches.length === 0
+        ? `no chunk ${what}`
+        : `${matches.length} chunks ${what} (${matches.join(", ")}); which one is measured would depend on the directory's order`,
+  };
+}
+
 /** `roots` and every chunk they import statically, transitively. */
 export function staticClosure(roots, files) {
   const text = (name) => files.get(name).toString("utf8");

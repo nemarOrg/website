@@ -37,6 +37,7 @@ import {
   gzipped,
   kb,
   measureChunks,
+  namedChunk,
   staticClosure,
 } from "./quality-views-size-lib.mjs";
 
@@ -68,7 +69,8 @@ function measure(label, dir) {
  * The panel's first screens in the real site build (website W6), as the entry build's below: the
  * panel's chunk, each tab's lazy chunks, and every chunk they import statically, gzipped together.
  * Chunks are found by the name Vite gives them from their module (`lines.<hash>.js`, ...), the
- * panel's by a sentence of its own. The
+ * panel's and the export's by a sentence of their own too, and each lookup must find exactly one
+ * chunk (`namedChunk`), so every machine measures the same files. The
  * idle preload's chunk is left out (it is parsed in idle time before the panel opens), and so are
  * the island script and Vite's preload helper, which load with the page itself.
  */
@@ -98,18 +100,26 @@ function siteUnions(dir) {
       budget: BUDGET.worker,
     });
   }
-  // The quality panel's chunk by a sentence only it holds (another component's chunk is also named
-  // `panel`), and the export's controls and images (W8) by sentences of their own; the others by their
-  // unique names.
+  // Each chunk by its module's name, and the quality panel's (another component's chunk is also named
+  // `panel`, and the admin drill-down's holds the same loading sentence) and the export's controls
+  // and images (W8) by a sentence of their own as well. A lookup that finds none, or several, fails
+  // the gate and says which, once per name: never the first in the directory's order (website#608).
   const MARKERS = {
     panel: "Loading the recording's quality views",
     controls: "Save image (PNG)",
     picture: "the canvas gave no PNG",
   };
+  const found = new Map();
+  const lookup = (prefix, marker) => {
+    if (!found.has(prefix)) {
+      const { name, error } = namedChunk(files, prefix, marker);
+      found.set(prefix, name ?? undefined);
+      if (error) results.push({ label: `site build: ${error}`, size: 1, raw: 0, budget: 0 });
+    }
+    return found.get(prefix);
+  };
   const named = (stem) =>
-    Object.hasOwn(MARKERS, stem)
-      ? [...files.keys()].find((name) => files.get(name).toString("utf8").includes(MARKERS[stem]))
-      : [...files.keys()].find((name) => name.startsWith(`${stem}.`));
+    lookup(`${stem}.`, Object.hasOwn(MARKERS, stem) ? MARKERS[stem] : undefined);
   // The export (W8): its controls, and the images chunk (PNG and SVG) and the picture's map and
   // heatmap parts they load as they open. Each is a
   // lazy root, gated with what it imports statically like every other (`measure` below); none may
@@ -119,21 +129,18 @@ function siteUnions(dir) {
     stem,
     named(stem),
   ]);
+  // A chunk not found has failed the gate already, saying why (`lookup`).
   for (const [stem, name] of exportChunks) {
-    if (name) {
-      notes.push(
-        `site build: the export's ${stem} chunk ${name}: ${kb(gzipped(files.get(name)))} gzipped on its own.`,
-      );
-      continue;
-    }
-    results.push({
-      label: `site build: the export's ${stem} chunk is missing`,
-      size: 1,
-      raw: 0,
-      budget: 0,
-    });
+    if (!name) continue;
+    notes.push(
+      `site build: the export's ${stem} chunk ${name}: ${kb(gzipped(files.get(name)))} gzipped on its own.`,
+    );
   }
   const exportNames = new Set(exportChunks.map(([, name]) => name).filter(Boolean));
+  // The page's own island script (and Vite's preload helper it imports) loads with the page,
+  // before any panel opens, as the idle preload's chunk does: not the panel's first screen.
+  const island = lookup("QualityPanel.astro_astro_type_script");
+  const page = island ? staticClosure([island], files) : new Set();
   for (const [tab, stems] of [
     ["Spectrum tab", ["panel", "lines", "sensor-field-view", "spectrum"]],
     ["Components tab", ["panel", "sensor-field-view", "histogram", "components"]],
@@ -153,21 +160,15 @@ function siteUnions(dir) {
     ["Activations tab with no idle preload", ["panel", "activity", "quality-api"]],
   ]) {
     const roots = stems.map(named);
-    if (roots.some((name) => !name)) {
+    if (roots.some((name) => !name) || !island) {
       results.push({
-        label: `site build: first screen, ${tab}: a chunk of ${stems.join(", ")} is missing`,
+        label: `site build: first screen, ${tab}: not measured, a chunk it needs was not found (above)`,
         size: 1,
         raw: 0,
         budget: 0,
       });
       continue;
     }
-    // The page's own island script (and Vite's preload helper it imports) loads with the page,
-    // before any panel opens, as the idle preload's chunk does: not the panel's first screen.
-    const island = [...files.keys()].find((name) =>
-      name.startsWith("QualityPanel.astro_astro_type_script"),
-    );
-    const page = island ? staticClosure([island], files) : new Set();
     const set = new Set([...staticClosure(roots, files)].filter((name) => !page.has(name)));
     for (const name of set) {
       if (!exportNames.has(name)) continue;

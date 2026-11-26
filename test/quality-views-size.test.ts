@@ -10,6 +10,9 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   BUDGET,
@@ -17,6 +20,7 @@ import {
   KB,
   measureChunks,
   measurementRoots,
+  namedChunk,
   staticClosure,
   staticImports,
 } from "../scripts/quality-views-size-lib.mjs";
@@ -160,5 +164,74 @@ describe("the signal viewer's layout", () => {
 
   it("states its budgets", () => {
     expect(BUDGET).toEqual({ worker: 16 * KB, mainThread: 30 * KB });
+  });
+});
+
+// The panel's chunk is found by its module's name and its loading sentence together, and exactly one
+// chunk must match: the admin drill-down's chunk holds the same sentence, another component's chunk
+// is also named `panel`, and which of two matches a directory lists first is its file system's
+// choice, so a first match measured the admin's chunk on macOS and the panel on Linux (website#608).
+describe("the chunk a first screen is measured from", () => {
+  const LOADING = "Loading the recording's quality views";
+  const chunks = {
+    "admin-drill.Cd-pzLlA.js": `const s="${LOADING}…";export{s};`,
+    "panel.WHQJUugx.js": "const other=1;export{other};",
+    "panel.D2DfCQhV.js": `const s="${LOADING}…";export{s};`,
+    "lines.BhwKn-pD.js": "export const l=1;",
+  };
+  /** The chunks written to a directory and read back as the script reads `dist/_astro/`. */
+  const fromDirectory = (entries: Record<string, string>): Map<string, Buffer> => {
+    const dir = mkdtempSync(join(tmpdir(), "quality-views-lookup-"));
+    try {
+      for (const [name, text] of Object.entries(entries)) writeFileSync(join(dir, name), text);
+      return new Map(
+        readdirSync(dir)
+          .filter((name) => name.endsWith(".js"))
+          .map((name) => [name, readFileSync(join(dir, name))]),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it("picks the panel, not the admin drill-down's chunk with the same sentence", () => {
+    expect(namedChunk(fromDirectory(chunks), "panel.", LOADING)).toEqual({
+      name: "panel.D2DfCQhV.js",
+      error: null,
+    });
+  });
+
+  it("picks the same chunk whatever order the directory lists them in", () => {
+    const names = Object.keys(chunks);
+    for (const order of [names, [...names].reverse()]) {
+      const layout = files(Object.fromEntries(order.map((name) => [name, chunks[name]])));
+      expect(namedChunk(layout, "panel.", LOADING).name).toBe("panel.D2DfCQhV.js");
+    }
+  });
+
+  it("fails when no chunk named for the module holds the sentence", () => {
+    const { "panel.D2DfCQhV.js": _panel, ...withoutPanel } = chunks;
+    const { name, error } = namedChunk(fromDirectory(withoutPanel), "panel.", LOADING);
+    expect(name).toBeNull();
+    expect(error).toBe(`no chunk named panel.* holds "${LOADING}"`);
+  });
+
+  it("fails, naming both, when two chunks named for the module hold the sentence", () => {
+    const twice = { ...chunks, "panel.WHQJUugx.js": `const s="${LOADING}";export{s};` };
+    const { name, error } = namedChunk(fromDirectory(twice), "panel.", LOADING);
+    expect(name).toBeNull();
+    expect(error).toContain('2 chunks named panel.* holds "');
+    expect(error).toContain("(panel.D2DfCQhV.js, panel.WHQJUugx.js)");
+  });
+
+  it("finds a chunk by its name alone when it has no sentence, and fails on two", () => {
+    expect(namedChunk(files(chunks), "lines.").name).toBe("lines.BhwKn-pD.js");
+    const two = files({ ...chunks, "lines.Zz9.js": "export const l=2;" });
+    expect(namedChunk(two, "lines.")).toEqual({
+      name: null,
+      error:
+        "2 chunks named lines.* (lines.BhwKn-pD.js, lines.Zz9.js); which one is measured would depend on the directory's order",
+    });
+    expect(namedChunk(files(chunks), "spectrum.").error).toBe("no chunk named spectrum.*");
   });
 });
