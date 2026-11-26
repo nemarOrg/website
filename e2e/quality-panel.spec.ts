@@ -9,7 +9,11 @@
  * It pins: a digest mismatch (a file's, and a declaration's) shows its sentence and draws nothing
  * of that view; the deep link's round trip; one text row per component, each cell its stored text;
  * the class counts as stored; the Turbo toggle; and the Signal tab's marks, checked against the
- * store before the viewer would draw.
+ * store before the viewer would draw. And the export (W8): its code loads only when a view's Export
+ * toggle opens; a PNG at 2 to 4 times in the light palette whose text chunks parse back with every
+ * CRC verified and name the view's digest, kind and permalink; an SVG with the same in `<metadata>`;
+ * a file saved as the exact bytes recorded; no request while exporting; the controls' names and
+ * keyboard order; and every drawn map's contour lines, those of maps never on screen too.
  *
  * The page is the dev server's `robots.txt`, a same-origin document that needs no API, into which
  * the panel's server markup (`QualityPanel.astro`'s) is written. Run with
@@ -17,7 +21,10 @@
  */
 
 import { readFileSync } from "node:fs";
+import { inflateSync } from "node:zlib";
 import { type Page, expect, test } from "@playwright/test";
+import { pngChunks, pngTexts } from "../src/lib/quality-views/export/png";
+import { svgMetadata } from "../src/lib/quality-views/export/svg";
 
 const ROUTE = new URL("../test/fixtures/quality-views/route/", import.meta.url);
 const read = (name: string) => readFileSync(new URL(name, ROUTE));
@@ -47,6 +54,12 @@ const MODULES = {
   panel: "/src/lib/quality-views/panel.ts",
   verify: "/src/lib/quality-views/verify.ts",
   client: "/src/lib/quality-views/worker-client.ts",
+  model: "/src/lib/quality-views/model.ts",
+  render: "/src/lib/quality-views/render/index.ts",
+  montages: "/src/lib/quality-views/montage-loader.ts",
+  raster: "/src/lib/quality-views/export/raster.ts",
+  contours: "/src/lib/quality-views/contours.ts",
+  picture: "/src/lib/quality-views/export/picture.ts",
 };
 
 const SHELL = `
@@ -481,5 +494,316 @@ test.describe("on a touch screen", () => {
     await expect(
       page.locator('[data-qp-view="spectrum"] .qp-spectrum-maps figcaption'),
     ).toContainText(`Scalp maps of the spectrum at ${rows[best]} Hz.`);
+  });
+});
+
+// ── Export (website phase W8) ───────────────────────────────────────────
+
+/** The page's requests from now on, by URL; `blob:` and `data:` addresses are not requests. */
+function recordRequests(page: Page): string[] {
+  const urls: string[] = [];
+  page.on("request", (request) => {
+    const url = request.url();
+    if (!url.startsWith("blob:") && !url.startsWith("data:")) urls.push(url);
+  });
+  return urls;
+}
+
+/** Open a view's Export toggle and wait until its controls and images have loaded. */
+async function openExport(page: Page, key: string): Promise<void> {
+  const view = page.locator(`[data-qp-view="${key}"]`);
+  await view.locator("details.qv-export > summary").click();
+  await expect(view.getByRole("button", { name: "Save image (PNG)" })).toBeVisible();
+  // The images chunk loads as the controls open; a click then makes no request.
+  await page.evaluate((url) => import(/* @vite-ignore */ url), MODULES.picture);
+  await page.waitForTimeout(300);
+}
+
+/** Save through a button and read what the browser saved. */
+async function saved(page: Page, button: ReturnType<Page["getByRole"]>): Promise<Buffer> {
+  const [download] = await Promise.all([page.waitForEvent("download"), button.click()]);
+  return readFileSync((await download.path())!);
+}
+
+const dataRequests = (page: Page) =>
+  page.evaluate(() => (window as unknown as { requests: string[] }).requests.length);
+
+test.describe("export", () => {
+  test("loads its code only when a view's Export toggle opens", async ({ page }) => {
+    const urls = recordRequests(page);
+    await mount(page);
+    await expect(page.locator('[data-qp-view="spectrum"] details.qv-export')).toHaveCount(1);
+    expect(urls.filter((u) => u.includes("/quality-views/export/"))).toEqual([]);
+    await openExport(page, "spectrum");
+    expect(urls.some((u) => u.includes("/quality-views/export/controls.ts"))).toBe(true);
+    // The Signal tab's window has neither a model nor a file: no toggle.
+    await page.locator('[data-qp-tab="signal"]').click();
+    await ready(page);
+    await expect(page.locator('[data-qp-view="midsegment"] details.qv-export')).toHaveCount(0);
+  });
+
+  test("a PNG at 2 to 4 times, light, its text chunks naming the view, with no request", async ({
+    page,
+  }) => {
+    // The page in the dark theme: the export stays light.
+    await page.emulateMedia({ colorScheme: "dark" });
+    const urls = recordRequests(page);
+    await mount(page);
+    await openExport(page, "spectrum");
+    const view = page.locator('[data-qp-view="spectrum"]');
+    const before = { urls: urls.length, data: await dataRequests(page) };
+    const widths: number[] = [];
+    for (const scale of ["2", "4"]) {
+      await view.getByLabel("Scale").selectOption(scale);
+      const bytes = new Uint8Array(
+        await saved(page, view.getByRole("button", { name: "Save image (PNG)" })),
+      );
+      const chunks = pngChunks(bytes);
+      expect(chunks.every((c) => c.crcOk)).toBe(true);
+      expect(chunks[0].type).toBe("IHDR");
+      const texts = Object.fromEntries(pngTexts(bytes));
+      const digest = JSON.parse(record.body).view_digests.spectrum;
+      expect(texts["nemar:view-digest"]).toBe(digest);
+      expect(texts["nemar:kind"]).toBe("nemar.spectrum");
+      expect(texts["nemar:kind-version"]).toBe("1");
+      const origin = new URL(page.url()).origin;
+      expect(texts["nemar:permalink"]).toBe(
+        `${origin}/dataset/${provenance.dataset_id}?v=v1.0.0#quality/${provenance.recording}/spectrum`,
+      );
+      // The spectrum's scalp maps are in the image: the color maps' notice goes with them.
+      expect(texts["nemar:color-maps"]).toContain(`${origin}/licenses/quality-views/NOTICE.txt`);
+      const header = new DataView(chunks[0].data.buffer, chunks[0].data.byteOffset);
+      widths.push(header.getUint32(0));
+      // The first pixel, after its row's filter byte, is the light ground (white, opaque).
+      const pixels = inflateSync(
+        Buffer.concat(chunks.filter((c) => c.type === "IDAT").map((c) => c.data)),
+      );
+      expect(Array.from(pixels.subarray(1, 5))).toEqual([255, 255, 255, 255]);
+    }
+    expect(widths[1]).toBe(widths[0] * 2);
+    await expect(view.locator(".qv-export").getByRole("status")).toHaveText(
+      /Saved the image at 4×/,
+    );
+    // No request left the page while exporting, neither for data nor for code.
+    expect(urls.slice(before.urls)).toEqual([]);
+    expect(await dataRequests(page)).toBe(before.data);
+  });
+
+  test("an SVG with the digest, kind and permalink in <metadata>, as XML", async ({ page }) => {
+    const urls = recordRequests(page);
+    await mount(page);
+    await openExport(page, "spectrum");
+    const before = urls.length;
+    const view = page.locator('[data-qp-view="spectrum"]');
+    const text = (
+      await saved(page, view.getByRole("button", { name: "Save drawing (SVG)" }))
+    ).toString("utf8");
+    const metadata = svgMetadata(text)!;
+    expect(metadata["nemar:view-digest"]).toBe(JSON.parse(record.body).view_digests.spectrum);
+    expect(metadata["nemar:kind"]).toBe("nemar.spectrum");
+    expect(metadata["nemar:permalink"]).toContain(`#quality/${provenance.recording}/spectrum`);
+    expect(metadata["nemar:color-maps"]).toBeUndefined();
+    const parsed = await page.evaluate((svg) => {
+      const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+      return {
+        error: doc.querySelector("parsererror")?.textContent ?? null,
+        root: doc.documentElement.namespaceURI,
+        series: doc.querySelectorAll("polyline.qv-series").length,
+        cursor: doc.querySelectorAll(".qv-cursor").length,
+      };
+    }, text);
+    // One series per channel, as the page draws them.
+    const channels =
+      read(`files/${shaOf("_spectrum.tsv")}`)
+        .toString("utf8")
+        .split("\n")[0]
+        .split("\t").length - 1;
+    expect(parsed).toEqual({
+      error: null,
+      root: "http://www.w3.org/2000/svg",
+      series: channels,
+      cursor: 0,
+    });
+    expect(urls.slice(before)).toEqual([]);
+    // The histogram offers SVG; the scalp maps offer PNG only.
+    await page.locator('[data-qp-tab="components"]').click();
+    await ready(page);
+    await openExport(page, "icclasses");
+    await expect(
+      page
+        .locator('[data-qp-view="icclasses"]')
+        .getByRole("button", { name: "Save drawing (SVG)" }),
+    ).toHaveCount(1);
+    await page.locator('[data-qp-view="icmaps"] details.qv-export > summary').click();
+    await expect(
+      page.locator('[data-qp-view="icmaps"]').getByRole("button", { name: "Save image (PNG)" }),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[data-qp-view="icmaps"]').getByRole("button", { name: "Save drawing (SVG)" }),
+    ).toHaveCount(0);
+  });
+
+  test("a file is the exact bytes NEMAR recorded, saved with no request", async ({ page }) => {
+    const urls = recordRequests(page);
+    await mount(page);
+    await openExport(page, "spectrum");
+    const before = { urls: urls.length, data: await dataRequests(page) };
+    const view = page.locator('[data-qp-view="spectrum"]');
+    for (const suffix of ["_spectrum.tsv", "_chanlocs.tsv"]) {
+      const name = files[shaOf(suffix)].location.split("/").pop()!;
+      const bytes = await saved(page, view.getByRole("button", { name: `Save ${name}` }));
+      expect(bytes.equals(read(`files/${shaOf(suffix)}`))).toBe(true);
+      await expect(view.locator(".qv-export").getByRole("status")).toHaveText(
+        `Saved ${name} (${bytes.length} bytes), the bytes NEMAR recorded.`,
+      );
+    }
+    expect(urls.slice(before.urls)).toEqual([]);
+    expect(await dataRequests(page)).toBe(before.data);
+  });
+
+  test("the controls are reachable and named for the keyboard and a screen reader", async ({
+    page,
+  }) => {
+    await mount(page);
+    const view = page.locator('[data-qp-view="spectrum"]');
+    const summary = view.locator("details.qv-export > summary");
+    await summary.focus();
+    await page.keyboard.press("Enter");
+    await expect(view.locator("details.qv-export")).toHaveAttribute("open", "");
+    const group = view.getByRole("group", { name: "Save the view as an image" });
+    await expect(group).toBeVisible();
+    await expect(view.getByLabel("Scale")).toHaveValue("2");
+    await expect(
+      view.getByRole("list", { name: "Save a file of this view, as recorded" }),
+    ).toBeVisible();
+    // Tab order: the scale, then each button, every one a native control with its own name.
+    await page.keyboard.press("Tab");
+    const order: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press("Tab");
+      order.push(
+        await page.evaluate(() => {
+          const el = document.activeElement as HTMLElement;
+          return `${el.tagName.toLowerCase()}:${el.getAttribute("aria-label") ?? el.textContent}`;
+        }),
+      );
+    }
+    expect(order.slice(0, 3)).toEqual([
+      "select:2×3×4×",
+      "button:Save image (PNG)",
+      "button:Save drawing (SVG)",
+    ]);
+    expect(order[3]).toMatch(/^button:Save .*_spectrum\.tsv$/);
+    // The result is said in a status line.
+    const status = view.locator(".qv-export").getByRole("status");
+    await expect(status).toHaveText("");
+    await saved(page, view.getByRole("button", { name: "Save drawing (SVG)" }));
+    await expect(status).toHaveText("Saved the drawing.");
+  });
+
+  test("every drawn map is exported with its contour lines, those never on screen too", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 400 });
+    await mount(page);
+    const result = await page.evaluate(
+      async ({ record, bytes, provenance, modules }) => {
+        const { buildModel } = await import(/* @vite-ignore */ modules.model);
+        const { mountView, viewContext } = await import(/* @vite-ignore */ modules.render);
+        const { SensorFieldClient } = await import(/* @vite-ignore */ modules.client);
+        const { loadMontage } = await import(/* @vite-ignore */ modules.montages);
+        const { fieldMaps, paintPicture } = await import(/* @vite-ignore */ modules.raster);
+        const { contourLines } = await import(/* @vite-ignore */ modules.contours);
+        const doc = JSON.parse(record.body);
+        const view = doc.dataQuality.recipes[provenance.recipe].views.find(
+          (v: { key: string }) => v.key === "icmaps",
+        );
+        const files = Object.fromEntries(
+          Object.entries(bytes as Record<string, string>).map(([sha, b64]) => [
+            sha,
+            Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)),
+          ]),
+        );
+        const client = new SensorFieldClient();
+        const built = await buildModel(view, async (f: { sha256: string }) => files[f.sha256], {
+          checks: client.checks(),
+          montage: loadMontage,
+        });
+        const target = document.createElement("div");
+        document.body.append(target);
+        const mounted = await mountView(target, built, viewContext(view, "x"), {
+          client: () => client,
+          layoutKey: "export-test",
+          colors: { foreground: "#000", background: "#fff", contour: "#000" },
+        });
+        await mounted.field.ready;
+        const handle = mounted.field;
+        const untraced = handle
+          .drawnMaps()
+          .filter((d: { map: { contourLines: unknown } }) => d.map.contourLines === null).length;
+        const maps = fieldMaps({ built, field: handle, colorMap: "diverging" });
+        const same = maps.every(
+          (m: {
+            map: {
+              contourLines: Float32Array[];
+              grid: Float64Array;
+              geometry: { x: Float64Array; y: Float64Array };
+              contourLevels: number[];
+            };
+          }) => {
+            const traced = contourLines(
+              m.map.grid,
+              m.map.geometry.x,
+              m.map.geometry.y,
+              m.map.contourLevels,
+            );
+            return (
+              m.map.contourLines.length === traced.length &&
+              m.map.contourLines.every(
+                (l, i) => l.length === traced[i].length && l.every((v, j) => v === traced[i][j]),
+              )
+            );
+          },
+        );
+        const segments = maps.map((m: { contours: Float32Array[] }) =>
+          m.contours.reduce((n, l) => n + l.length / 4, 0),
+        );
+        const canvas = await paintPicture(
+          document,
+          {
+            meta: {
+              caption: view.caption,
+              kind: view.kind,
+              kindVersion: view.kind_version,
+              digest: doc.view_digests.icmaps,
+              permalink: "https://nemar.org/dataset/x#quality",
+              colorMaps: true,
+            },
+            built,
+            fields: [{ built, field: handle, colorMap: "diverging" }],
+          },
+          3,
+        );
+        handle.destroy();
+        return {
+          maps: maps.length,
+          untraced,
+          same,
+          everyHasLines: segments.every((n: number) => n > 0),
+          width: canvas.width,
+          height: canvas.height,
+        };
+      },
+      { record, bytes, provenance, modules: MODULES },
+    );
+    expect(result.maps).toBe(18);
+    // Maps past the first batch were never asked for their lines by the worker…
+    expect(result.untraced).toBeGreaterThan(0);
+    // …and the export draws every map's lines, traced as the worker traces them.
+    expect(result.same).toBe(true);
+    expect(result.everyHasLines).toBe(true);
+    // Six maps a row, three rows, at 3 times.
+    expect(result.width).toBe(3 * (6 * 176 - 16 + 24));
+    expect(result.height).toBeGreaterThan(3 * 3 * 192);
   });
 });
