@@ -58,6 +58,7 @@ Four of them are expensive to undo once panels, exports and the signal viewer re
 - About 7 MB of parity vectors sit in `test/fixtures/quality-views/vectors/`, marked generated in `.gitattributes`; a re-copy is reviewed through `pin.json`.
 - The vocabulary drift test is red in CI on the epic's pull requests until nemar-cli `dev` carries neuroschema 0.6.0, the accepted pattern of the Phase 4b drift test: nemar-cli `dev` merges first and website `staging` second.
 - Some maps the viewer draws today, from an assumed frame or from a handful of matched labels, disappear, each with its reason.
+- EGI recordings placed by name in the signal viewer show `cap_model_unknown` until the recording store carries the sidecar's `CapManufacturersModelName` (and `EEGReference`), which the converter does not embed yet (nemarOrg/nemar-cli#2407).
 - Public pages show quality only for derivatives an administrator has promoted (ADR 0137 decision 7).
 - A view that misses the drawing budgets (one view at 128 channels within 100 milliseconds once its data arrive, and at 256 within 300) is fixed in the renderer; a binary data format needs a new nemar-cli ADR and a measurement.
 
