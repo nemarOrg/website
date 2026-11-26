@@ -21,9 +21,11 @@
  * printed-only first-visit eager case at 256 sensors: the dataset page's idle preload
  * (`startIdlePreload`) runs first, through its real code (the record read and checked, the layout
  * fetched, checked and its geometry prepared in the worker, the first windows' files fetched and
- * checked), the panel opens at least one idle period later, and the view is built from the
- * preloaded files with no fetch (`preloadedSource`), so its values are there at mount. The draw is
- * gated at 50 / 100 / 300 ms at 128 and 256 sensors, and must find the geometry in the cache.
+ * checked), the panel opens at least one idle period later and takes the held record, and the view
+ * is built from the preloaded files with no fetch (`preloadedSource`), so its values are there at
+ * mount. Timed from the mount to the view ready (the held record, the view's digest, the model,
+ * the figure's tree and the maps' draw), gated at 50 / 100 / 300 ms at 128 and 256 sensors; the
+ * draw must find the geometry in the cache.
  *
  * The gate is the budget itself, and it runs on CI's own runner in a step of its own
  * (`bun run test:quality-views-perf`), after the other tests, so nothing else competes for the
@@ -334,7 +336,10 @@ async function icMapsRecord(name: string) {
   ] as const) {
     bytes.set(entry.sha256, data);
   }
-  return { recording, declaration, answer: JSON.stringify(answer), bytes };
+  const text = JSON.stringify(answer);
+  // The route's strong ETag, the SHA-256 of the body: required from the data plane.
+  const etag = `"${await subtleSha256(new TextEncoder().encode(text))}"`;
+  return { recording, declaration, answer: text, etag, bytes };
 }
 
 interface OpenedView extends FirstView {
@@ -352,12 +357,15 @@ async function panelAfterLoad(name: string): Promise<OpenedView> {
   const { preloadedSource } = await import("../src/lib/quality-views/preloaded");
   const { buildModel } = await import("../src/lib/quality-views/model");
   const { fieldDrawInput } = await import("../src/lib/quality-views/render/sensor-field-view");
+  const { renderView, viewContext } = await import("../src/lib/quality-views/render/index");
+  const { recordFor } = await import("../src/lib/quality-views/panel-bridge");
+  const { viewDigest } = await import("../src/lib/quality-views/verify");
   const fixture = await icMapsRecord(name);
   const client = new Client(worker.inThreadWorker);
   const base = "https://data.example.invalid";
   const fetchAnswer = async (input: RequestInfo | URL): Promise<Response> => {
     const url = String(input);
-    if (url.includes("/record/")) return new Response(fixture.answer);
+    if (url.includes("/record/")) return new Response(fixture.answer, { headers: { ETag: fixture.etag } });
     const sha = [...fixture.bytes.keys()].find((s) => url.includes(`/${s}/`));
     return sha
       ? new Response(fixture.bytes.get(sha) as Uint8Array<ArrayBuffer>)
@@ -370,6 +378,7 @@ async function panelAfterLoad(name: string): Promise<OpenedView> {
       idle: (run) => run(),
       recordings: async () => [{ path: fixture.recording, name: "x" }],
       viewerOpen: () => false,
+      panelOpened: () => false,
       onLeave: () => {},
       fetch: fetchAnswer,
       client,
@@ -387,26 +396,38 @@ async function panelAfterLoad(name: string): Promise<OpenedView> {
     return null;
   };
   const layoutKey = fixture.declaration.data[1].sha256;
+  // From the panel's mount to its first view ready, as the panel does it: the record the preload
+  // holds (no request), the view's digest, the model from the preloaded files, the figure's tree
+  // (the DOM nodes are made from this tree on a page; Vitest has no DOM) and the maps' draw.
   const mount = performance.now();
+  const held = await recordFor(fixture.recording, () => {
+    throw new Error("the panel asked for the record again");
+  });
+  if ((held as { kind: string }).kind !== "ok") throw new Error("no record held");
+  const view = (held as unknown as { record: { views: unknown[]; digests: Record<string, string> } })
+    .record;
+  if ((await viewDigest(view.views[0])) !== view.digests.icmaps) throw new Error("digest");
   const built = await buildModel(fixture.declaration, preloadedSource(panelFetch), {
     checks: client.checks(),
     montage: () => Promise.reject(new Error("no montage")),
     onLayout: (places) => void client.prepare({ layoutKey, ...places }),
   });
   const buildMs = performance.now() - mount;
+  const { tree } = await renderView(built, viewContext(fixture.declaration as never, "qp-icmaps"));
+  if (!tree) throw new Error("no tree");
   const draw = fieldDrawInput(built as never);
   if (!draw) throw new Error("no maps to draw");
   let firstMaps = Number.NaN;
-  const start = performance.now();
   const outcome = await client.draw(
     { layoutKey, thetaDeg: draw.thetaDeg, radius: draw.radius, maps: draw.maps },
     {
       first: VISIBLE,
       onBatch: () => {
-        if (Number.isNaN(firstMaps)) firstMaps = performance.now() - start;
+        if (Number.isNaN(firstMaps)) firstMaps = performance.now() - mount;
       },
     },
   );
+  const start = mount;
   const elapsed = performance.now() - start;
   client.terminate();
   if (outcome.kind !== "done") throw new Error(`the view was not drawn: ${outcome.kind}`);

@@ -45,6 +45,8 @@ const shaOf = (suffix: string) =>
 const MODULES = {
   bridge: "/src/lib/quality-views/panel-bridge.ts",
   panel: "/src/lib/quality-views/panel.ts",
+  verify: "/src/lib/quality-views/verify.ts",
+  client: "/src/lib/quality-views/worker-client.ts",
 };
 
 const SHELL = `
@@ -72,6 +74,18 @@ interface MountOptions {
   readonly flip?: string;
   /** A change to one view's caption in the record's text (its declaration no longer its digest). */
   readonly recaption?: string;
+  /** A change to one view that the route served as it is: its digest recomputed to match. */
+  readonly patch?: {
+    readonly key: string;
+    readonly parameters?: object;
+    readonly recording?: string;
+  };
+  /** A second recording in the list, which has no quality (`quality_not_found`). */
+  readonly second?: string;
+  /** Delay every file's answer by this many milliseconds. */
+  readonly slowFiles?: number;
+  /** Do not wait for the panel to be ready. */
+  readonly noWait?: boolean;
 }
 
 /** Open the page, write the shell, and mount the panel on the captured answers. */
@@ -90,25 +104,84 @@ async function mount(page: Page, options: MountOptions = {}): Promise<void> {
       if (flipSha) files[flipSha][10] ^= 1;
       let body = record.body;
       let headers: Record<string, string> = record.headers;
+      const hexOf = async (text: string) =>
+        Array.from(
+          new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))),
+          (b) => b.toString(16).padStart(2, "0"),
+        ).join("");
+      if (options.patch) {
+        const { viewDigest } = await import(/* @vite-ignore */ modules.verify);
+        const doc = JSON.parse(body);
+        for (const view of doc.dataQuality.recipes[provenance.recipe].views) {
+          if (view.key !== options.patch.key) continue;
+          if (options.patch.parameters) Object.assign(view.parameters, options.patch.parameters);
+          if (options.patch.recording) {
+            for (const input of view.inputs) {
+              if (input.store) input.store.recording = options.patch.recording;
+            }
+          }
+          doc.view_digests[view.key] = await viewDigest(view);
+        }
+        body = JSON.stringify(doc);
+        headers = { "Content-Type": "application/json", ETag: `"${await hexOf(body)}"` };
+      }
       if (options.recaption) {
         const doc = JSON.parse(body);
         for (const view of doc.dataQuality.recipes[provenance.recipe].views) {
           if (view.key === options.recaption) view.caption = `${view.caption} (edited)`;
         }
         body = JSON.stringify(doc);
-        headers = { "Content-Type": "application/json" };
+        // The route computes the record's digests when it serves it: a fresh ETag for the new
+        // body, while the view's declaration no longer matches its recorded digest.
+        const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+        const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join(
+          "",
+        );
+        headers = { "Content-Type": "application/json", ETag: `"${hex}"` };
       }
-      const fetchAnswer = async (input: RequestInfo | URL): Promise<Response> => {
+      const requests: string[] = [];
+      (window as unknown as { requests: string[] }).requests = requests;
+      const fetchAnswer = async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ): Promise<Response> => {
         const url = String(input);
-        if (url.includes("/record/")) return new Response(body, { headers });
+        requests.push(url);
+        if (url.includes("/record/")) {
+          return url.includes(encodeURIComponent(provenance.recording.split("/").pop()!))
+            ? new Response(body, { headers })
+            : new Response(JSON.stringify({ error: "quality_not_found" }), { status: 404 });
+        }
         const sha = Object.keys(files).find((s) => url.includes(`/${s}/`));
+        // Slow files arrive even after an abort, as bytes already on their way or cached do, so
+        // only the panel's own checks can stop the stale work.
+        if (options.slowFiles)
+          await new Promise((resolve) => setTimeout(resolve, options.slowFiles));
         return sha
           ? new Response(files[sha])
           : new Response(JSON.stringify({ error: "view_not_declared" }), { status: 404 });
       };
+      // A client of the page's own kind that counts its draws: what a stale draw would show.
+      const { SensorFieldClient } = await import(/* @vite-ignore */ modules.client);
+      const counted = { draws: 0, prepares: 0 };
+      (window as unknown as { counted: typeof counted }).counted = counted;
+      class CountingClient extends SensorFieldClient {
+        draw(...args: unknown[]) {
+          counted.draws++;
+          return super.draw(...(args as [never, never]));
+        }
+        prepare(...args: unknown[]) {
+          counted.prepares++;
+          return super.prepare(...(args as [never]));
+        }
+      }
+      const client = new CountingClient();
       const bridge = await import(/* @vite-ignore */ modules.bridge);
       bridge.publishRecordings([
         { path: provenance.recording, name: provenance.recording.split("/").pop() },
+        ...(options.second
+          ? [{ path: options.second, name: options.second.split("/").pop() }]
+          : []),
       ]);
       const { mountQualityPanel } = await import(/* @vite-ignore */ modules.panel);
       const root = document.querySelector<HTMLElement>("[data-quality-panel]")!;
@@ -120,10 +193,10 @@ async function mount(page: Page, options: MountOptions = {}): Promise<void> {
           recipe: provenance.recipe,
           base: "https://data.example.invalid",
         },
-        { fetch: fetchAnswer as typeof fetch },
+        { fetch: fetchAnswer as typeof fetch, client: () => client },
       );
       (window as unknown as { panel: unknown }).panel = handle;
-      await handle.ready();
+      if (!options.noWait) await handle.ready();
     },
     {
       shell: SHELL,
@@ -276,4 +349,58 @@ test("the Signal tab's marks are the floor's, checked against the store first", 
   expect(ok.note).toContain("not checked against a digest NEMAR recorded");
   // A store row the floor's table does not name: a decision dropped, so nothing is drawn.
   expect(refused.ok).toBe(false);
+});
+
+test("the Signal tab draws nothing for a declaration that fails its schema", async ({ page }) => {
+  await mount(page, { patch: { key: "midsegment", parameters: { start_s: "x" } } });
+  await page.locator('[data-qp-tab="signal"]').click();
+  await ready(page);
+  const view = page.locator('[data-qp-view="midsegment"]');
+  await expect(view.locator('[data-word="declaration_invalid"]')).toHaveCount(1);
+  await expect(view.locator(".qp-open")).toHaveCount(0);
+});
+
+test("the Signal tab refuses a window whose store is another recording's", async ({ page }) => {
+  await mount(page, {
+    patch: { key: "midsegment", recording: "sub-OTHER/eeg/sub-OTHER_task-COVID_eeg.edf" },
+  });
+  await page.locator('[data-qp-tab="signal"]').click();
+  await ready(page);
+  const view = page.locator('[data-qp-view="midsegment"]');
+  // The tables still name the record's recording; the store names another: not offered.
+  await expect(view.locator(".qp-open")).toHaveCount(0);
+  await expect(view.locator("[data-word]")).toHaveAttribute(
+    "data-word",
+    "signal_recording_mismatch",
+  );
+});
+
+test("a fast switch to another recording stops the first recording's work", async ({ page }) => {
+  const second = "sub-CUCOV077/eeg/sub-CUCOV077_task-COVID_eeg.edf";
+  // On the Components tab, whose scalp maps prepare their geometry as soon as the layout is read.
+  await mount(page, {
+    second,
+    slowFiles: 400,
+    noWait: true,
+    hash: `#quality/${provenance.recording}/icmaps`,
+  });
+  // The first recording's record is in and its files are on their way: switch.
+  await page.waitForFunction(() =>
+    (window as unknown as { requests: string[] }).requests.some((u) => u.includes("/file/")),
+  );
+  const counts = () =>
+    page.evaluate(() => ({
+      ...(window as unknown as { counted: { draws: number; prepares: number } }).counted,
+    }));
+  // The worker's warm-up at mount prepares its own synthetic layout: counted before the switch.
+  const before = await counts();
+  await page.locator("[data-qp-recording]").selectOption(second);
+  await ready(page);
+  await page.waitForTimeout(1200);
+  // No draw, and no geometry prepared, for the recording the visitor left.
+  expect(await counts()).toEqual(before);
+  expect(before.draws).toBe(0);
+  await expect(page.locator("canvas, svg.qv-lines")).toHaveCount(0);
+  await expect(page.locator("[data-qp-status]")).toHaveText(/No quality views are published/);
+  expect(await page.evaluate(() => location.hash)).toContain("sub-CUCOV077");
 });

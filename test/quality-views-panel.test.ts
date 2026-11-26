@@ -10,7 +10,7 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { heldRecord } from "../src/lib/quality-views/panel-bridge";
+import { heldRecord, holdRecord, recordFor } from "../src/lib/quality-views/panel-bridge";
 import {
   TABS,
   formatQualityHash,
@@ -22,7 +22,14 @@ import {
   viewsByTab,
   writeTurbo,
 } from "../src/lib/quality-views/panel-model";
-import { preloadInput, preloadPlan, startIdlePreload } from "../src/lib/quality-views/preload";
+import {
+  digestedViews,
+  preloadInput,
+  preloadPlan,
+  startIdlePreload,
+} from "../src/lib/quality-views/preload";
+import { readLimited } from "../src/lib/quality-views/preloaded";
+import { sentenceOf } from "../src/lib/quality-views/panel-words";
 import { forgetPreloads, preloadedSource } from "../src/lib/quality-views/prepare-ahead";
 import { fileUrl } from "../src/lib/quality-views/quality-api";
 import { type QualityRecord, readRecordAnswer } from "../src/lib/quality-views/record";
@@ -39,7 +46,7 @@ const provenance = json(`${ROUTE}/provenance.json`);
 const BASE = "https://data.example.invalid";
 const TARGET = { base: BASE, datasetId: provenance.dataset_id, recipe: provenance.recipe };
 const RECORDING = provenance.recording as string;
-const record = (await readRecordAnswer(new TextEncoder().encode(captured.body), null, {
+const record = (await readRecordAnswer(new TextEncoder().encode(captured.body), captured.headers.ETag, {
   ...TARGET,
   recording: RECORDING,
 })) as QualityRecord;
@@ -190,6 +197,7 @@ describe("the idle preload", () => {
     loaded: Promise.resolve(),
     idle: (run: () => void) => run(),
     viewerOpen: () => false,
+    panelOpened: () => false,
   };
 
   it("warms the worker, prepares the layout's geometry and fetches the first windows' files only", async () => {
@@ -360,6 +368,112 @@ describe("the idle preload", () => {
       onLeave: () => {},
     });
     expect(await run.done).toEqual({ kind: "skipped", reason: "no recording" });
+  });
+});
+
+describe("the preload's guards (review fixes)", () => {
+  const recordings = async () => [{ path: RECORDING, name: "x" }];
+  const ready = {
+    loaded: Promise.resolve(),
+    idle: (run: () => void) => run(),
+    viewerOpen: () => false,
+    panelOpened: () => false,
+  };
+
+  it("does nothing once the panel has opened", async () => {
+    const asked: string[] = [];
+    const run = startIdlePreload(TARGET, {
+      ...ready,
+      panelOpened: () => true,
+      recordings,
+      fetch: route(asked),
+      onLeave: () => {},
+    });
+    expect(await run.done).toEqual({ kind: "skipped", reason: "panel open" });
+    expect(asked).toEqual([]);
+  });
+
+  it("plans only from views whose declaration matches its digest, and only fetchable files", async () => {
+    const url = (f: { sha256: string }) => fileUrl(BASE, record, f as never);
+    const tampered = structuredClone(record) as typeof record;
+    (tampered.views.find((v) => v.key === "spectrum") as { caption: string }).caption = "edited";
+    const kept = await digestedViews(tampered);
+    expect(kept.views.map((v) => v.key)).not.toContain("spectrum");
+    const plan = preloadPlan(kept, url);
+    const spectrumValues = (record.views.find((v) => v.key === "spectrum")!.data as { sha256: string }[])[0];
+    expect(plan.files.some((f) => f.sha256 === spectrumValues.sha256)).toBe(false);
+    const odd = structuredClone(record) as typeof record;
+    const data = odd.views.find((v) => v.key === "icclasses")!.data as { sha256: string; size: number }[];
+    data[0].sha256 = "ABC";
+    const icmaps = odd.views.find((v) => v.key === "icmaps")!.data as { role: string; size: number }[];
+    icmaps.find((d) => d.role === "components")!.size = 1.5;
+    const oddPlan = preloadPlan(odd, url);
+    expect(oddPlan.files.some((f) => f.sha256 === "ABC")).toBe(false);
+    expect(oddPlan.files.every((f) => Number.isSafeInteger(f.size))).toBe(true);
+  });
+
+  it("reads nothing for a limit that is not a number", async () => {
+    expect(await readLimited(new Response("abc"), Number.NaN)).toBeNull();
+    expect(await readLimited(new Response("abc"), 3)).toEqual(new TextEncoder().encode("abc"));
+  });
+});
+
+describe("the panel's record (review fixes)", () => {
+  it("takes a preload's record or its 'none', and asks again after a failed preload", async () => {
+    let asked = 0;
+    const fresh = async () => {
+      asked++;
+      return { kind: "ok" as const, record };
+    };
+    holdRecord({ path: RECORDING, outcome: Promise.resolve({ kind: "failed", word: "network" }) });
+    expect(await recordFor(RECORDING, fresh)).toEqual({ kind: "ok", record });
+    expect(asked).toBe(1);
+    expect(heldRecord(RECORDING)).toBeNull();
+    holdRecord({ path: RECORDING, outcome: Promise.reject(new DOMException("x", "AbortError")) });
+    await recordFor(RECORDING, fresh);
+    expect(asked).toBe(2);
+    holdRecord({ path: RECORDING, outcome: Promise.resolve({ kind: "none" }) });
+    expect(await recordFor(RECORDING, fresh)).toEqual({ kind: "none" });
+    holdRecord({ path: RECORDING, outcome: Promise.resolve({ kind: "ok", record }) });
+    expect(await recordFor(RECORDING, fresh)).toEqual({ kind: "ok", record });
+    expect(asked).toBe(2);
+    holdRecord(null);
+  });
+
+  it("after a failed preload, the same open reads the record from the route", async () => {
+    const run = startIdlePreload(TARGET, {
+      loaded: Promise.resolve(),
+      idle: (go) => go(),
+      viewerOpen: () => false,
+      panelOpened: () => false,
+      recordings: async () => [{ path: RECORDING, name: "x" }],
+      fetch: async () => new Response("down", { status: 503 }),
+      onLeave: () => {},
+    });
+    await run.done;
+    expect(await heldRecord(RECORDING)).toMatchObject({ kind: "failed" });
+    const { fetchRecord } = await import("../src/lib/quality-views/quality-api");
+    const asked: string[] = [];
+    const outcome = await recordFor(RECORDING, () =>
+      fetchRecord({ ...TARGET, recording: RECORDING }, { fetch: route(asked) }),
+    );
+    expect(outcome.kind).toBe("ok");
+    expect(asked).toEqual([`${BASE}${captured.path}`]);
+  });
+});
+
+describe("the panel's words", () => {
+  it("never shows a raw word: HTTP statuses by class, any other word the generic sentence", () => {
+    expect(sentenceOf("http_503")).toBe(sentenceOf("http_500"));
+    expect(sentenceOf("http_503")).toMatch(/could not answer/);
+    expect(sentenceOf("http_418")).toMatch(/refused/);
+    for (const word of ["recording_path_invalid", "failed", "record_digest_missing", "views_expired"]) {
+      expect(sentenceOf(word)).not.toBe(word);
+      expect(sentenceOf(word)).toMatch(/\s/);
+    }
+    expect(sentenceOf("some_new_word")).toBe(sentenceOf("failed"));
+    expect(sentenceOf("some_new_reason", "skipped_unknown")).toMatch(/no words for/);
+    expect(sentenceOf("labels_unusable")).not.toBe("labels_unusable");
   });
 });
 
