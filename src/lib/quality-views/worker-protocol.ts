@@ -70,7 +70,21 @@ export interface CancelRequest {
   readonly id: number;
 }
 
-export type WorkerRequest = DrawRequest | CancelRequest;
+/**
+ * Build a layout's geometry ahead of its maps (the cold first view, website#592): a page sends it as
+ * soon as it knows where the sensors go, while the maps' values still download, so the draw that
+ * follows finds the geometry in the cache. The geometry is the one a map whose every value is finite
+ * uses.
+ */
+export interface PrepareRequest {
+  readonly type: "prepare";
+  readonly id: number;
+  readonly layoutKey: string;
+  readonly thetaDeg: Float64Array;
+  readonly radius: Float64Array;
+}
+
+export type WorkerRequest = DrawRequest | CancelRequest | PrepareRequest;
 
 /** Everything about a map that its layout and usable sensors decide, shared by maps alike. */
 export interface MapGeometryMessage {
@@ -155,6 +169,13 @@ export type WorkerResponse =
     }
   | { readonly type: "done"; readonly id: number; readonly stats: DrawStats }
   | { readonly type: "cancelled"; readonly id: number }
+  | {
+      readonly type: "prepared";
+      readonly id: number;
+      /** Milliseconds spent building the geometry, 0 when the cache held it. */
+      readonly geometryMs: number;
+      readonly cached: boolean;
+    }
   | { readonly type: "failure"; readonly id: number | null; readonly message: string };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -170,7 +191,7 @@ const isCount = (value: unknown, least: number): boolean =>
   Number.isInteger(value) && (value as number) >= least;
 
 /**
- * Why `value` is not a draw or cancel request the worker can run, or null when it is one. A
+ * Why `value` is not a draw, prepare or cancel request the worker can run, or null when it is one. A
  * message crosses from another script, so the type says what it should be and this says what it
  * is.
  */
@@ -178,13 +199,16 @@ export function requestProblem(value: unknown): string | null {
   if (!isRecord(value)) return "the message is not an object";
   if (!Number.isInteger(value.id)) return "the message has no integer id";
   if (value.type === "cancel") return null;
-  if (value.type !== "draw") return `the message type ${JSON.stringify(value.type)} is unknown`;
+  if (value.type !== "draw" && value.type !== "prepare") {
+    return `the message type ${JSON.stringify(value.type)} is unknown`;
+  }
   const { layoutKey, thetaDeg, radius, values, mapCount, first, contours } = value;
   if (typeof layoutKey !== "string" || layoutKey === "") return "layoutKey is not a string";
   if (!(thetaDeg instanceof Float64Array) || !(radius instanceof Float64Array)) {
     return "thetaDeg and radius are not Float64Arrays";
   }
   if (thetaDeg.length !== radius.length) return "thetaDeg and radius differ in length";
+  if (value.type === "prepare") return null;
   if (!isCount(mapCount, 0)) return "mapCount is not a count";
   const maps = mapCount as number;
   if (!(values instanceof Float64Array) || values.length !== thetaDeg.length * maps) {
@@ -274,6 +298,12 @@ export function isWorkerResponse(value: unknown): value is WorkerResponse {
       return Number.isInteger(value.id) && isRecord(value.stats);
     case "cancelled":
       return Number.isInteger(value.id);
+    case "prepared":
+      return (
+        Number.isInteger(value.id) &&
+        typeof value.geometryMs === "number" &&
+        typeof value.cached === "boolean"
+      );
     case "failure":
       return (value.id === null || Number.isInteger(value.id)) && typeof value.message === "string";
     default:

@@ -10,6 +10,15 @@
  * `draw` never rejects on what the worker does: every way it can go wrong is an outcome a panel
  * words (`unavailable`, with the reason), and a cancelled draw is `cancelled`. Only a caller's own
  * mistake (maps of the wrong length) throws, synchronously.
+ *
+ * **The cold first view (website#592).** The first view after a page opens used to pay for the
+ * engine compiling the large loops: on CI's runner 107 to 137 ms at 128 sensors where later views
+ * take about 60. So a page warms the worker as soon as it knows the layout, while the view's values
+ * still download (`warm`): the worker starts, builds the layout's geometry (`prepare`) and draws a
+ * full-size set of throwaway maps on it, so the view's own draw finds the geometry cached and the
+ * code compiled. A real draw cancels a warm-up still running, so the warm-up never delays it by
+ * more than one batch. One client serves the page (`sharedSensorFieldClient`), so the signal
+ * viewer and a quality panel share one worker and its cache.
  */
 
 import { contourLines } from "./contours";
@@ -64,6 +73,30 @@ export type DrawOutcome =
   | { readonly kind: "cancelled" }
   | { readonly kind: "unavailable"; readonly reason: string };
 
+/** Maps a warm-up draws: one batch of the maps on screen and one later batch, so both batch sizes
+ *  the worker draws in are compiled. */
+export const WARM_MAPS = DEFAULT_BATCH_SIZE + DEFAULT_LATER_BATCH_SIZE;
+
+/** Where a view's sensors go, known before its values arrive. */
+export interface LayoutInput {
+  readonly layoutKey: string;
+  readonly thetaDeg: ArrayLike<number>;
+  readonly radius: ArrayLike<number>;
+}
+
+export type PrepareOutcome =
+  | { readonly kind: "prepared"; readonly geometryMs: number; readonly cached: boolean }
+  | { readonly kind: "cancelled" }
+  | { readonly kind: "unavailable"; readonly reason: string };
+
+export interface WarmOutcome {
+  readonly prepared: PrepareOutcome;
+  /** The throwaway draw: `done`, or `cancelled` when a real draw came first. */
+  readonly draw: DrawOutcome;
+  /** From the call to the end of the throwaway draw. */
+  readonly ms: number;
+}
+
 /** The answer a page cannot read, worded once. */
 export const UNREADABLE_ANSWER = "the map worker sent an answer this page cannot read";
 
@@ -109,16 +142,96 @@ function contourIndices(
   return [...choice];
 }
 
+/** A full-size map the warm-up draws: smooth, every value finite. */
+function warmValues(sensors: number, map: number): Float64Array {
+  return Float64Array.from({ length: sensors }, (_, s) => Math.sin((s + 1) * (map + 1) * 0.37));
+}
+
 export class SensorFieldClient {
   private worker: Promise<WorkerLike> | null = null;
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
+  private readonly prepares = new Map<number, (outcome: PrepareOutcome) => void>();
+  /** The warm-up draw running, which a real draw cancels. */
+  private warming: AbortController | null = null;
 
   /** `create` makes the worker; the default is a module worker (tests pass `inThreadWorker`). */
   constructor(private readonly create: () => WorkerLike | Promise<WorkerLike> = defaultWorker) {}
 
-  /** Draw every map of one view. */
+  /** Draw every map of one view; a warm-up still running is cancelled first. */
   draw(input: DrawInput, options: DrawOptions = {}): Promise<DrawOutcome> {
+    this.warming?.abort();
+    this.warming = null;
+    return this.send(input, options);
+  }
+
+  /** Build a layout's geometry in the worker ahead of its maps (starting the worker if needed). */
+  prepare(layout: LayoutInput): Promise<PrepareOutcome> {
+    if (layout.radius.length !== layout.thetaDeg.length) {
+      throw new RangeError(
+        `prepare: ${layout.thetaDeg.length} theta and ${layout.radius.length} radius values`,
+      );
+    }
+    const id = this.nextId++;
+    const request: WorkerRequest = {
+      type: "prepare",
+      id,
+      layoutKey: layout.layoutKey,
+      thetaDeg: Float64Array.from(layout.thetaDeg),
+      radius: Float64Array.from(layout.radius),
+    };
+    return new Promise<PrepareOutcome>((resolve) => {
+      this.prepares.set(id, (outcome) => {
+        this.prepares.delete(id);
+        resolve(outcome);
+      });
+      this.ensureWorker().then(
+        (worker) => {
+          try {
+            worker.postMessage(request);
+          } catch (error) {
+            this.prepares.get(id)?.({ kind: "unavailable", reason: describeError(error) });
+          }
+        },
+        (error: unknown) => this.failAll(`the map worker could not start: ${describeError(error)}`),
+      );
+    });
+  }
+
+  /**
+   * Warm the worker for a view whose layout is known and whose values are still on their way:
+   * build the geometry, then draw `maps` throwaway maps at full size on it, so the view's own draw
+   * meets compiled code and a cached geometry. Never rejects; a real `draw` cancels it.
+   */
+  async warm(layout: LayoutInput, maps = WARM_MAPS): Promise<WarmOutcome> {
+    const start = performance.now();
+    this.warming?.abort();
+    const controller = new AbortController();
+    this.warming = controller;
+    const prepared = await this.prepare(layout);
+    if (controller.signal.aborted || prepared.kind !== "prepared") {
+      if (this.warming === controller) this.warming = null;
+      const draw: DrawOutcome = prepared.kind === "unavailable" ? prepared : { kind: "cancelled" };
+      return { prepared, draw, ms: performance.now() - start };
+    }
+    const sensors = layout.thetaDeg.length;
+    const draw = await this.send(
+      {
+        layoutKey: layout.layoutKey,
+        thetaDeg: layout.thetaDeg,
+        radius: layout.radius,
+        maps: Array.from({ length: maps }, (_, m) => warmValues(sensors, m)),
+      },
+      {
+        first: Array.from({ length: Math.min(DEFAULT_BATCH_SIZE, maps) }, (_, i) => i),
+        signal: controller.signal,
+      },
+    );
+    if (this.warming === controller) this.warming = null;
+    return { prepared, draw, ms: performance.now() - start };
+  }
+
+  private send(input: DrawInput, options: DrawOptions): Promise<DrawOutcome> {
     const sensors = input.thetaDeg.length;
     if (input.radius.length !== sensors) {
       throw new RangeError(`draw: ${sensors} theta and ${input.radius.length} radius values`);
@@ -185,7 +298,10 @@ export class SensorFieldClient {
 
   /** End the worker; draws still running settle as `cancelled`. The next draw starts a new one. */
   terminate(): void {
+    this.warming?.abort();
+    this.warming = null;
     for (const pending of [...this.pending.values()]) pending.settle({ kind: "cancelled" });
+    for (const settle of [...this.prepares.values()]) settle({ kind: "cancelled" });
     const worker = this.worker;
     this.worker = null;
     worker?.then(
@@ -229,6 +345,7 @@ export class SensorFieldClient {
     for (const pending of [...this.pending.values()]) {
       pending.settle({ kind: "unavailable", reason });
     }
+    for (const settle of [...this.prepares.values()]) settle({ kind: "unavailable", reason });
     const worker = this.worker;
     this.worker = null;
     worker?.then(
@@ -245,7 +362,18 @@ export class SensorFieldClient {
     if (data.type === "failure") {
       const reason = `the map worker failed: ${data.message}`;
       if (data.id === null) this.failAll(reason);
-      else this.pending.get(data.id)?.settle({ kind: "unavailable", reason });
+      else {
+        this.pending.get(data.id)?.settle({ kind: "unavailable", reason });
+        this.prepares.get(data.id)?.({ kind: "unavailable", reason });
+      }
+      return;
+    }
+    if (data.type === "prepared") {
+      this.prepares.get(data.id)?.({
+        kind: "prepared",
+        geometryMs: data.geometryMs,
+        cached: data.cached,
+      });
       return;
     }
     const pending = this.pending.get(data.id);
@@ -278,4 +406,16 @@ export class SensorFieldClient {
       pending.settle({ kind: "cancelled" });
     }
   }
+}
+
+let shared: SensorFieldClient | null = null;
+
+/**
+ * The page's one map client: the signal viewer and every quality panel draw through it, so a page
+ * starts one worker and one geometry cache. A user of it cancels its own draws (an `AbortSignal`)
+ * and never terminates it.
+ */
+export function sharedSensorFieldClient(): SensorFieldClient {
+  shared ??= new SensorFieldClient();
+  return shared;
 }

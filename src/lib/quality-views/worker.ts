@@ -29,6 +29,7 @@ import {
   type GeometryEntry,
   type MapGeometryMessage,
   type MapMessage,
+  type PrepareRequest,
   type WorkerRequest,
   type WorkerResponse,
   requestProblem,
@@ -56,6 +57,9 @@ export interface WorkerLike {
 }
 
 const now = (): number => performance.now();
+
+const describe = (error: unknown): string =>
+  error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 
 /** Let the event loop run (a `cancel` may be waiting) without a timer's clamped delay. */
 function yieldToEvents(): Promise<void> {
@@ -144,7 +148,7 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
   const cancelled = new Set<number>();
 
   function geometryFor(
-    request: DrawRequest,
+    request: DrawRequest | PrepareRequest,
     usable: Uint8Array,
     tally: { hits: number; misses: number; geometryMs: number },
   ): CacheEntry {
@@ -309,15 +313,32 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
       cancelled.add(request.id);
       return;
     }
-    draw(request).catch((error: unknown) => {
-      post(
-        {
-          type: "failure",
-          id: request.id,
-          message: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
-        },
-        [],
+    if (request.type === "prepare") {
+      // The geometry of a map whose every value is finite: the usable rows are the placed ones.
+      const usable = usableMask(
+        request.thetaDeg,
+        request.radius,
+        new Float64Array(request.thetaDeg.length),
       );
+      const tally = { hits: 0, misses: 0, geometryMs: 0 };
+      try {
+        geometryFor(request, usable, tally);
+        post(
+          {
+            type: "prepared",
+            id: request.id,
+            geometryMs: tally.geometryMs,
+            cached: tally.hits > 0,
+          },
+          [],
+        );
+      } catch (error) {
+        post({ type: "failure", id: request.id, message: describe(error) }, []);
+      }
+      return;
+    }
+    draw(request).catch((error: unknown) => {
+      post({ type: "failure", id: request.id, message: describe(error) }, []);
     });
   };
 }
