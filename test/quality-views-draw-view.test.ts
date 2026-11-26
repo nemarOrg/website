@@ -88,7 +88,8 @@ function filesOf(flip?: string) {
   return { source, read };
 }
 
-function depsOf(files: FileSource, mounted: unknown[]) {
+/** A caller's deps; `mounted` keeps each mount's arguments (target, built, ctx, layout key). */
+function depsOf(files: FileSource, mounted: unknown[][]) {
   const client = new SensorFieldClient(inThreadWorker);
   return {
     doc: fakeDocument(),
@@ -96,7 +97,7 @@ function depsOf(files: FileSource, mounted: unknown[]) {
     fileUrl: (file: { sha256: string }) => `/file/${file.sha256}`,
     files,
     client: () => client,
-    mount: async (...args: unknown[]) => {
+    mount: async (...args: unknown[]): Promise<HTMLElement | null> => {
       mounted.push(args);
       return null;
     },
@@ -108,7 +109,7 @@ describe("drawView", () => {
   it("refuses a declaration that is not its digest before reading any file", async () => {
     const view = { ...viewOf("icmaps"), caption: "edited" } as ViewDecl;
     const { source, read } = filesOf();
-    const mounted: unknown[] = [];
+    const mounted: unknown[][] = [];
     const deps = depsOf(source, mounted);
     const { container, shown } = containerOf(deps.doc);
     const drew = await drawView(view, record, container, new AbortController().signal, deps);
@@ -122,7 +123,7 @@ describe("drawView", () => {
     const view = viewOf("spectrum");
     const values = view.data!.find((d) => d.role === "values")!;
     const { source, read } = filesOf(values.sha256);
-    const mounted: unknown[] = [];
+    const mounted: unknown[][] = [];
     const deps = depsOf(source, mounted);
     const { container, shown } = containerOf(deps.doc);
     const drew = await drawView(view, record, container, new AbortController().signal, deps);
@@ -136,9 +137,56 @@ describe("drawView", () => {
     expect(mounted).toEqual([]);
   });
 
+  it("mounts a view with good files once, its geometry keyed by its layout file's SHA-256", async () => {
+    const view = viewOf("spectrum");
+    const layout = view.data!.find((d) => d.role === "layout")!;
+    const { source } = filesOf();
+    const mounted: unknown[][] = [];
+    const deps = depsOf(source, mounted);
+    const { container, shown } = containerOf(deps.doc);
+    await drawView(view, record, container, new AbortController().signal, deps);
+    expect(mounted).toHaveLength(1);
+    const [target, built, ctx, layoutKey] = mounted[0] as [
+      unknown,
+      { refused: string | null },
+      { id: string },
+      string,
+    ];
+    expect(layoutKey).toBe(layout.sha256);
+    expect(built.refused).toBeNull();
+    expect(ctx.id).toBe("qx-spectrum");
+    // The base's target is what the container holds.
+    expect(shown).toEqual([target]);
+    expect(shown.flatMap(words)).toEqual([]);
+  });
+
+  it.each([
+    ["answers", false],
+    ["fails", true],
+  ])(
+    "shows and mounts nothing when its work is aborted as its first file is read and %s",
+    async (_, fails) => {
+      const stop = new AbortController();
+      const { source: good } = filesOf();
+      const source: FileSource = async (file) => {
+        stop.abort();
+        if (fails) throw new DOMException("aborted", "AbortError");
+        return good(file);
+      };
+      const mounted: unknown[][] = [];
+      const deps = depsOf(source, mounted);
+      const { container, shown } = containerOf(deps.doc);
+      expect(
+        await drawView(viewOf("spectrum"), record, container, stop.signal, deps),
+      ).toBeUndefined();
+      expect(shown).toEqual([]);
+      expect(mounted).toEqual([]);
+    },
+  );
+
   it("draws nothing once its work is aborted", async () => {
     const { source, read } = filesOf();
-    const mounted: unknown[] = [];
+    const mounted: unknown[][] = [];
     const deps = depsOf(source, mounted);
     const { container, shown } = containerOf(deps.doc);
     const stop = new AbortController();
