@@ -18,6 +18,7 @@ import {
   measureChunks,
   measurementRoots,
   staticClosure,
+  staticImports,
 } from "../scripts/quality-views-size-lib.mjs";
 
 /** Script text that gzip cannot shrink much: `kib` kilobytes of base64 (about three quarters of it survives gzip). */
@@ -81,6 +82,27 @@ describe("a panel imported statically by the page (the review of website#593)", 
     expect(panel.size).toBeGreaterThan(BUDGET.mainThread);
     expect(measured.notes.join("\n")).toContain(
       "page.js reaches the client through a static import",
+    );
+  });
+});
+
+describe("a facade that re-exports the client", () => {
+  it.each([
+    ["export {..} from", `export{m}from"./client.js";`],
+    ["export * from", `export*from"./client.js";`],
+    ["export * as", `export * as c from "./client.js";`],
+  ])("is followed through %s", (_form, facade) => {
+    const layout = files({
+      "page.js": `const f=()=>import("./facade.js");export{f};`,
+      "facade.js": `${facade}${bulk(4)}`,
+      "client.js": client,
+      "worker-abc.js": worker,
+    });
+    expect(staticImports(facade, layout)).toEqual(["client.js"]);
+    const measured = measureChunks("fixture", layout);
+    expect(measured.roots).toEqual(["facade.js"]);
+    expect(measured.results.find((r) => r.root === "facade.js")!.label).toContain(
+      "client.js + facade.js",
     );
   });
 });

@@ -33,10 +33,16 @@ export const CLIENT_MARKER = "the map worker sent an answer this page cannot rea
 export const gzipped = (bytes) => gzipSync(bytes, { level: 9 }).length;
 export const kb = (bytes) => `${(bytes / KB).toFixed(1)} KB`;
 
-/** The relative chunks a script imports statically, among `files`. */
+/**
+ * The relative chunks a script imports statically, among `files`: `import ... from "./x.js"`,
+ * `import "./x.js"`, and the re-exports `export {..} from "./x.js"` and `export * from "./x.js"`,
+ * so a facade that re-exports the client is followed to it.
+ */
 export function staticImports(text, files) {
   return [
-    ...text.matchAll(/(?:^|[;}\s])import\s*(?:[\w$*{}\s,]+from\s*)?["']\.\/([^"']+\.js)["']/g),
+    ...text.matchAll(
+      /(?:^|[;}\s])(?:import\s*(?:[\w$*{}\s,]+from\s*)?|export\s*(?:\*(?:\s*as\s*[\w$]+)?|\{[^}]*\})\s*from\s*)["']\.\/([^"']+\.js)["']/g,
+    ),
   ]
     .map((m) => m[1])
     .filter((file) => files.has(file));
@@ -88,10 +94,6 @@ export function measurementRoots(files) {
 }
 
 /**
- * Measure one directory's scripts (`files`: name to bytes). Returns one result per module worker
- * and per root, each with its gzipped and minified size and its budget, and notes for the reader.
- */
-/**
  * The chunks whose static imports reach a client chunk but which no measured set holds: `direct`
  * import a client chunk themselves, `above` reach one only through another chunk.
  */
@@ -113,6 +115,10 @@ export function eagerImporters(files, clients, roots) {
   return { direct, above };
 }
 
+/**
+ * Measure one directory's scripts (`files`: name to bytes). Returns one result per module worker
+ * and per root, each with its gzipped and minified size and its budget, and notes for the reader.
+ */
 export function measureChunks(label, files) {
   const text = (name) => files.get(name).toString("utf8");
   const results = [];
