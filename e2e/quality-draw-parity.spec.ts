@@ -98,7 +98,7 @@ async function mountBoth(page: Page, variant: Variant = {}): Promise<void> {
       if (flipSha) files[flipSha][10] ^= 1;
       let body = record.body;
       let headers: Record<string, string> = record.headers;
-      const hexOf = async (data: Uint8Array) =>
+      const hexOf = async (data: Uint8Array<ArrayBuffer>) =>
         Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", data)), (b) =>
           b.toString(16).padStart(2, "0"),
         ).join("");
@@ -108,7 +108,7 @@ async function mountBoth(page: Page, variant: Variant = {}): Promise<void> {
         for (const view of doc.dataQuality.recipes[provenance.recipe].views) {
           if (view.key === variant.recaption) view.caption = `${view.caption} (edited)`;
           const edit = variant.edit;
-          if (view.key !== edit?.key) continue;
+          if (!edit || view.key !== edit.key) continue;
           const entry = view.data.find((d: { role: string }) => d.role === edit.role);
           const text = new TextDecoder().decode(files[entry.sha256]).replace(edit.from, edit.to);
           const edited = new TextEncoder().encode(text);
