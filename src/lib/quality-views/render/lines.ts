@@ -196,7 +196,8 @@ export function renderLines(
 }
 
 /** The page's side: a pointer or the arrow keys pick a stored row (left, right) and a series (up,
- *  down), and the readout prints their stored texts. */
+ *  down), and the readout prints their stored texts; a click or Enter dispatches `qv-pick` with
+ *  that row on `root`. */
 export function attachLines(root: HTMLElement, model: LinesModel): void {
   const svg = root.querySelector<SVGSVGElement>("svg.qv-lines");
   const cursor = root.querySelector<SVGLineElement>(".qv-cursor");
@@ -217,15 +218,36 @@ export function attachLines(root: HTMLElement, model: LinesModel): void {
       line.classList.toggle("qv-selected", line.getAttribute("data-series") === String(series));
     }
   };
-  svg.addEventListener("pointermove", (event) => {
+  const rowOf = (event: MouseEvent): number => {
     const box = svg.getBoundingClientRect();
     const px = ((event.clientX - box.left) / box.width) * LINES_SIZE.width - LINES_MARGIN.left;
+    return rowAtPointer(model, plot, px);
+  };
+  svg.addEventListener("pointermove", (event) => {
+    const box = svg.getBoundingClientRect();
     const py = ((event.clientY - box.top) / box.height) * LINES_SIZE.height - LINES_MARGIN.top;
-    row = rowAtPointer(model, plot, px);
+    row = rowOf(event);
     series = nearestSeries(model, plot, row, py);
     show();
   });
+  // A click or Enter picks the stored row on show: a preset that draws more at a row (the
+  // spectrum's scalp maps) listens for `qv-pick` on the figure.
+  const pick = (): void => {
+    root.dispatchEvent(new CustomEvent("qv-pick", { detail: { row } }));
+  };
+
+  // A click picks the row under the click itself, not the last row a pointer moved over.
+  svg.addEventListener("click", (event) => {
+    row = rowOf(event);
+    show();
+    pick();
+  });
   drawing.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      pick();
+      return;
+    }
     const vertical = event.key === "ArrowUp" || event.key === "ArrowDown";
     const next = vertical
       ? step(

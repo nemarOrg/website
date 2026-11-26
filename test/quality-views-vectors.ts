@@ -505,3 +505,35 @@ export function mapOutcome(thetaDeg: number[], radius: number[], values: number[
     ? { word: result.word, notes: [] }
     : { word: null, notes: [...result.map.notes] };
 }
+
+/** Deep equality with numbers compared by `Object.is`: the vectors hold no -0. */
+export function same(actual: unknown, expected: unknown, path = "$"): string | null {
+  if (typeof expected === "number") {
+    return Object.is(actual, expected) ? null : `${path}: ${String(actual)} != ${expected}`;
+  }
+  if (expected === null || typeof expected !== "object") {
+    return actual === expected
+      ? null
+      : `${path}: ${JSON.stringify(actual)} != ${JSON.stringify(expected)}`;
+  }
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(actual) || actual.length !== expected.length) {
+      return `${path}: length ${Array.isArray(actual) ? actual.length : "none"} != ${expected.length}`;
+    }
+    for (let i = 0; i < expected.length; i++) {
+      const fault = same(actual[i], expected[i], `${path}[${i}]`);
+      if (fault) return fault;
+    }
+    return null;
+  }
+  if (typeof actual !== "object" || actual === null || Array.isArray(actual))
+    return `${path}: not an object`;
+  const a = actual as Record<string, unknown>;
+  const e = expected as Record<string, unknown>;
+  const keys = new Set([...Object.keys(a), ...Object.keys(e)]);
+  for (const key of keys) {
+    const fault = same(a[key], e[key], `${path}.${key}`);
+    if (fault) return fault;
+  }
+  return null;
+}

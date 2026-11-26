@@ -248,6 +248,18 @@ const anonymousDeposit = metadata.anonymous === true;
 // for an anonymous deposit, and the page invented the URL straight back. Now an
 // absent URL means every GitHub route is absent, here and in ActionBar.
 const githubUrl = metadata.external_links.github_url;
+
+// The recipe whose recordings carry quality views (website phase W6, nemar-cli ADR 0137): one of
+// the recipes the dataset's quality summary lists (metadata.json `extensions.dataQuality`, served
+// only for promoted derivatives), nemar-ica first since its records declare the views. None: no
+// Recording quality tab and no idle preload.
+const qualityRecipes = Object.keys(
+  ((metadata.extensions?.dataQuality as { recipes?: Record<string, unknown> } | undefined)
+    ?.recipes ?? {}) as Record<string, unknown>,
+);
+const qualityRecipe = qualityRecipes.includes("nemar-ica")
+  ? "nemar-ica"
+  : (qualityRecipes[0] ?? null);
 const issuesUrl = githubUrl ? `${githubUrl}/issues` : null;
 const openneuroId = provenance.kind === "derived" ? (provenance.originalDatasetId ?? null) : null;
 const archiveUrl = selectedVersion ? archiveZipUrl(id, selectedVersion) : null;
@@ -399,6 +411,7 @@ Astro.response.headers.set(
               datasetId={id}
               version={selectedVersion}
               quality={readQualitySummary(metadata, id)}
+              recordingQuality={selectedVersion && qualityRecipe ? { recipe: qualityRecipe, dataBase: resolveDataBase() } : null}
             />
             {selectedVersion && (
               <>
@@ -471,7 +484,18 @@ Astro.response.headers.set(
     zarrPendingPaths,
     zarrStoreByPath,
   } from "../../lib/zarr-index";
-  import { VIEW_PARAM, displayableViewParam } from "../../lib/eeg-viewer/recording-nav";
+  import {
+    VIEW_PARAM,
+    buildRecordingList,
+    displayableViewParam,
+    orderedRecordings,
+    readNavOrder,
+  } from "../../lib/eeg-viewer/recording-nav";
+  import {
+    type SignalMarks,
+    publishRecordings,
+    registerSignalOpener,
+  } from "../../lib/quality-views/panel-bridge";
   import { DIALOG_CLOSE_REQUEST_EVENT } from "../../lib/dialog-close";
   import {
     type LiveViewer,
@@ -536,7 +560,14 @@ Astro.response.headers.set(
    */
   const inlineRowOf = new WeakMap<LiveViewer, { btn: HTMLButtonElement; slot: HTMLElement }>();
 
+  /** Marks the quality panel asked for, for the open it asked for only (W6). */
+  let pendingMarks: { path: string; marks: SignalMarks } | null = null;
+
   const session = createViewerSession({
+    // The mount of the marked recording within that one open is marked; the opener clears the
+    // marks once the open settles, whatever its outcome, so no later open is.
+    mountOptions: ({ path }) =>
+      pendingMarks?.path === path ? { qualityMarks: pendingMarks.marks } : {},
     // Only the dialog is a surface the session's chrome describes: an inline
     // viewer under a tree row is a glance, not a destination (website#326).
     isShowing: () => Boolean(document.querySelector<HTMLDialogElement>("[data-eeg-dialog]")?.open),
@@ -723,6 +754,7 @@ Astro.response.headers.set(
           console.warn(`[zarr/${datasetId}] index unavailable; viewer cache-busting disabled`);
           // No index means no known Zarr copy: the notebook button must not wait forever.
           announceOsaDataset({ id: datasetId, zarr: false });
+          publishRecordings(null);
           return;
         }
         // Computed FIRST and announced before any of the rendering below, which can throw
@@ -754,6 +786,13 @@ Astro.response.headers.set(
             firstPrefetched: false,
           };
           zarrBySection.set(section, state);
+          // The quality panel's recording list is the viewer's, in the visitor's order (W6).
+          publishRecordings(
+            orderedRecordings(buildRecordingList(state.paths), readNavOrder()).map((r) => ({
+              path: r.path,
+              name: r.name,
+            })),
+          );
           annotateZarrRows(section);
           // "View data" action-bar button (website#260): revealed only once the
           // index resolves with at least one store, so a dataset with none
@@ -779,6 +818,7 @@ Astro.response.headers.set(
       })
       .catch((err) => {
         console.warn(`[zarr/${datasetId}] index fetch threw:`, err);
+        publishRecordings(null);
         // Same reasoning as the !index branch above: the notebook button must not wait forever.
         announceOsaDataset({ id: datasetId, zarr: false });
       });
@@ -1413,6 +1453,27 @@ Astro.response.headers.set(
   // the embed route as well. Wired once: the dialog markup is static and
   // outside the tree section that hydration replaces.
   session.wire();
+
+  // The quality panel's Signal tab opens a recording here, with the floor's decisions marked (W6).
+  registerSignalOpener(async (path, marks) => {
+    const section = document.querySelector<HTMLElement>("[data-tree-defer]");
+    if (section) await zarrReadyBySection.get(section);
+    const state = section ? zarrBySection.get(section) : undefined;
+    const datasetId = section?.dataset.id;
+    const version = section?.dataset.version;
+    if (!state || !datasetId || !version) return false;
+    const ctx = sessionContext(datasetId, version, state);
+    const target = ctx.recordings.find((r) => r.path === path);
+    if (!target) return false;
+    pendingMarks = { path, marks };
+    try {
+      await session.openRecording(target, ctx);
+    } finally {
+      // The marks are this open's only: a later open of the recording draws it unmarked.
+      pendingMarks = null;
+    }
+    return true;
+  });
 
   /**
    * Whether closing the enlarge dialog right now would destroy an unsaved

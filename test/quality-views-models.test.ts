@@ -25,7 +25,7 @@ import {
 } from "../src/lib/quality-views/model";
 import { type Montage, parseMontage } from "../src/lib/quality-views/montages";
 import { nodeFs, repoPath } from "./node";
-import { MONTAGES_DIR, mapOutcome } from "./quality-views-vectors";
+import { MONTAGES_DIR, mapOutcome, same } from "./quality-views-vectors";
 
 type Files = Record<string, { text?: string; base64?: string }>;
 interface ModelCase {
@@ -83,38 +83,6 @@ function options(caps?: Record<string, number>) {
       ? { bytes_per_role: 4194304, entries_per_dim: 1024, cells_per_role: 262144, ...caps }
       : undefined,
   };
-}
-
-/** Deep equality with numbers compared by `Object.is`: the vectors hold no -0. */
-function same(actual: unknown, expected: unknown, path = "$"): string | null {
-  if (typeof expected === "number") {
-    return Object.is(actual, expected) ? null : `${path}: ${String(actual)} != ${expected}`;
-  }
-  if (expected === null || typeof expected !== "object") {
-    return actual === expected
-      ? null
-      : `${path}: ${JSON.stringify(actual)} != ${JSON.stringify(expected)}`;
-  }
-  if (Array.isArray(expected)) {
-    if (!Array.isArray(actual) || actual.length !== expected.length) {
-      return `${path}: length ${Array.isArray(actual) ? actual.length : "none"} != ${expected.length}`;
-    }
-    for (let i = 0; i < expected.length; i++) {
-      const fault = same(actual[i], expected[i], `${path}[${i}]`);
-      if (fault) return fault;
-    }
-    return null;
-  }
-  if (typeof actual !== "object" || actual === null || Array.isArray(actual))
-    return `${path}: not an object`;
-  const a = actual as Record<string, unknown>;
-  const e = expected as Record<string, unknown>;
-  const keys = new Set([...Object.keys(a), ...Object.keys(e)]);
-  for (const key of keys) {
-    const fault = same(a[key], e[key], `${path}.${key}`);
-    if (fault) return fault;
-  }
-  return null;
 }
 
 const placedByName = (c: ModelCase): boolean => {

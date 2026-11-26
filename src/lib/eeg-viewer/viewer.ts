@@ -2,6 +2,7 @@ import { isIeegModality, spatialLayout, stackedScopeHeight } from "../ieeg-spati
 // Types only: the panel's code is fetched by `startSpatial` for an iEEG recording, never here.
 import type { GroupInfo, SpatialPanel } from "../ieeg-spatial/panel";
 import { loadMontage } from "../quality-views/montage-loader";
+import type { SignalMarks } from "../quality-views/panel-bridge";
 import type { SensorFieldClient } from "../quality-views/worker-client";
 import { zarrStoreUrl } from "../zarr-base";
 /**
@@ -239,7 +240,28 @@ export interface ViewerOptions {
    * link (ADR 0023).
    */
   spatial?: { datasetId: string; version: string; recording: string };
+  /**
+   * The quality panel's Signal tab (website phase W6): open on the window a `nemar.signal-window`
+   * view names, with the floor's bad channels marked and its bad segments shaded. `prepare` runs
+   * the view's checks against the store once it is open, before anything is drawn; a refusal
+   * shows its sentence in place of the traces and draws nothing.
+   */
+  qualityMarks?: SignalMarks;
 }
+
+/** Whether a channel is drawn dimmed: marked bad by the visitor, or by the floor (website W6). The
+ *  annotation layer reads the visitor's marks alone (`getSelectedChannels`). */
+export function isDimmed(
+  label: string,
+  visitor: ReadonlySet<string>,
+  floor: ReadonlySet<string>,
+): boolean {
+  return visitor.has(label) || floor.has(label);
+}
+
+/** Said when the store holds no channel group the marks name. */
+export const MARKS_GROUP_MISSING =
+  "The recording has no channel group the view names, so the window is not opened.";
 
 /**
  * Smallest scope `fitHeight` will size to (CSS px). Below this the trace area
@@ -561,6 +583,36 @@ export async function mountEegViewer(
     return undefined;
   }
 
+  // The floor's marks (website W6), checked against the store before anything is drawn.
+  let marked: Extract<Awaited<ReturnType<SignalMarks["prepare"]>>, { ok: true }> | null = null;
+  let markedGroup = 0;
+  if (opts.qualityMarks) {
+    const marks = opts.qualityMarks;
+    markedGroup = marks.group === null ? 0 : store.groups.findIndex((g) => g.name === marks.group);
+    const g = store.groups[markedGroup];
+    const prepared = g
+      ? await marks.prepare({
+          labels: g.channelsByRow.map((c) => c.label),
+          samples: g.nSamples,
+          rate: g.rate,
+        })
+      : { ok: false as const, sentence: MARKS_GROUP_MISSING };
+    if (opts.isStale?.() || abortController.signal.aborted) return undefined;
+    if (!prepared.ok) {
+      const root = document.createElement("div");
+      root.className = "eegv";
+      const message = document.createElement("p");
+      message.className = "eegv__msg";
+      message.dataset.eegvMarksRefused = "";
+      message.textContent = prepared.sentence;
+      root.append(message);
+      slot.replaceChildren(root);
+      return undefined;
+    }
+    marked = prepared;
+  }
+  let shaded: { startS: number; endS: number; label: string }[] = [];
+
   let eventTypes: EventType[] = [];
 
   // --- state ---------------------------------------------------------------
@@ -598,6 +650,12 @@ export async function mountEegViewer(
   let butterfly = false;
   let hideBad = false;
   const badChannels = new Set<string>();
+  // The floor's bad channels (the quality panel's marks, website W6): dimmed like a channel the
+  // visitor marked, but never one of the visitor's marks, so the annotation layer never counts them.
+  const floorBad = new Set<string>();
+  /** Whether "Hide bad" hides a channel: the one rule the montage and its readout share, so the
+   *  count said is the channels taken out. */
+  const hidden = (label: string): boolean => hideBad && isDimmed(label, badChannels, floorBad);
 
   // Background preload (website#254): a byte-capped cache of decoded windows
   // ("segments" -- fixed-width slices of the recording, currently the window
@@ -799,6 +857,34 @@ export async function mountEegViewer(
   filters.notch = usableCutoff(Number(ui.notch.value) || null);
   ui.notch.value = String(filters.notch ?? 0);
   applyTransfer(opts.transfer);
+  if (marked) {
+    groupIndex = markedGroup;
+    if (ui.groupSel) ui.groupSel.value = String(markedGroup);
+    chanCount = store.groups[markedGroup].nChannels;
+    const length =
+      WINDOW_CHOICES.find((choice) => choice >= marked.durationS) ??
+      WINDOW_CHOICES[WINDOW_CHOICES.length - 1];
+    windowLengthS = length;
+    ui.win.value = String(length);
+    windowStartS = marked.startS;
+    for (const label of marked.badChannels) floorBad.add(label);
+    shaded = marked.segments.map((s) => ({
+      startS: s.onset,
+      endS: s.onset + s.duration,
+      label: s.label,
+    }));
+    const said = document.createElement("p");
+    said.className = "eegv__marks";
+    said.dataset.eegvMarks = "";
+    const bad = marked.badChannels.length
+      ? `Marked bad by the floor (dimmed): ${marked.badChannels.join(", ")}.`
+      : "The floor marked no channel bad.";
+    const spans = marked.segments.length
+      ? `${marked.segments.length} bad segments of the floor are shaded.`
+      : "";
+    said.textContent = [bad, spans, marked.note].filter(Boolean).join(" ");
+    ui.root.prepend(said);
+  }
   const maybeCtx = ui.canvas.getContext("2d");
   if (!maybeCtx) {
     renderUnavailable(slot, opts, new Error("canvas 2D unavailable"));
@@ -1423,10 +1509,7 @@ export async function mountEegViewer(
     // shrank within every render, and in a `fitHeight` viewer each wrap of
     // the toolbar moved the plot and started another render.
     const visible = g.channelsByRow.slice(chanStart, visEnd);
-    const hiddenInView =
-      hideBad && badChannels.size > 0
-        ? visible.filter((ch) => badChannels.has(ch.label)).length
-        : 0;
+    const hiddenInView = visible.filter((ch) => hidden(ch.label)).length;
     const chanRange =
       visEnd - chanStart >= g.nChannels
         ? `all ${g.nChannels}`
@@ -1517,7 +1600,7 @@ export async function mountEegViewer(
           ? channelColor(ch.channelType)
           : channelColor(ch.modality);
       const cw = win.channels[i];
-      const dim = badChannels.has(ch.label);
+      const dim = isDimmed(ch.label, badChannels, floorBad);
       if (cw.kind === "line") {
         const line = dcRemove ? removeDcInPlace(cw.line.slice()) : cw.line;
         return { label: ch.label, color, kind: "line" as const, line, dim };
@@ -1531,8 +1614,9 @@ export async function mountEegViewer(
     // the full height) rather than only dimming them in place. Never blank the scope
     // if every visible channel is marked bad. The readout's count was written
     // before the read, from the same rows.
-    if (hideBad && badChannels.size > 0) {
-      const kept = channels.filter((c) => !badChannels.has(c.label));
+    // "Hide bad" hides the floor's marks too, as it hid every bad channel before W6.
+    if (hideBad) {
+      const kept = channels.filter((c) => !hidden(c.label));
       if (kept.length > 0) channels = kept;
     }
 
@@ -1543,6 +1627,7 @@ export async function mountEegViewer(
       windowEndS: end,
       events:
         showEvents && store.events ? eventsInWindow(store.events, eventTypes, start, end) : [],
+      shaded: shaded.filter((span) => span.endS > start && span.startS < end),
       physPerDiv: defaultScaling(modality),
       unitBase: ELECTRIC.has(modality) ? "V" : "T",
       timeClock,

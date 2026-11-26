@@ -1,6 +1,8 @@
 /**
  * Size budgets of the quality views' browser code (website ADR 0035 decision 1), checked after the
- * build: the sensor-field worker at most 12 KB gzipped, and the code a page loads on its main
+ * build. THE GATE IS THE REAL SITE BUILD (dist/_astro): each panel tab's first-screen union and every
+ * lazy root at 30 KB on the main thread, the worker with its lazy chunks at 16 KB. The entry build
+ * below is printed for reference and not gated. the sensor-field worker with the lazy chunks one tab loads at most 16 KB gzipped, and the code a page loads on its main
  * thread to draw views (the lazy chunk and every chunk it imports) at most 30 KB gzipped.
  *
  *   bunx astro build && bun scripts/check-quality-views-size.mjs --require-build   (CI)
@@ -62,9 +64,90 @@ function measure(label, dir) {
   return measured;
 }
 
+/**
+ * The panel's first screens in the real site build (website W6), as the entry build's below: the
+ * panel's chunk, each tab's lazy chunks, and every chunk they import statically, gzipped together.
+ * Chunks are found by the name Vite gives them from their module (`lines.<hash>.js`, ...), the
+ * panel's by a sentence of its own. The
+ * idle preload's chunk is left out (it is parsed in idle time before the panel opens), and so are
+ * the island script and Vite's preload helper, which load with the page itself.
+ */
+function siteUnions(dir) {
+  const files = scripts(dir);
+  // The module worker with every lazy chunk it loads, gzipped together, at the worker budget (16 KB,
+  // the owner's ruling for W7): today every tab's worker work is the one lazy chunk.
+  const workers = new Set();
+  for (const bytes of files.values()) {
+    for (const m of bytes
+      .toString("utf8")
+      .matchAll(/new Worker\(\s*new URL\(\s*["']([^"']+\.js)["']/g)) {
+      workers.add(m[1].replace(/^.*\//, ""));
+    }
+  }
+  for (const name of workers) {
+    if (!files.has(name)) continue;
+    const set = staticClosure(
+      [name, ...dynamicImports(files.get(name).toString("utf8"), files)],
+      files,
+    );
+    const all = [...set].map((n) => files.get(n));
+    results.push({
+      label: `site build: worker ${name} with its lazy chunks, ${set.size} files gzipped together`,
+      size: gzipped(Buffer.concat(all)),
+      raw: all.reduce((sum, b) => sum + b.length, 0),
+      budget: BUDGET.worker,
+    });
+  }
+  // The quality panel's chunk by a sentence only it holds (another component's chunk is also named
+  // `panel`); the others by their unique names.
+  const MARKER = "Loading the recording's quality views";
+  const named = (stem) =>
+    stem === "panel"
+      ? [...files.keys()].find((name) => files.get(name).toString("utf8").includes(MARKER))
+      : [...files.keys()].find((name) => name.startsWith(`${stem}.`));
+  for (const [tab, stems] of [
+    ["Spectrum tab", ["panel", "lines", "sensor-field-view", "spectrum"]],
+    ["Components tab", ["panel", "sensor-field-view", "histogram", "components"]],
+    [
+      "Spectrum tab with no idle preload",
+      ["panel", "lines", "sensor-field-view", "spectrum", "quality-api"],
+    ],
+    [
+      "Components tab with no idle preload",
+      ["panel", "sensor-field-view", "histogram", "components", "quality-api"],
+    ],
+  ]) {
+    const roots = stems.map(named);
+    if (roots.some((name) => !name)) {
+      results.push({
+        label: `site build: first screen, ${tab}: a chunk of ${stems.join(", ")} is missing`,
+        size: 1,
+        raw: 0,
+        budget: 0,
+      });
+      continue;
+    }
+    // The page's own island script (and Vite's preload helper it imports) loads with the page,
+    // before any panel opens, as the idle preload's chunk does: not the panel's first screen.
+    const island = [...files.keys()].find((name) =>
+      name.startsWith("QualityPanel.astro_astro_type_script"),
+    );
+    const page = island ? staticClosure([island], files) : new Set();
+    const set = new Set([...staticClosure(roots, files)].filter((name) => !page.has(name)));
+    const all = [...set].map((name) => files.get(name));
+    results.push({
+      label: `site build: first screen, ${tab}, ${set.size} files gzipped together`,
+      size: gzipped(Buffer.concat(all)),
+      raw: all.reduce((sum, b) => sum + b.length, 0),
+      budget: BUDGET.mainThread,
+    });
+  }
+}
+
 // 1. The site build.
 const astroDir = join(repo, "dist", "_astro");
 if (existsSync(astroDir)) {
+  siteUnions(astroDir);
   const { clients } = measure("site build", astroDir);
   if (clients.length === 0) {
     console.error(
@@ -78,6 +161,12 @@ if (existsSync(astroDir)) {
 } else {
   notes.push("No dist/: run `bunx astro build` first to measure the site build too.");
 }
+
+// Everything measured so far is the real site build: the gate (website ADR 0035 decision 1, "checked
+// after the build", and its W6 addendum). What follows, the site's own Vite building the modules as
+// an entry, is printed and NOT gated: its unions carry the build's own entry chunk and only a few
+// dozen bytes of headroom, which W7's first commit would break, and no page loads them as built.
+const gatedCount = results.length;
 
 // 2. The site's own Vite, building the client and the color maps as an entry.
 const requireFromAstro = createRequire(join(repo, "node_modules", "astro", "package.json"));
@@ -96,11 +185,18 @@ try {
       "model.ts",
       "checks.ts",
       "render/index.ts",
-      // The idle-time preload a dataset page runs before the panel opens (W6's trigger).
-      "prepare-ahead.ts",
+      // The dataset page's per-recording panel (W6): its island, the route's client and the
+      // record, and the files the idle preload kept (preloaded.ts). Each tab's presets
+      // (extras/) and the Signal tab's checks are lazy chunks of their own, measured below.
+      "preloaded.ts",
+      "panel.ts",
     ]
       .map((file) => `export * from ${JSON.stringify(join(lib, file))};\n`)
-      .join(""),
+      .join("") +
+      // The idle preload (W6) is a chunk of its own that the page loads in idle time at page load,
+      // before the panel opens, so its code is parsed and compiled ahead of the panel's first
+      // screen and is not part of it; it is measured on its own below.
+      `export const idlePreload = () => import(${JSON.stringify(join(lib, "preload.ts"))});\n`,
   );
   const outDir = join(scratch, "out");
   const output = await vite.build({
@@ -126,7 +222,11 @@ try {
   const entries = readdirSync(outDir).filter((name) => /^measured-entry-[\w-]+\.js$/.test(name));
   if (entries.length !== 1) throw new Error(`the entry build wrote ${entries.length} entry chunks`);
   measure(`Vite ${vite.version} entry build`, outDir);
-  lazyRenderers(`Vite ${vite.version} entry build`, Array.isArray(output) ? output[0] : output, outDir);
+  lazyRenderers(
+    `Vite ${vite.version} entry build`,
+    Array.isArray(output) ? output[0] : output,
+    outDir,
+  );
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }
@@ -139,7 +239,9 @@ try {
  * set, and each such chunk is measured the same way.
  */
 function lazyRenderers(label, rollup, dir) {
-  const chunks = new Map(rollup.output.filter((o) => o.type === "chunk").map((c) => [c.fileName, c]));
+  const chunks = new Map(
+    rollup.output.filter((o) => o.type === "chunk").map((c) => [c.fileName, c]),
+  );
   const entry = [...chunks.values()].find((c) => c.isEntry);
   const closure = (start) => {
     const seen = new Set();
@@ -153,7 +255,9 @@ function lazyRenderers(label, rollup, dir) {
     return seen;
   };
   const base = closure(entry.fileName);
-  const lazyKind = /\/quality-views\/(render\/|export\/|transforms\/|activations\.ts)/;
+  const shell = entry.moduleIds.every((id) => id.endsWith("/measured.ts")) ? entry.fileName : null;
+  const lazyKind =
+    /\/quality-views\/(render\/|export\/|transforms\/|activations\.ts|extras\/|quality-api\.ts)/;
   // Only when the worker cannot start does the page check views itself (local-checks.ts, which
   // loads the guards); that set is printed, not gated, since no first screen loads it.
   const fallbackKind = /\/quality-views\/(local-checks\.ts|guards-computed\.ts)/;
@@ -192,10 +296,14 @@ function lazyRenderers(label, rollup, dir) {
     return { size, raw, together: gzipped(Buffer.concat(all)) };
   };
   const ownOf = (chunk, kind) =>
-    chunk.moduleIds.filter((id) => kind.test(id)).map((id) => id.replace(/^.*\/quality-views\//, ""));
+    chunk.moduleIds
+      .filter((id) => kind.test(id))
+      .map((id) => id.replace(/^.*\/quality-views\//, ""));
   /** The lazy chunk holding a module of this path, by file name. */
   const holding = (path) =>
-    [...lazy].find((name) => chunks.get(name)?.moduleIds.some((id) => id.endsWith(`/quality-views/${path}`)));
+    [...lazy].find((name) =>
+      chunks.get(name)?.moduleIds.some((id) => id.endsWith(`/quality-views/${path}`)),
+    );
   let measured = 0;
   for (const name of [...lazy].sort()) {
     const chunk = chunks.get(name);
@@ -221,10 +329,34 @@ function lazyRenderers(label, rollup, dir) {
   // What a first screen loads, gated as one union gzipped together (the review of #594): each
   // tab's renderers with the entry. The sum of each file's own gzip is printed beside it.
   for (const [tab, paths] of [
-    ["Spectrum tab (lines and scalp maps)", ["render/lines.ts", "render/sensor-field-view.ts"]],
-    ["Components tab (scalp maps and histogram)", ["render/sensor-field-view.ts", "render/histogram.ts"]],
+    // With the panel's extras for the tab's presets (W6): the spectrum's maps, the components'
+    // text rows and the classes' counts, each a lazy chunk of its own.
+    [
+      "Spectrum tab (lines, scalp maps, the spectrum's extras)",
+      ["render/lines.ts", "render/sensor-field-view.ts", "extras/spectrum.ts"],
+    ],
+    [
+      "Components tab (scalp maps, histogram, the components' extras)",
+      ["render/sensor-field-view.ts", "render/histogram.ts", "extras/components.ts"],
+    ],
+    // Without the idle preload (a data-saving connection), the panel reads the record itself.
+    [
+      "Spectrum tab with no idle preload (and the record's reader)",
+      ["render/lines.ts", "render/sensor-field-view.ts", "extras/spectrum.ts", "quality-api.ts"],
+    ],
+    [
+      "Components tab with no idle preload (and the record's reader)",
+      [
+        "render/sensor-field-view.ts",
+        "render/histogram.ts",
+        "extras/components.ts",
+        "quality-api.ts",
+      ],
+    ],
   ]) {
-    const set = new Set(base);
+    // The measurement's own entry chunk (its list of re-exports, which no page loads) is left out
+    // when it holds nothing but the synthetic entry module.
+    const set = new Set([...base].filter((name) => name !== shell));
     for (const path of paths) {
       const name = holding(path);
       if (!name) throw new Error(`${label}: no lazy chunk holds ${path}`);
@@ -233,6 +365,18 @@ function lazyRenderers(label, rollup, dir) {
     const { size, raw, together } = sizeOf(set);
     results.push({
       label: `${label}: first screen, ${tab}, ${set.size} files gzipped together (${kb(size)} as separate files)`,
+      size: together,
+      raw,
+      budget: BUDGET.mainThread,
+    });
+  }
+  // The idle preload on its own: what the page loads in idle time before the panel opens.
+  {
+    const name = holding("preload.ts");
+    if (!name) throw new Error(`${label}: no lazy chunk holds preload.ts`);
+    const { size, raw, together } = sizeOf(closure(name));
+    results.push({
+      label: `${label}: the idle preload (preload.ts with its static imports), gzipped together (${kb(size)} as separate files)`,
       size: together,
       raw,
       budget: BUDGET.mainThread,
@@ -248,7 +392,9 @@ function lazyRenderers(label, rollup, dir) {
   );
   const moduleWorkers = new Set();
   for (const bytes of files.values()) {
-    for (const m of bytes.toString("utf8").matchAll(/new Worker\(\s*new URL\(\s*["']([^"']+\.js)["']/g)) {
+    for (const m of bytes
+      .toString("utf8")
+      .matchAll(/new Worker\(\s*new URL\(\s*["']([^"']+\.js)["']/g)) {
       moduleWorkers.add(m[1].replace(/^.*\//, ""));
     }
   }
@@ -274,10 +420,12 @@ function lazyRenderers(label, rollup, dir) {
 }
 
 for (const note of notes) console.log(note);
-for (const r of results) {
+results.forEach((r, i) => {
   const over = r.size > r.budget;
+  const gated = i < gatedCount;
+  const mark = over ? (gated ? "OVER" : "over (printed, not gated)") : gated ? "ok  " : "info";
   console.log(
-    `${over ? "OVER" : "ok  "} ${r.label}: ${kb(r.size)} gzipped (${kb(r.raw)} minified), budget ${kb(r.budget)}`,
+    `${mark} ${r.label}: ${kb(r.size)} gzipped (${kb(r.raw)} minified), budget ${kb(r.budget)}`,
   );
-}
-if (results.some((r) => r.size > r.budget)) process.exit(1);
+});
+if (results.slice(0, gatedCount).some((r) => r.size > r.budget)) process.exit(1);

@@ -14,14 +14,18 @@ import DatasetQualitySummary from "./quality/DatasetQualitySummary.astro";
  * delegated click + keydown handler implementing the WAI-ARIA tabs
  * pattern (left/right cycle with wrap, Home/End to jump to ends).
  */
+import QualityPanel from "./quality/QualityPanel.astro";
+
 interface Props {
   datasetId: string;
   version: string | null;
   /** The dataset quality summary as `readQualitySummary` read it; no tab when it shows nothing. */
   quality?: QualitySummary;
+  /** The per-recording quality panel's recipe and data plane (website W6), or null for none. */
+  recordingQuality?: { recipe: string; dataBase: string } | null;
 }
 
-const { datasetId, version, quality } = Astro.props;
+const { datasetId, version, quality, recordingQuality = null } = Astro.props;
 const showQuality = quality !== undefined && quality.kind !== "none";
 // Per-dataset id prefix so multiple instances of this component on the
 // same page wouldn't collide on hardcoded tab/panel ids. Today only one
@@ -39,6 +43,11 @@ const idp = `dt-${datasetId}`;
     {showQuality && (
       <button class="dtabs__tab" role="tab" id={`${idp}-tab-qa`} aria-controls={`${idp}-panel-qa`} aria-selected="false" tabindex="-1" type="button">
         Data quality
+      </button>
+    )}
+    {recordingQuality && version && (
+      <button class="dtabs__tab" role="tab" id={`${idp}-tab-rq`} aria-controls={`${idp}-panel-rq`} aria-selected="false" tabindex="-1" type="button" data-quality-tab>
+        Recording quality
       </button>
     )}
   </div>
@@ -59,6 +68,12 @@ const idp = `dt-${datasetId}`;
   {showQuality && (
     <div class="dtabs__panel" role="tabpanel" id={`${idp}-panel-qa`} aria-labelledby={`${idp}-tab-qa`} tabindex="0" hidden>
       <DatasetQualitySummary summary={quality!} idPrefix={`${idp}-qs`} />
+    </div>
+  )}
+
+  {recordingQuality && version && (
+    <div class="dtabs__panel" role="tabpanel" id={`${idp}-panel-rq`} aria-labelledby={`${idp}-tab-rq`} hidden>
+      <QualityPanel datasetId={datasetId} version={version} recipe={recordingQuality.recipe} dataBase={recordingQuality.dataBase} />
     </div>
   )}
 </section>
@@ -200,7 +215,8 @@ const idp = `dt-${datasetId}`;
     });
   }
 
-  document.querySelectorAll<HTMLElement>('[role="tablist"]').forEach(bindTablist);
+  // The summary's own tab lists only: the quality panel inside one of its panels has its own.
+  document.querySelectorAll<HTMLElement>('.dtabs__list[role="tablist"]').forEach(bindTablist);
   document.querySelectorAll<HTMLElement>("[data-demo-defer]").forEach((el) => void hydrateDemographics(el));
 </script>
 

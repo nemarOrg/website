@@ -35,8 +35,21 @@ export interface FrameEvent {
   color: string;
 }
 
+/** A span the frame shades: a bad segment of the floor's, from the quality panel (website W6). */
+export interface FrameShade {
+  startS: number;
+  endS: number;
+  label: string;
+}
+
+/** The fill of a shaded span: a warm tint that reads on the light and the dark plot. */
+export const SHADE_FILL = "rgba(217, 70, 39, 0.16)";
+export const SHADE_EDGE = "rgba(217, 70, 39, 0.7)";
+
 export interface ViewerFrame {
   channels: FrameChannel[];
+  /** Spans to shade under the event lines (the floor's bad segments); absent or empty: none. */
+  shaded?: FrameShade[];
   /** Horizontal sample columns in this frame (~ plot width in CSS px). */
   nCols: number;
   windowStartS: number;
@@ -434,6 +447,7 @@ function drawEventLines(
   plotWidth: number,
   plotHeight: number,
 ): void {
+  drawShaded(ctx, frame, plotLeft, plotTop, plotWidth, plotHeight);
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   ctx.font = "8px ui-monospace, SFMono-Regular, Menlo, monospace";
@@ -470,6 +484,47 @@ function drawEventLines(
     ctx.textBaseline = "middle";
     ctx.fillText(ev.label.slice(0, 10), 3, 0);
     ctx.restore();
+  }
+}
+
+/** The rectangles of the spans of `frame.shaded` the window shows, clipped to the plot: at least
+ *  a pixel wide, so a short bad segment is never left unmarked. */
+export function shadedRects(
+  frame: ViewerFrame,
+  plotLeft: number,
+  plotWidth: number,
+): { x: number; width: number; label: string }[] {
+  const at = (t: number) =>
+    Math.min(
+      plotLeft + plotWidth,
+      Math.max(plotLeft, timeToX(t, frame.windowStartS, frame.windowEndS, plotLeft, plotWidth)),
+    );
+  return (frame.shaded ?? [])
+    .filter((span) => span.endS > frame.windowStartS && span.startS < frame.windowEndS)
+    .map((span) => {
+      const x = at(span.startS);
+      return { x, width: Math.max(at(span.endS), x + 1) - x, label: span.label };
+    });
+}
+
+/** Shade each span `shadedRects` gives, with its label at the bottom edge. */
+export function drawShaded(
+  ctx: CanvasRenderingContext2D,
+  frame: ViewerFrame,
+  plotLeft: number,
+  plotTop: number,
+  plotWidth: number,
+  plotHeight: number,
+): void {
+  for (const { x, width, label } of shadedRects(frame, plotLeft, plotWidth)) {
+    ctx.fillStyle = SHADE_FILL;
+    ctx.fillRect(x, plotTop, width, plotHeight);
+    ctx.fillStyle = SHADE_EDGE;
+    ctx.fillRect(x, plotTop + plotHeight - 2, width, 2);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "bottom";
+    ctx.font = "8px ui-monospace, SFMono-Regular, Menlo, monospace";
+    ctx.fillText(label.slice(0, 16), x + 2, plotTop + plotHeight - 3);
   }
 }
 

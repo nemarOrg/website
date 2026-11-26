@@ -14,6 +14,8 @@ export const VIEW_SENTENCES: Readonly<Record<string, string>> = {
     "A file this view reads does not have the size NEMAR recorded, so it is not drawn.",
   file_digest_mismatch:
     "A file this view reads does not match the digest NEMAR recorded, so it is not drawn.",
+  view_digest_mismatch:
+    "This view's declaration does not match the digest NEMAR recorded, so it is not drawn.",
   cap_exceeded: "The data exceed the size limits for a drawn view.",
   tsv_encoding: "A table file is not plain UTF-8 text.",
   tsv_line_endings: "A table file has carriage returns or no final line ending.",

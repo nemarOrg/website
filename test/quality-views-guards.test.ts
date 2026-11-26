@@ -6,7 +6,8 @@
  * The corpus's other schemas (`dataQuality`, the data paper and the dataset document) are not read
  * by the drawing; they are counted here so a new schema in the corpus is a decision, not a silent
  * skip. The data paper and the root are replayed by test/quality-views-dataset-guards.test.ts
- * (W5); the `dataQuality` cases are recording entries, which the panel reads (W6).
+ * (W5); the `dataQuality` cases are recording entries, which the panel reads and
+ * test/quality-views-record.test.ts replays (W6).
  */
 
 import { describe, expect, it } from "vitest";
@@ -30,7 +31,7 @@ const corpus = JSON.parse(
 
 /** Schemas the drawing does not read, with the phase that does. */
 const NOT_DRAWN: Readonly<Record<string, string>> = {
-  dataQuality: "W6",
+  dataQuality: "W6 (test/quality-views-record.test.ts)",
   "definitions/dataPaper.schema.json": "test/quality-views-dataset-guards.test.ts",
   "neuroschema.schema.json": "test/quality-views-dataset-guards.test.ts",
 };
