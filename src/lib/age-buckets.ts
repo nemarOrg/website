@@ -4,12 +4,7 @@
  * alphabet `participants.ts` produces.
  */
 
-/**
- * Bucket ages into ranges split by sex. `bucketWidth` and `bucketStart`
- * control the bin geometry; default to the legacy 10-year buckets starting
- * at zero. Callers that want bins fit to a dataset's actual age span
- * should use `pickAgeBuckets(ages)` and pass both values explicitly.
- */
+/** One age range with its participant counts by sex. */
 export interface AgeBucket {
   label: string;
   lo: number;
@@ -19,6 +14,12 @@ export interface AgeBucket {
   O: number;
 }
 
+/**
+ * Bucket ages into ranges split by sex. `bucketWidth` and `bucketStart`
+ * control the bin geometry; default to the legacy 10-year buckets starting
+ * at zero. Callers that want bins fit to a dataset's actual age span
+ * should use `pickAgeBuckets(ages)` and pass both values explicitly.
+ */
 export function bucketAgesBySex(
   ages: number[],
   sexes: Array<"M" | "F" | "O" | null>,
