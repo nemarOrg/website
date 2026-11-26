@@ -1338,6 +1338,33 @@ const activityPlotStyle = (page: Page) =>
       ".qp-activity__plot{position:relative;inline-size:100%;block-size:240px}.qp-activity__plot canvas{position:absolute;inset:0;inline-size:100%;block-size:100%}",
   });
 
+test("the Signal window's files are asked for as its export opens; Save makes no request", async ({
+  page,
+}) => {
+  const urls = recordRequests(page);
+  await mount(page);
+  await page.locator('[data-qp-tab="signal"]').click();
+  await ready(page);
+  const view = page.locator('[data-qp-view="midsegment"]');
+  const before = await dataRequests(page);
+  await view.locator("details.qv-export > summary").click();
+  const names = ["_channels.tsv", "_badsegments.tsv"].map((suffix) => [
+    suffix,
+    files[shaOf(suffix)].location.split("/").pop()!,
+  ]);
+  await expect(view.getByRole("button", { name: `Save ${names[0][1]}` })).toBeVisible();
+  // Opening the controls asked for both files, once each.
+  await expect.poll(() => dataRequests(page)).toBe(before + 2);
+  await page.waitForTimeout(300);
+  const asked = { urls: urls.length, data: await dataRequests(page) };
+  for (const [suffix, name] of names) {
+    const bytes = await saved(page, view.getByRole("button", { name: `Save ${name}` }));
+    expect(bytes.equals(read(`files/${shaOf(suffix)}`))).toBe(true);
+  }
+  expect(urls.slice(asked.urls)).toEqual([]);
+  expect(await dataRequests(page)).toBe(asked.data);
+});
+
 test.describe("the Activations export", () => {
   test("saves the drawn window as a light PNG naming the view and the window, with no request", async ({
     page,
@@ -1364,6 +1391,13 @@ test.describe("the Activations export", () => {
     expect(texts["nemar:window-start-s"]).toBe("0");
     expect(texts["nemar:window-length-s"]).toBe("10");
     expect(texts["nemar:color-maps"]).toBeUndefined();
+    // The tab's notes, ADR 0137 decision 9's captions: the store digest's state, the display
+    // filter, and the spans shaded in this window.
+    expect(texts["nemar:notes"]).toContain("not checked against a digest NEMAR recorded");
+    expect(texts["nemar:notes"]).toContain("1 Hz high-pass for display only");
+    expect(texts["nemar:notes"]).toContain(
+      "5 spans ASR repaired in this window are shaded (burst).",
+    );
     // The window is in the picture: 18 components draw 354 px of traces, twice that at 2×.
     const header = new DataView(chunks[0].data.buffer, chunks[0].data.byteOffset);
     expect(header.getUint32(4)).toBeGreaterThan(2 * 354);
