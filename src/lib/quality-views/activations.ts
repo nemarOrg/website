@@ -356,7 +356,14 @@ export async function drawActivity(a: Activity, canvas: ActivityCanvas, label: s
  *  click, so it saves the window on show. */
 export const shownActivity = new WeakMap<
   Element,
-  () => { readonly activity: Activity; readonly label: string }
+  () => {
+    readonly activity: Activity;
+    readonly label: string;
+    /** The notes the figure prints under the window, in order: what was computed, the display
+     *  filter, the store digest's state, the archive and transform captions, and the shaded
+     *  spans (ADR 0137 decision 9's captions). */
+    readonly notes: readonly string[];
+  }
 >();
 
 /** The window an activity covers, in seconds: its first sample's time and its length. */

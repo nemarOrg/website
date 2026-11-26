@@ -10,8 +10,8 @@
  *   (`svg.ts`). Both are one chunk (`picture.ts`), loaded as the controls open.
  * - **Each file** of the view, the exact bytes checked against their size and SHA-256.
  *
- * No export makes a request: the picture is painted from what the page drew, and the files come
- * from the source the page drew with. A result, or the reason there is none, is said in a status
+ * No export makes a request at its click: the picture is painted from what the page drew, and the
+ * files come from the source the page drew with, each asked for as the controls open. A result, or the reason there is none, is said in a status
  * line read aloud.
  */
 
@@ -111,9 +111,11 @@ async function shownWindow(figure: Element) {
       painter: (colors: Parameters<typeof m.activityPainter>[2]) =>
         m.activityPainter(shown.activity, shown.label, colors),
     },
+    notes: shown.notes,
     extra: [
       ["nemar:window-start-s", String(startS)],
       ["nemar:window-length-s", String(lengthS)],
+      ["nemar:notes", shown.notes.join(" ")],
     ] as const,
   };
 }
@@ -231,6 +233,7 @@ export function fillExport(host: HTMLElement, input: ExportInput): void {
           fields: viewFields(input),
           heatmap: heatmapOf(input),
           activity: window?.picture,
+          notes: window?.notes,
         },
         scale,
       );
@@ -259,6 +262,10 @@ export function fillExport(host: HTMLElement, input: ExportInput): void {
   }
 
   const files = downloadsOf(view);
+  // Asked for now, as the controls open, through the source the view was drawn with, which keeps
+  // what it read: a file the view did not read itself (the Signal window's tables) is then saved
+  // with no request at the click. A file it read is already held.
+  for (const file of files) void input.files(file).catch(() => {});
   if (files.length > 0) {
     const list = el("ul");
     list.className = "qv-export-files";

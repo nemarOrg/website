@@ -165,6 +165,9 @@ export interface PictureInput {
       grid: string;
     }): Promise<(ctx: CanvasRenderingContext2D, width: number, height: number) => void>;
   } | null;
+  /** Notes printed under the drawing, before the lines naming the view (a computed view's
+   *  captions). */
+  readonly notes?: readonly string[];
 }
 
 /** Whether a view has a picture to export: a drawing, a heatmap or a drawn map. */
@@ -216,6 +219,9 @@ export async function paintPicture(
       grid: LIGHT.grid,
     });
     parts.push({ height, paint: (c) => paint(c, inner, height) });
+  }
+  for (const note of input.notes ?? []) {
+    parts.push(textPart(ctx, note, inner, `12px ${FONT}`, LIGHT.muted));
   }
   if (input.fields.length > 0) {
     const { mapParts } = await import("./maps-part");
