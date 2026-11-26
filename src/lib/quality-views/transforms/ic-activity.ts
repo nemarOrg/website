@@ -10,13 +10,17 @@
  * The kind then passes each component through a zero-phase Butterworth high-pass of order 2, for
  * display only, over the window and up to a second of real context on each side.
  *
- * Two steps, so the page reads the store's samples only for a view that passed every check:
- * - `planActivity`: checks 2 to 13 of the specification, in its order (the page has run the first,
- *   the kind and the declaration, and fetched the files without reading them), the first that fails
- *   giving the word: the inputs' locations, the decomposition's store, each file's declared size
- *   against the cap, presence, size and SHA-256, the store digest, the rate, the window, the
- *   matrix, the components, the bad segments, the channel match, the units, the filter.
- * - `computeActivity`: the multiply and the filter over the stretch the plan names.
+ * Three steps, so a view whose tables or files are not the record's is refused before the page
+ * opens the store, and the store's samples are read only for a view that passed every check:
+ * - `prepareActivity`: checks 2 to 4 (the inputs' locations, the decomposition's store, each
+ *   file's declared size against the cap, its presence, size and SHA-256), the page having run the
+ *   first (the kind and the declaration) and fetched the files without reading them. The checked
+ *   tables are read once and kept, by their digests, for the view's windows.
+ * - `planActivity`: per window, checks 5 to 13 (the store digest, the rate, the window, the
+ *   matrix, the components, the bad segments, the channel match, the units, the filter), the
+ *   first that fails giving the word, on the tables kept.
+ * - `computeActivity` (`activityJob`, one component at a time, so the worker can stop): the
+ *   multiply and the filter over the stretch the plan names.
  *
  * Arithmetic follows the specification's order in binary64, each product and sum rounded, no
  * fused multiply-add. `views/vectors/ic-activity.v1.json` holds it to `neuroschema.views.ic_activity`
@@ -27,14 +31,15 @@ import { readSegments, recipeLabel, tableIsRecordings } from "../floor-tables";
 import { KindRefused, cellValue, cells, readTsv } from "../read";
 import { subtleSha256 } from "../verify";
 
-/** The factor to microvolts of each unit a store row or a matrix may state. */
-export const MICROVOLTS_PER: Readonly<Record<string, number>> = {
-  V: 1e6,
-  mV: 1e3,
-  uV: 1,
-  µV: 1,
-  μV: 1,
-};
+/** The factor to microvolts of each unit a store row or a matrix may state, looked up as its
+ *  own entries only (a unit named `toString` or `constructor` is no unit). */
+export const MICROVOLTS_PER: ReadonlyMap<unknown, number> = new Map([
+  ["V", 1e6],
+  ["mV", 1e3],
+  ["uV", 1],
+  ["µV", 1],
+  ["μV", 1],
+]);
 
 /** scipy's `filtfilt` pad for order 2, 3 · (order + 1). */
 const PADDING = 9;
@@ -55,21 +60,31 @@ export interface ActivityStoreMeta {
  *  declared size is over the cap), not yet checked. */
 export type ActivityFiles = Readonly<Record<string, Uint8Array | null>>;
 
-export interface PlanInput {
+/** The registry's caps the transform reads. */
+export interface ActivityCaps {
+  readonly bytes_per_role: number;
+  readonly entries_per_dim: number;
+  readonly cells_per_role: number;
+}
+
+/** Checks 2 to 4 (`prepareActivity`): the declaration and the files' bytes as fetched. */
+export interface PrepareInput {
   /** The declaration, its kind and its schema checked (check 1). */
   readonly view: unknown;
   readonly files: ActivityFiles;
+  readonly caps: ActivityCaps;
+}
+
+export interface PlanInput {
+  /** The declaration, prepared (`prepareActivity`) with the same caps. */
+  readonly view: unknown;
   readonly store: ActivityStoreMeta;
   /** Samples `[start, start + count)` of the store. */
   readonly start: number;
   readonly count: number;
   /** Whether the record says ASR repaired a span of the decomposition's input; null unknown. */
   readonly burstsRepaired: boolean | null;
-  readonly caps: {
-    readonly bytes_per_role: number;
-    readonly entries_per_dim: number;
-    readonly cells_per_role: number;
-  };
+  readonly caps: ActivityCaps;
 }
 
 export interface ActivityPlan {
@@ -233,37 +248,53 @@ function matchRows(
   });
 }
 
-/** Checks 2 to 13, in order; the plan of the multiply, or the first fault's word. */
-export async function planActivity(input: PlanInput): Promise<PlanOutcome> {
-  try {
-    return { word: null, plan: await plan(input) };
-  } catch (error) {
-    if (error instanceof KindRefused) return { word: error.word };
-    throw error;
-  }
-}
+/** The word `planActivity` gives when the view's files were not prepared here (another thread
+ *  prepared them, or they left the cache): the page prepares them again and asks once more. */
+export const UNPREPARED = "unprepared";
 
 const ROLES = ["unmixing", "components", "badsegments"];
 
-async function plan(input: PlanInput): Promise<ActivityPlan> {
-  const { store, start, count, caps } = input;
-  const view = obj(input.view);
+type Declared = { location: string; size: number; sha256: string };
+
+/** What a view's checked files hold, parsed once (checks 8 to 10's reading), or the first word
+ *  their reading gave, which the plan says in its turn, after checks 5 to 7. */
+interface Tables {
+  readonly word?: string;
+  readonly header?: string[];
+  readonly weights?: Float64Array;
+  readonly labels?: string[];
+  readonly segments?: { onset: number; duration: number; label: string }[] | null;
+}
+
+/** The tables of the views prepared here, by their files' digests and the caps: a later window of
+ *  the same recording is neither hashed nor parsed again. A few recordings' worth. */
+const TABLES = new Map<string, Tables>();
+const KEPT = 4;
+
+function parts(raw: unknown) {
+  const view = obj(raw);
   const parameters = obj(view.parameters);
   const transform = obj(obj(view.transform).parameters);
-  const shading = obj(transform.shaded);
   const of = (role: string) =>
     obj((view.inputs as unknown[] | undefined)?.find((i) => obj(i).role === role));
-  const signal = obj(of("signal").store);
-  const file = (role: string) =>
-    of(role).file as { location: string; size: number; sha256: string } | undefined;
-  // 2. The inputs' locations: the matrix and the bad segments where the record names them, and
-  // all three tables the recording's, under the stem of the recipe that wrote the view.
+  const file = (role: string) => of(role).file as Declared | undefined;
+  return { view, parameters, transform, signal: obj(of("signal").store), file };
+}
+
+const keyOf = (file: (role: string) => Declared | undefined, caps: ActivityCaps): string =>
+  JSON.stringify([...ROLES.map((role) => file(role)?.sha256 ?? null), caps]);
+
+/** Checks 2 and 3: the inputs' locations and the decomposition's store, from the declaration. */
+function checkDeclared(p: ReturnType<typeof parts>): void {
+  const { view, parameters, transform, signal, file } = p;
+  // 2. The matrix and the bad segments where the record names them, and all three tables the
+  // recording's, under the stem of the recipe that wrote the view.
   const where = (refused: boolean) => {
     if (refused) throw new KindRefused("table_location_mismatch");
   };
   where(file("unmixing")?.location !== transform.matrix);
   const segments = file("badsegments");
-  where(!!segments && segments.location !== (shading.files as string[] | null)?.[0]);
+  where(!!segments && segments.location !== (obj(transform.shaded).files as string[] | null)?.[0]);
   const label = recipeLabel(view);
   for (const role of ROLES) {
     const at = file(role)?.location;
@@ -281,19 +312,87 @@ async function plan(input: PlanInput): Promise<ActivityPlan> {
       throw new KindRefused("store_mismatch");
     }
   }
-  // 4. The files, in order: the declared size within the cap (before any fetch), present, then
-  // their size and SHA-256.
-  for (const role of ROLES) {
-    const declared = file(role);
-    if (!declared) continue;
-    const bytes = input.files[role];
-    if (declared.size > caps.bytes_per_role) throw new KindRefused("cap_exceeded", role);
-    if (!bytes) throw new KindRefused("file_missing", role);
-    if (bytes.length !== declared.size) throw new KindRefused("file_size_mismatch", role);
-    if ((await subtleSha256(bytes)) !== declared.sha256) {
-      throw new KindRefused("file_digest_mismatch", role);
+}
+
+/** Read the checked tables once: the matrix, the components, then the bad segments. */
+function readTables(files: ActivityFiles, segments: boolean, caps: ActivityCaps): Tables {
+  try {
+    const matrix = readMatrix(files.unmixing!, caps);
+    const components = readTsv(files.components!);
+    if (components.rows.length * components.header.length > caps.cells_per_role) {
+      throw new KindRefused("cap_exceeded", `${components.rows.length} component rows`);
     }
+    if (!components.header.includes("component")) {
+      throw new KindRefused("column_missing", "component");
+    }
+    const labels = cells(components, "component");
+    if (labels.length !== matrix.components) {
+      throw new KindRefused("coords_length", `${labels.length} != ${matrix.components}`);
+    }
+    return {
+      header: matrix.header,
+      weights: matrix.weights,
+      labels,
+      segments: segments ? readSegments(readTsv(files.badsegments!), caps.cells_per_role) : null,
+    };
+  } catch (error) {
+    if (error instanceof KindRefused) return { word: error.word };
+    throw error;
   }
+}
+
+const refusal = async <T>(run: () => Promise<T>): Promise<T | { word: string }> => {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof KindRefused) return { word: error.word };
+    throw error;
+  }
+};
+
+/**
+ * Checks 2 to 4, in order, before the page opens the store: the inputs' locations, the
+ * decomposition's store, then each file's declared size against the cap, its presence, size and
+ * SHA-256. The checked tables are read and kept for the view's plans, so each later window is
+ * planned without hashing or parsing them again; each prepare checks the bytes it is given anew.
+ * `{word: null}` when every check passed.
+ */
+export function prepareActivity(input: PrepareInput): Promise<{ word: string | null }> {
+  return refusal(async () => {
+    const p = parts(input.view);
+    checkDeclared(p);
+    const { caps, files } = input;
+    const key = keyOf(p.file, caps);
+    for (const role of ROLES) {
+      const declared = p.file(role);
+      if (!declared) continue;
+      const bytes = files[role];
+      if (declared.size > caps.bytes_per_role) throw new KindRefused("cap_exceeded", role);
+      if (!bytes) throw new KindRefused("file_missing", role);
+      if (bytes.length !== declared.size) throw new KindRefused("file_size_mismatch", role);
+      if ((await subtleSha256(bytes)) !== declared.sha256) {
+        throw new KindRefused("file_digest_mismatch", role);
+      }
+    }
+    TABLES.set(key, readTables(files, !!p.file("badsegments"), caps));
+    while (TABLES.size > KEPT) TABLES.delete(TABLES.keys().next().value as string);
+    return { word: null };
+  });
+}
+
+/** Checks 5 to 13, in order, on a prepared view; the plan of the multiply, or the first fault's
+ *  word (`UNPREPARED` when its tables are not held here). */
+export function planActivity(input: PlanInput): Promise<PlanOutcome> {
+  return refusal(async () => ({ word: null, plan: plan(input) }));
+}
+
+function plan(input: PlanInput): ActivityPlan {
+  const { store, start, count, caps } = input;
+  const p = parts(input.view);
+  const { parameters, transform, signal } = p;
+  checkDeclared(p);
+  const tables = TABLES.get(keyOf(p.file, caps));
+  if (!tables) throw new KindRefused(UNPREPARED);
   // 5. The store digest: two present digests that differ refuse; either absent is not checked.
   const declared = (signal.content_sha256 as string | null | undefined) ?? null;
   const published = store.published_sha256;
@@ -314,35 +413,25 @@ async function plan(input: PlanInput): Promise<ActivityPlan> {
   if (count > Math.floor((parameters.max_window_s as number) * rate)) {
     throw new KindRefused("window_too_long", `${count} samples`);
   }
-  // 8. The matrix; 9. the components.
-  const matrix = readMatrix(input.files.unmixing!, caps);
-  const components = readTsv(input.files.components!);
-  if (components.rows.length * components.header.length > caps.cells_per_role) {
-    throw new KindRefused("cap_exceeded", `${components.rows.length} component rows`);
-  }
-  if (!components.header.includes("component"))
-    throw new KindRefused("column_missing", "component");
-  const labels = cells(components, "component");
-  if (labels.length !== matrix.components) {
-    throw new KindRefused("coords_length", `${labels.length} != ${matrix.components}`);
-  }
-  // 10. The bad segments: the rows labeled `shaded.label`, or a word when none is.
-  const shaded = !segments
-    ? null
-    : readSegments(readTsv(input.files.badsegments!), caps.cells_per_role)
-        .filter((row) => row.label === shading.label)
-        .map(({ onset, duration }) => ({ onset, duration }));
+  // 8 to 10. The matrix, the components and the bad segments, as read when prepared.
+  if (tables.word) throw new KindRefused(tables.word);
+  const label = obj(transform.shaded).label;
+  const shaded =
+    tables.segments
+      ?.filter((row) => row.label === label)
+      .map(({ onset, duration }) => ({ onset, duration })) ?? null;
   const notes: string[] = [];
   if (!shaded?.length) {
     if (input.burstsRepaired === true) throw new KindRefused("label_unmatched");
     notes.push(shaded === null ? "no_bad_segment_table" : "no_shaded_rows");
   }
   // 11. The channel match; 12. the units.
-  const rows = matchRows(matrix.header, store.labels, transform);
-  const unit = MICROVOLTS_PER[transform.unit as string];
+  const header = tables.header!;
+  const rows = matchRows(header, store.labels, transform);
+  const unit = MICROVOLTS_PER.get(transform.unit);
   if (unit === undefined) throw new KindRefused("unit_unknown", String(transform.unit));
   const factors = rows.map((row) => {
-    const own = MICROVOLTS_PER[store.units[row] ?? ""];
+    const own = MICROVOLTS_PER.get(store.units[row]);
     if (own === undefined) throw new KindRefused("unit_unknown", `row ${row}`);
     return own / unit;
   });
@@ -356,11 +445,12 @@ async function plan(input: PlanInput): Promise<ActivityPlan> {
   const after = Math.min(c, samples - (start + count));
   return {
     state,
-    components: labels,
-    channels: matrix.header,
+    components: tables.labels!,
+    channels: header,
     rows,
     factors,
-    weights: matrix.weights,
+    // A copy: the plan's matrix leaves this thread with it.
+    weights: tables.weights!.slice(),
     shaded: shaded ?? [],
     notes,
     start,
@@ -387,6 +477,19 @@ export function computeActivity(
   scale: readonly number[],
   offset: readonly number[],
 ): ActivityResult {
+  const job = activityJob(plan, digital, scale, offset);
+  for (let i = 0; i < job.components; i++) job.run(i);
+  return job.result;
+}
+
+/** `computeActivity` one component at a time, so the worker can stop between components when the
+ *  page cancels (a recording switch) and other requests do not wait behind the whole view. */
+export function activityJob(
+  plan: ActivityPlan,
+  digital: ArrayLike<number>,
+  scale: readonly number[],
+  offset: readonly number[],
+) {
   const { weights, factors, start, count, before, after, rate } = plan;
   const columns = factors.length;
   const components = weights.length / columns;
@@ -404,20 +507,23 @@ export function computeActivity(
   const activations = new Float64Array(components * count);
   const filtered = new Float64Array(components * count);
   const series = new Float64Array(m);
-  for (let i = 0; i < components; i++) {
-    // Summed in column order from column 0's product.
-    const w0 = weights[i * columns];
-    for (let k = 0; k < m; k++) series[k] = w0 * x[k];
-    for (let j = 1; j < columns; j++) {
-      const w = weights[i * columns + j];
-      const at = j * m;
-      for (let k = 0; k < m; k++) series[k] = series[k] + w * x[at + k];
-    }
-    activations.set(series.subarray(before, before + count), i * count);
-    const shown = displayFilter(series, rate, plan.highpassHz, plan.padStart, plan.padEnd);
-    filtered.set(shown.subarray(before, before + count), i * count);
-  }
   const time = new Float64Array(count);
   for (let k = 0; k < count; k++) time[k] = (start + k) / rate;
-  return { activations, filtered, time };
+  return {
+    components,
+    result: { activations, filtered, time } as ActivityResult,
+    run(i: number): void {
+      // Summed in column order from column 0's product.
+      const w0 = weights[i * columns];
+      for (let k = 0; k < m; k++) series[k] = w0 * x[k];
+      for (let j = 1; j < columns; j++) {
+        const w = weights[i * columns + j];
+        const at = j * m;
+        for (let k = 0; k < m; k++) series[k] = series[k] + w * x[at + k];
+      }
+      activations.set(series.subarray(before, before + count), i * count);
+      const shown = displayFilter(series, rate, plan.highpassHz, plan.padStart, plan.padEnd);
+      filtered.set(shown.subarray(before, before + count), i * count);
+    },
+  };
 }

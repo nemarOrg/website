@@ -20,6 +20,7 @@ import type {
   ActivityResult,
   PlanInput,
   PlanOutcome,
+  PrepareInput,
 } from "./transforms/ic-activity";
 import type { SensorFieldClient } from "./worker-client";
 
@@ -74,36 +75,62 @@ export function firstWindow(samples: number, rate: number, maxWindowS: number) {
   return { start: 0, count };
 }
 
-/** The transform's two steps, in the worker, or on this thread when the worker cannot answer. */
+/** The transform's steps, in the worker, or on this thread when the worker cannot start. */
 export interface ActivityTransform {
+  prepare(input: PrepareInput): Promise<{ word: string | null }>;
   plan(input: PlanInput): Promise<PlanOutcome>;
+  /** The activations, or null when `signal` aborted first (the worker was told to stop). */
   compute(
     plan: ActivityPlan,
     digital: ArrayLike<number>,
     scale: number[],
     offset: number[],
-  ): Promise<ActivityResult>;
+    signal: AbortSignal,
+  ): Promise<ActivityResult | null>;
 }
 
 const here = () => import("./transforms/ic-activity");
 
-/** The transform in `client`'s worker, the samples transferred. */
+/** The transform's `UNPREPARED`, written here so the page's chunk does not import the transform. */
+const UNPREPARED = "unprepared";
+
+/**
+ * The transform in `client`'s worker, the samples transferred. The worker's answer is the answer:
+ * a failure in the worker throws its own message. Only a worker that cannot start sends a step to
+ * this thread, and it says so in the console; the samples go there only if they are still here.
+ */
 export function workerTransform(client: SensorFieldClient): ActivityTransform {
+  const ask = async <T>(
+    request: Parameters<SensorFieldClient["activity"]>[0],
+    transfer: Transferable[],
+    signal: AbortSignal | undefined,
+    fallback: () => Promise<T>,
+  ): Promise<T | null> => {
+    const answer = await client.activity(request, transfer, signal);
+    if (answer.type === "activity-done") return answer.outcome as T;
+    if (answer.type === "cancelled") return null;
+    if (answer.type === "failure") throw new Error(`the map worker failed: ${answer.message}`);
+    if (answer.type !== "unavailable") throw new Error(`the map worker answered ${answer.type}`);
+    if (transfer.some((b) => (b as ArrayBuffer).byteLength === 0)) throw new Error(answer.reason);
+    console.warn(`[quality-views] ${answer.reason}; the activations are computed on this thread.`);
+    return fallback();
+  };
   return {
+    prepare: async (input) =>
+      (await ask({ step: "prepare", input }, [], undefined, async () =>
+        (await here()).prepareActivity(input),
+      ))!,
     plan: async (input) =>
-      ((await client.activity({ step: "plan", input }, [])) as PlanOutcome | null) ??
-      (await here()).planActivity(input),
-    compute: async (plan, digital, scale, offset) => {
-      const buffer = ArrayBuffer.isView(digital) ? (digital.buffer as ArrayBuffer) : null;
-      const answer = await client.activity(
+      (await ask({ step: "plan", input }, [], undefined, async () =>
+        (await here()).planActivity(input),
+      ))!,
+    compute: (plan, digital, scale, offset, signal) =>
+      ask(
         { step: "compute", plan, digital, scale, offset },
-        buffer ? [buffer] : [],
-      );
-      if (answer) return answer as ActivityResult;
-      // The worker could not start, so the samples are still here: computed on this thread.
-      if (buffer?.byteLength === 0) throw new Error("the map worker failed with the samples");
-      return (await here()).computeActivity(plan, digital, scale, offset);
-    },
+        ArrayBuffer.isView(digital) ? [digital.buffer as ArrayBuffer] : [],
+        signal,
+        async () => (await here()).computeActivity(plan, digital, scale, offset),
+      ),
   };
 }
 
@@ -113,9 +140,10 @@ export interface Activity {
 }
 
 /**
- * Every check in order, then the samples, then the transform: the activations of `[start, start +
- * count)`, or null when `signal` aborted (a recording switch) first. `ActivityRefused` carries the
- * first fault's word.
+ * Checks 5 to 13 for one window, then the samples, then the transform: the activations of
+ * `[start, start + count)`, or null when `signal` aborted (a recording switch) first. The view was
+ * prepared (checks 2 to 4); when the thread that plans no longer holds its tables, it is prepared
+ * again from `files`. `ActivityRefused` carries the first fault's word.
  */
 export async function activity(
   view: ViewDecl,
@@ -127,9 +155,8 @@ export async function activity(
   signal: AbortSignal,
   caps = CAPS,
 ): Promise<Activity | null> {
-  const outcome = await transform.plan({
+  const input: PlanInput = {
     view,
-    files,
     store: {
       labels: store.labels,
       units: store.units,
@@ -140,7 +167,13 @@ export async function activity(
     ...window,
     burstsRepaired: bursts,
     caps,
-  });
+  };
+  let outcome = await transform.plan(input);
+  if (outcome.word === UNPREPARED) {
+    const prepared = await transform.prepare({ view, files, caps });
+    if (prepared.word !== null) throw new ActivityRefused(prepared.word);
+    outcome = await transform.plan(input);
+  }
   if (signal.aborted) return null;
   if (outcome.word !== null) throw new ActivityRefused(outcome.word);
   const { plan } = outcome;
@@ -149,13 +182,13 @@ export async function activity(
   if (signal.aborted) return null;
   const scale = plan.rows.map((r) => store.scale[r]);
   const offset = plan.rows.map((r) => store.offset[r]);
-  const result = await transform.compute(plan, digital, scale, offset);
-  return signal.aborted ? null : { plan, result };
+  const result = await transform.compute(plan, digital, scale, offset, signal);
+  return signal.aborted || !result ? null : { plan, result };
 }
 
 // ── The serving copy ────────────────────────────────────────────────────
 
-type Level0 = import("zarrita").Array<"int16", import("zarrita").FetchStore>;
+type Level0 = import("zarrita").Array<"int16", import("zarrita").Readable>;
 
 /**
  * A channel group of the Zarr serving copy at `url`, read with the viewer's store and zarrita (both
@@ -170,11 +203,18 @@ export async function openServingStore(
   group: string,
   signal: AbortSignal,
 ): Promise<ServingStore | null> {
-  const [{ makeStore }, zarr] = await Promise.all([
-    import("../eeg-viewer/store"),
-    import("zarrita"),
-  ]);
-  const root = zarr.root(makeStore(url));
+  const { makeStore } = await import("../eeg-viewer/store");
+  return servingStoreOf(makeStore(url), group, signal);
+}
+
+/** `openServingStore` on any Zarr store zarrita reads (the tests use one in memory). */
+export async function servingStoreOf(
+  source: import("zarrita").Readable,
+  group: string,
+  signal: AbortSignal,
+): Promise<ServingStore | null> {
+  const zarr = await import("zarrita");
+  const root = zarr.root(source);
   let attrs: Json;
   let array: Level0;
   try {

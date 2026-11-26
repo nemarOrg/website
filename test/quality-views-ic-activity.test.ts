@@ -25,10 +25,12 @@ import { localChecks } from "../src/lib/quality-views/local-checks";
 import { CAPS, type FileDecl, type ViewDecl } from "../src/lib/quality-views/model";
 import type { ServingStore } from "../src/lib/quality-views/panel-bridge";
 import {
+  activityJob,
   computeActivity,
   displayFilter,
   highpass,
   planActivity,
+  prepareActivity,
 } from "../src/lib/quality-views/transforms/ic-activity";
 import { inThreadWorker } from "../src/lib/quality-views/worker";
 import { SensorFieldClient } from "../src/lib/quality-views/worker-client";
@@ -91,11 +93,13 @@ function servingStore(c: Case, reads: { rows: number[]; from: number; to: number
 }
 
 const here: ActivityTransform = {
-  plan: async (input) => planActivity(input),
+  prepare: (input) => prepareActivity(input),
+  plan: (input) => planActivity(input),
   compute: async (plan, digital, scale, offset) => computeActivity(plan, digital, scale, offset),
 };
 
-/** The whole view, as the panel runs it: checks 1 to 4 here, then the transform. */
+/** The whole view, as the panel runs it: check 1 here, checks 2 to 4 before the store is opened,
+ *  then a window's checks and the transform. */
 async function run(
   c: Case,
   transform: ActivityTransform = here,
@@ -105,6 +109,8 @@ async function run(
   const word = await checkDeclaration(c.view, localChecks);
   if (word !== null) throw new ActivityRefused(word);
   const files = await fetchInputs(c.view, source(c.files), caps);
+  const prepared = await transform.prepare({ view: c.view, files, caps });
+  if (prepared.word !== null) throw new ActivityRefused(prepared.word);
   return activity(
     c.view,
     files,
@@ -236,9 +242,9 @@ describe("the store digest's states (open question 1)", () => {
         }
       ).parameters.decomposition_input.store.content_sha256 = check.declared;
       const files = await fetchInputs(view, source(base.files));
+      expect((await prepareActivity({ view, files, caps: CAPS })).word).toBeNull();
       const outcome = await planActivity({
         view,
-        files,
         store: { ...servingStore(base), published_sha256: check.published },
         ...base.window,
         burstsRepaired: null,
@@ -248,10 +254,7 @@ describe("the store digest's states (open question 1)", () => {
     });
   }
 
-  it("is not_checked for every view until the serving copy publishes digests (nemar-cli#2343)", async () => {
-    const { openServingStore } = await import("../src/lib/quality-views/activations");
-    // The page's reader states no published digest, whatever the store holds.
-    expect(openServingStore.toString()).toContain("published_sha256: null");
+  it("is not_checked for a store that publishes no digest (nemar-cli#2343)", async () => {
     const got = await run({ ...base, store: { ...base.store, published_sha256: null } });
     expect(got!.plan.state).toBe("not_checked");
   });
@@ -279,10 +282,10 @@ describe("the window", () => {
     const view = structuredClone(c.view) as ViewDecl & { parameters: { max_window_s: number } };
     view.parameters.max_window_s = 2; // 40 samples at 20 Hz
     const files = await fetchInputs(view, source(c.files));
+    expect((await prepareActivity({ view, files, caps: CAPS })).word).toBeNull();
     const plan = (count: number) =>
       planActivity({
         view,
-        files,
         store: servingStore(c),
         start: 80,
         count,
@@ -296,11 +299,11 @@ describe("the window", () => {
   it("may end at the store's last sample and not one past it", async () => {
     const c = (vectors.cases as Case[]).find((x) => x.name === "last_window")!;
     const files = await fetchInputs(c.view, source(c.files));
+    expect((await prepareActivity({ view: c.view, files, caps: CAPS })).word).toBeNull();
     const samples = c.store.digital[0].length;
     const plan = (start: number) =>
       planActivity({
         view: c.view,
-        files,
         store: servingStore(c),
         start,
         count: 15,
@@ -320,22 +323,22 @@ describe("the page's steps around the transform", () => {
     const worker = workerTransform(client);
     let sent: ArrayLike<number> | null = null;
     const watching: ActivityTransform = {
+      prepare: worker.prepare,
       plan: worker.plan,
-      compute: (plan, digital, scale, offset) => {
+      compute: (plan, digital, scale, offset, signal) => {
         sent = digital;
-        return worker.compute(plan, digital, scale, offset);
+        return worker.compute(plan, digital, scale, offset, signal);
       },
     };
     const got = await run(c, watching);
     expectParity(c, got!);
-    // Both steps were the worker's own answers, not this thread's fallback.
-    const files = await fetchInputs(c.view, source(c.files));
+    // The steps were the worker's own answers, not this thread's fallback: the worker holds the
+    // view's tables, which it read when it prepared the view.
     const planned = await client.activity(
       {
         step: "plan",
         input: {
           view: c.view,
-          files,
           store: { ...servingStore(c), read: undefined } as never,
           ...c.window,
           burstsRepaired: null,
@@ -344,7 +347,10 @@ describe("the page's steps around the transform", () => {
       },
       [],
     );
-    expect((planned as { plan: { rows: number[] } }).plan.rows).toEqual(c.expected!.rows);
+    expect(planned.type).toBe("activity-done");
+    expect((planned as { outcome: { plan: { rows: number[] } } }).outcome.plan.rows).toEqual(
+      c.expected!.rows,
+    );
     expect((sent as unknown as Int16Array).byteLength).toBe(0);
     client.terminate();
   });
@@ -353,6 +359,7 @@ describe("the page's steps around the transform", () => {
     const reads: { rows: number[]; from: number; to: number }[] = [];
     const caps = CAPS;
     const files = await fetchInputs(c.view, source(c.files));
+    await prepareActivity({ view: c.view, files, caps });
     const got = await activity(
       c.view,
       files,
@@ -369,6 +376,7 @@ describe("the page's steps around the transform", () => {
 
   it("stops when the recording is switched: no read after the plan, no transform after the read", async () => {
     const files = await fetchInputs(c.view, source(c.files));
+    await prepareActivity({ view: c.view, files, caps: CAPS });
     for (const at of ["plan", "read"] as const) {
       const controller = new AbortController();
       const steps: string[] = [];
@@ -383,15 +391,16 @@ describe("the page's steps around the transform", () => {
         },
       };
       const transform: ActivityTransform = {
+        prepare: prepareActivity,
         plan: async (input) => {
           steps.push("plan");
           const out = await planActivity(input);
           if (at === "plan") controller.abort();
           return out;
         },
-        compute: async (...args) => {
+        compute: async (plan, digital, scale, offset) => {
           steps.push("compute");
-          return computeActivity(...args);
+          return computeActivity(plan, digital, scale, offset);
         },
       };
       const got = await activity(
@@ -431,5 +440,270 @@ describe("readLevel0", () => {
     await zarr.set(array, null, { data, shape: [4, 10], stride: [10, 1] });
     const out = await readLevel0(zarr, array as never, [3, 1], 2, 6, new AbortController().signal);
     expect(Array.from(out)).toEqual([302, 303, 304, 305, 102, 103, 104, 105]);
+  });
+});
+
+describe("own-member lookups", () => {
+  it("refuses a unit named after an object's built-in members", async () => {
+    const c = (vectors.cases as Case[]).find((x) => x.name === "serving_32")!;
+    const files = await fetchInputs(c.view, source(c.files));
+    for (const unit of ["toString", "constructor", "__proto__", "hasOwnProperty"]) {
+      // The matrix's unit.
+      const view = structuredClone(c.view) as unknown as {
+        transform: { parameters: { unit: string } };
+      };
+      view.transform.parameters.unit = unit;
+      await prepareActivity({ view, files, caps: CAPS });
+      const store = servingStore(c);
+      const plan = (v: unknown, units: (string | null)[]) =>
+        planActivity({
+          view: v,
+          store: { ...store, units },
+          ...c.window,
+          burstsRepaired: null,
+          caps: CAPS,
+        });
+      expect((await plan(view, store.units as string[])).word, unit).toBe("unit_unknown");
+      // A store row's unit.
+      const units = [...store.units];
+      units[c.expected!.rows[0]] = unit;
+      expect((await plan(c.view, units)).word, unit).toBe("unit_unknown");
+    }
+  });
+});
+
+describe("the tables are checked once per view", () => {
+  const c = (vectors.cases as Case[]).find((x) => x.name === "context_both_sides")!;
+
+  it("plans a later window without the files, and asks for them when it does not hold them", async () => {
+    const caps = { ...CAPS, cells_per_role: CAPS.cells_per_role - 1 };
+    const input = {
+      view: c.view,
+      store: servingStore(c),
+      start: 40,
+      count: 40,
+      burstsRepaired: null,
+      caps,
+    };
+    expect((await planActivity(input)).word).toBe("unprepared");
+    const files = await fetchInputs(c.view, source(c.files), caps);
+    expect((await prepareActivity({ view: c.view, files, caps })).word).toBeNull();
+    expect((await planActivity(input)).word).toBeNull();
+    expect((await planActivity({ ...input, start: 120 })).plan!.start).toBe(120);
+  });
+
+  it("prepares again when the planning thread no longer holds the tables", async () => {
+    const caps = { ...CAPS, cells_per_role: CAPS.cells_per_role - 2 };
+    const files = await fetchInputs(c.view, source(c.files), caps);
+    const steps: string[] = [];
+    const counting: ActivityTransform = {
+      prepare: (input) => {
+        steps.push("prepare");
+        return prepareActivity(input);
+      },
+      plan: (input) => {
+        steps.push("plan");
+        return planActivity(input);
+      },
+      compute: here.compute,
+    };
+    const got = await activity(
+      c.view,
+      files,
+      servingStore(c),
+      c.window,
+      null,
+      counting,
+      new AbortController().signal,
+      caps,
+    );
+    expect(got).not.toBeNull();
+    expect(steps).toEqual(["plan", "prepare", "plan"]);
+  });
+
+  it("checks the bytes it is given each time it prepares", async () => {
+    const caps = { ...CAPS, cells_per_role: CAPS.cells_per_role - 3 };
+    const files = await fetchInputs(c.view, source(c.files), caps);
+    expect((await prepareActivity({ view: c.view, files, caps })).word).toBeNull();
+    const flipped = Uint8Array.from(files.unmixing!);
+    flipped[flipped.length - 2] ^= 1;
+    expect(
+      (await prepareActivity({ view: c.view, files: { ...files, unmixing: flipped }, caps })).word,
+    ).toBe("file_digest_mismatch");
+  });
+});
+
+describe("the worker's answers", () => {
+  const c = (vectors.cases as Case[]).find((x) => x.name === "serving_32")!;
+
+  it("passes a failure in the worker through with its own message", async () => {
+    const client = new SensorFieldClient(inThreadWorker);
+    const worker = workerTransform(client);
+    const got = await run(c, worker);
+    // Samples of the wrong length: the worker's transform throws, and its message is the error.
+    await expect(
+      worker.compute(got!.plan, new Int16Array(3), [1], [0], new AbortController().signal),
+    ).rejects.toThrow(/the map worker failed: RangeError: 3 samples for 28 rows/);
+    client.terminate();
+  });
+
+  it("runs on this thread only when the worker cannot start, and says so", async () => {
+    const client = new SensorFieldClient(() => {
+      throw new Error("no workers here");
+    });
+    const warned: string[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => void warned.push(String(args[0]));
+    try {
+      expectParity(c, (await run(c, workerTransform(client)))!);
+    } finally {
+      console.warn = warn;
+    }
+    expect(warned.length).toBeGreaterThanOrEqual(3);
+    expect(warned[0]).toMatch(/no workers here.*computed on this thread/);
+  });
+
+  it("stops a compute in the worker when the recording is switched, and draws the next maps", async () => {
+    // A worker transport that records what the worker sends back.
+    const sent: { type: string; id: number }[] = [];
+    const client = new SensorFieldClient(() => {
+      const port = inThreadWorker();
+      const deliver = (event: MessageEvent) => {
+        sent.push(event.data);
+        wrapped.onmessage?.(event);
+      };
+      const wrapped = { ...port, onmessage: null as ((e: MessageEvent) => void) | null };
+      port.onmessage = deliver;
+      return Object.assign(wrapped, {
+        postMessage: port.postMessage.bind(port),
+        terminate: port.terminate.bind(port),
+      });
+    });
+    const worker = workerTransform(client);
+    const got = await run(c, worker);
+    const { plan } = got!;
+    // A long stretch: many components over many samples.
+    const columns = plan.rows.length;
+    const m = 100_000;
+    const long = {
+      ...plan,
+      weights: new Float64Array(200 * columns).fill(0.01),
+      count: m,
+      before: 0,
+      after: 0,
+    };
+    const done = () => sent.filter((m) => m.type === "activity-done").length;
+    const before = done();
+    const controller = new AbortController();
+    const computing = worker.compute(
+      long,
+      new Int16Array(columns * m),
+      Array(columns).fill(1),
+      Array(columns).fill(0),
+      controller.signal,
+    );
+    setTimeout(() => controller.abort(), 20);
+    expect(await computing).toBeNull();
+    // The worker said it stopped, and answers the next request.
+    await expect.poll(() => sent.some((m) => m.type === "cancelled")).toBe(true);
+    const prepared = await client.prepare({
+      layoutKey: "next",
+      thetaDeg: [0, 90, 180, -90, 45, 135, -45, -135, 10, 100],
+      radius: [0.3, 0.3, 0.3, 0.3, 0.2, 0.2, 0.2, 0.2, 0.4, 0.4],
+    });
+    expect(prepared.kind).toBe("prepared");
+    // The compute never finished: no answer of it came after the cancel.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(done()).toBe(before);
+    client.terminate();
+  });
+});
+
+describe("openServingStore on a Zarr store", () => {
+  /** A Zarr v3 group as the converter writes one, in memory: `channels` in the group's
+   *  attributes, level-0 int16 rows by samples. */
+  async function store(channels: Record<string, unknown>[], data: number[][]) {
+    const zarr = await import("zarrita");
+    const map = new Map<string, Uint8Array>();
+    const root = zarr.root(map);
+    await zarr.create(root.resolve("eeg"), {
+      attributes: { rate: 100, n_samples: data[0].length, channels },
+    });
+    const array = await zarr.create(root.resolve("eeg/0"), {
+      shape: [data.length, data[0].length],
+      dtype: "int16",
+      chunkShape: [data.length, data[0].length],
+    });
+    await zarr.set(array, null, {
+      data: Int16Array.from(data.flat()),
+      shape: [data.length, data[0].length],
+      stride: [data[0].length, 1],
+    });
+    const { servingStoreOf } = await import("../src/lib/quality-views/activations");
+    return servingStoreOf(map, "eeg", new AbortController().signal);
+  }
+  const row = (label: string | undefined, i: number, extra: Record<string, unknown> = {}) => ({
+    ...(label === undefined ? {} : { label }),
+    unit: "uV",
+    scale: 0.5,
+    offset: 1,
+    row_index: i,
+    ...extra,
+  });
+  const data = [
+    [10, 11, 12],
+    [20, 21, 22],
+    [30, 31, 32],
+  ];
+
+  it("lists the rows in row_index order, whatever order the attributes give", async () => {
+    const s = (await store([row("C", 2), row("A", 0), row("B", 1)], data))!;
+    expect(s.labels).toEqual(["A", "B", "C"]);
+    expect(s.rate).toBe(100);
+    expect(s.samples).toBe(3);
+    expect(s.published_sha256).toBeNull();
+    expect(Array.from(await s.read([2, 0], 1, 3, new AbortController().signal))).toEqual([
+      31, 32, 11, 12,
+    ]);
+  });
+
+  it("states no label where the store states none, so no column matches it", async () => {
+    const s = (await store([row("A", 0), row(undefined, 1), row("C", 2)], data))!;
+    expect(s.labels).toEqual(["A", null, "C"]);
+  });
+
+  it("gives a row whose scale or offset is not a finite number no unit (unit_unknown)", async () => {
+    const s = (await store(
+      [row("A", 0), row("B", 1, { scale: null }), row("C", 2, { offset: "1" })],
+      data,
+    ))!;
+    expect(s.units).toEqual(["uV", null, null]);
+    // Through the transform: a matrix over B is refused, never drawn from NaN.
+    const c = (vectors.cases as Case[]).find((x) => x.name === "archive_label_volts")!;
+    const files = await fetchInputs(c.view, source(c.files));
+    await prepareActivity({ view: c.view, files, caps: CAPS });
+    const meta = servingStore(c);
+    const units = [...meta.units];
+    const at = meta.labels.indexOf(
+      (c.view as unknown as { transform: { parameters: { columns: string[] } } }).transform
+        .parameters.columns[0],
+    );
+    units[at] = s.units[1];
+    const outcome = await planActivity({
+      view: c.view,
+      store: { ...meta, units },
+      ...c.window,
+      burstsRepaired: null,
+      caps: CAPS,
+    });
+    expect(outcome.word).toBe("unit_unknown");
+  });
+
+  it("is null when the group is not there", async () => {
+    const zarr = await import("zarrita");
+    const { servingStoreOf } = await import("../src/lib/quality-views/activations");
+    const map = new Map<string, Uint8Array>();
+    await zarr.create(zarr.root(map));
+    expect(await servingStoreOf(map, "eeg", new AbortController().signal)).toBeNull();
   });
 });
