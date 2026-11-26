@@ -31,6 +31,7 @@
 
 import { SEQUENTIAL_STOPS, lookupTable, paintGrid } from "../quality-views/colormap";
 import { type Montage, centersOf } from "../quality-views/montages";
+import { mapFrame, markerPoints, toCanvas } from "../quality-views/render/map-frame";
 import {
   MontageCenterUnavailable,
   type SensorLayoutWord,
@@ -410,45 +411,8 @@ export function rowValues(
 
 // --- painting --------------------------------------------------------------
 
-/** A point of a map in grid units (x to the nose, y to the right ear) on the canvas: nose up. */
-export interface MapFrame {
-  readonly cx: number;
-  readonly cy: number;
-  /** CSS pixels per grid unit. */
-  readonly scale: number;
-}
-
-/** Grid positions of the rows that get a marker: theta and radius times `squeezefac`. */
-export function markerPoints(
-  map: DrawnMap,
-  thetaDeg: ArrayLike<number>,
-  radius: ArrayLike<number>,
-): [number, number][] {
-  const s = map.geometry.squeezefac;
-  return map.geometry.plotted.map((row) => {
-    const t = (thetaDeg[row] * Math.PI) / 180;
-    return [Math.cos(t) * radius[row] * s, Math.sin(t) * radius[row] * s];
-  });
-}
-
-/** The canvas frame that fits the head, its nose and ears, and every marker, in `sizePx`. */
-export function mapFrame(
-  map: DrawnMap,
-  markers: readonly (readonly [number, number])[],
-  sizePx: number,
-): MapFrame {
-  let reach = 0.5;
-  const { head } = map.geometry;
-  for (const [x, y] of [...head.nose, ...head.rightEar, ...head.leftEar, ...markers]) {
-    reach = Math.max(reach, Math.hypot(x, y));
-  }
-  return { cx: sizePx / 2, cy: sizePx / 2, scale: sizePx / 2 / (reach * 1.06) };
-}
-
-/** Canvas coordinates of a grid point. */
-export function toCanvas(frame: MapFrame, x: number, y: number): [number, number] {
-  return [frame.cx + y * frame.scale, frame.cy - x * frame.scale];
-}
+// The frame helpers are the quality views' own (render/map-frame.ts), shared with their maps.
+export { type MapFrame, mapFrame, markerPoints, toCanvas } from "../quality-views/render/map-frame";
 
 /** The axis a viewer map is colored on: `minmax`, with the sequential map. */
 export const VIEWER_LIMITS = "minmax";
