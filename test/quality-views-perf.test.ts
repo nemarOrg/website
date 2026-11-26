@@ -229,7 +229,10 @@ describe.skipIf(!GATED)("first views (QUALITY_VIEWS_PERF=gate)", () => {
         expect(run.cacheHits).toBeGreaterThan(0);
       }
       gate(cold, "cold", viewBudget);
-      gate(eager, "eager", viewBudget);
+      // A first visit's eager view at 256 sensors is printed, not gated (the owner's ruling on
+      // #594): the dataset page prepares the geometry at page load (`prepareAhead`), and phase W6
+      // gates that case as "panel opened after page load".
+      if (name === "montage_128") gate(eager, "eager", viewBudget);
     },
     120_000,
   );
