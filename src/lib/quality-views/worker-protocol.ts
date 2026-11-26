@@ -19,6 +19,12 @@
 
 import type { ViewCheck } from "./checks";
 import type { SensorFieldNote, SensorFieldWord } from "./sensor-field";
+import type {
+  ActivityPlan,
+  ActivityResult,
+  PlanInput,
+  PlanOutcome,
+} from "./transforms/ic-activity";
 
 /** The grid's points per axis (`nemar.sensor-field.v1` step 7), repeated here so this file needs no
  *  runtime import; `test/quality-views-worker.test.ts` checks it against the algorithm's. */
@@ -100,12 +106,36 @@ export interface CheckContentRequest {
   readonly content: unknown;
 }
 
+/**
+ * A step of `nemar.ic-activity.v1` (website phase W7), run by the worker's lazy transform chunk:
+ * `plan` checks the view against the store's description (checks 5 to 13), `compute` multiplies
+ * and filters the samples the page read for the plan. The worker keeps nothing between the two:
+ * the plan, its matrix transferred, comes back with the samples.
+ */
+export type ActivityRequest =
+  | {
+      readonly type: "activity";
+      readonly id: number;
+      readonly step: "plan";
+      readonly input: PlanInput;
+    }
+  | {
+      readonly type: "activity";
+      readonly id: number;
+      readonly step: "compute";
+      readonly plan: ActivityPlan;
+      readonly digital: ArrayLike<number>;
+      readonly scale: readonly number[];
+      readonly offset: readonly number[];
+    };
+
 export type WorkerRequest =
   | DrawRequest
   | CancelRequest
   | PrepareRequest
   | CheckRequest
-  | CheckContentRequest;
+  | CheckContentRequest
+  | ActivityRequest;
 
 /** Everything about a map that its layout and usable sensors decide, shared by maps alike. */
 export interface MapGeometryMessage {
@@ -199,6 +229,11 @@ export type WorkerResponse =
     }
   | ({ readonly type: "checked"; readonly id: number } & ViewCheck)
   | { readonly type: "content-checked"; readonly id: number; readonly valid: boolean }
+  | {
+      readonly type: "activity-done";
+      readonly id: number;
+      readonly outcome: PlanOutcome | ActivityResult;
+    }
   | { readonly type: "failure"; readonly id: number | null; readonly message: string };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -227,6 +262,12 @@ export function requestProblem(value: unknown): string | null {
     return typeof value.schema === "string" && "content" in value
       ? null
       : "the content check has no schema or no content";
+  }
+  if (value.type === "activity") {
+    return (value.step === "plan" && isRecord(value.input)) ||
+      (value.step === "compute" && isRecord(value.plan) && "digital" in value)
+      ? null
+      : "the activity step has no input";
   }
   if (value.type !== "draw" && value.type !== "prepare") {
     return `the message type ${JSON.stringify(value.type)} is unknown`;
@@ -346,6 +387,8 @@ export function isWorkerResponse(value: unknown): value is WorkerResponse {
       );
     case "content-checked":
       return Number.isInteger(value.id) && typeof value.valid === "boolean";
+    case "activity-done":
+      return Number.isInteger(value.id) && isRecord(value.outcome);
     case "prepared":
       return (
         Number.isInteger(value.id) &&

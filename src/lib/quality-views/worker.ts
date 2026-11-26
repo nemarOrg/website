@@ -349,6 +349,35 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
       }
       return;
     }
+    if (request.type === "activity") {
+      // nemar.ic-activity.v1 (W7): a lazy chunk of the worker's own, loaded for a view that needs it.
+      import("./transforms/ic-activity")
+        .then(async (m) => {
+          if (request.step === "plan") {
+            const outcome = await m.planActivity(request.input);
+            post(
+              { type: "activity-done", id: request.id, outcome },
+              outcome.plan ? [outcome.plan.weights.buffer] : [],
+            );
+            return;
+          }
+          const out = m.computeActivity(
+            request.plan,
+            request.digital,
+            request.scale,
+            request.offset,
+          );
+          post({ type: "activity-done", id: request.id, outcome: out }, [
+            out.activations.buffer,
+            out.filtered.buffer,
+            out.time.buffer,
+          ]);
+        })
+        .catch((error: unknown) =>
+          post({ type: "failure", id: request.id, message: describe(error) }, []),
+        );
+      return;
+    }
     if (request.type === "prepare") {
       // The geometry of a map whose every value is finite: the usable rows are the placed ones.
       const usable = usableMask(
