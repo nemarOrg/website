@@ -249,6 +249,16 @@ export interface ViewerOptions {
   qualityMarks?: SignalMarks;
 }
 
+/** Whether a channel is drawn dimmed: marked bad by the visitor, or by the floor (website W6). The
+ *  annotation layer reads the visitor's marks alone (`getSelectedChannels`). */
+export function isDimmed(
+  label: string,
+  visitor: ReadonlySet<string>,
+  floor: ReadonlySet<string>,
+): boolean {
+  return visitor.has(label) || floor.has(label);
+}
+
 /** Said when the store holds no channel group the marks name. */
 export const MARKS_GROUP_MISSING =
   "The recording has no channel group the view names, so the window is not opened.";
@@ -640,6 +650,9 @@ export async function mountEegViewer(
   let butterfly = false;
   let hideBad = false;
   const badChannels = new Set<string>();
+  // The floor's bad channels (the quality panel's marks, website W6): dimmed like a channel the
+  // visitor marked, but never one of the visitor's marks, so the annotation layer never counts them.
+  const floorBad = new Set<string>();
 
   // Background preload (website#254): a byte-capped cache of decoded windows
   // ("segments" -- fixed-width slices of the recording, currently the window
@@ -851,7 +864,7 @@ export async function mountEegViewer(
     windowLengthS = length;
     ui.win.value = String(length);
     windowStartS = marked.startS;
-    for (const label of marked.badChannels) badChannels.add(label);
+    for (const label of marked.badChannels) floorBad.add(label);
     shaded = marked.segments.map((s) => ({
       startS: s.onset,
       endS: s.onset + s.duration,
@@ -1587,7 +1600,7 @@ export async function mountEegViewer(
           ? channelColor(ch.channelType)
           : channelColor(ch.modality);
       const cw = win.channels[i];
-      const dim = badChannels.has(ch.label);
+      const dim = isDimmed(ch.label, badChannels, floorBad);
       if (cw.kind === "line") {
         const line = dcRemove ? removeDcInPlace(cw.line.slice()) : cw.line;
         return { label: ch.label, color, kind: "line" as const, line, dim };

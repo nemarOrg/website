@@ -456,3 +456,21 @@ describe("topoToggleTitle", () => {
     }
   });
 });
+
+describe("the floor's bad channels (website W6)", () => {
+  it("are dimmed like the visitor's marks", async () => {
+    const { isDimmed } = await import("./viewer");
+    expect(isDimmed("Fp1", new Set(), new Set(["Fp1"]))).toBe(true);
+    expect(isDimmed("Fp1", new Set(["Fp1"]), new Set())).toBe(true);
+    expect(isDimmed("Fp2", new Set(["Fp1"]), new Set(["Fp1"]))).toBe(false);
+  });
+
+  it("are kept apart from the visitor's marks, which alone reach the annotation layer", async () => {
+    const fs = await import(/* @vite-ignore */ `${"node:fs"}`);
+    const source: string = fs.readFileSync(new URL("./viewer.ts", import.meta.url), "utf8");
+    expect(source).toContain("getSelectedChannels: () => [...badChannels],");
+    expect(source).toContain("for (const label of marked.badChannels) floorBad.add(label);");
+    expect(source).not.toMatch(/badChannels\.add\([^)]*floor/);
+    expect(source).not.toMatch(/for \(const label of marked\.badChannels\) badChannels/);
+  });
+});
