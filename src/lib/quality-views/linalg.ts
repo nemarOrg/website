@@ -32,6 +32,44 @@ export interface LuFactors {
 }
 
 /**
+ * Eliminate column `k` below the diagonal: each row below minus its factor times the pivot row,
+ * four rows per pass over the pivot row. Each entry gets the same one operation, in the same step
+ * order, as row by row, so the factors are the same to the bit. A function of its own, so the
+ * engine optimizes it after its first calls, within a page's first map.
+ */
+function eliminateBelow(lu: Float64Array, k: number, n: number, diagonal: number): void {
+  const pivotRow = k * n;
+  let i = k + 1;
+  for (; i + 3 < n; i += 4) {
+    const r0 = i * n;
+    const r1 = r0 + n;
+    const r2 = r1 + n;
+    const r3 = r2 + n;
+    const f0 = lu[r0 + k] / diagonal;
+    const f1 = lu[r1 + k] / diagonal;
+    const f2 = lu[r2 + k] / diagonal;
+    const f3 = lu[r3 + k] / diagonal;
+    lu[r0 + k] = f0;
+    lu[r1 + k] = f1;
+    lu[r2 + k] = f2;
+    lu[r3 + k] = f3;
+    for (let j = k + 1; j < n; j++) {
+      const p = lu[pivotRow + j];
+      lu[r0 + j] -= f0 * p;
+      lu[r1 + j] -= f1 * p;
+      lu[r2 + j] -= f2 * p;
+      lu[r3 + j] -= f3 * p;
+    }
+  }
+  for (; i < n; i++) {
+    const row = i * n;
+    const factor = lu[row + k] / diagonal;
+    lu[row + k] = factor;
+    for (let j = k + 1; j < n; j++) lu[row + j] -= factor * lu[pivotRow + j];
+  }
+}
+
+/**
  * Factorize the n-by-n matrix `a`, given row-major (`a[i * n + j]`). `a` is not changed.
  * Throws a `RangeError` when `a` does not hold n * n numbers: a caller's mistake, not a matrix.
  */
@@ -67,30 +105,7 @@ export function luFactor(a: ArrayLike<number>, n: number): LuFactors {
         lu[other + j] = held;
       }
     }
-    const diagonal = lu[k * n + k];
-    const pivotRow = k * n;
-    // Two rows per pass over the pivot row; each entry gets the same one operation as row by row,
-    // so the factors are the same to the bit.
-    let i = k + 1;
-    for (; i + 1 < n; i += 2) {
-      const row = i * n;
-      const next = row + n;
-      const factor = lu[row + k] / diagonal;
-      const factor2 = lu[next + k] / diagonal;
-      lu[row + k] = factor;
-      lu[next + k] = factor2;
-      for (let j = k + 1; j < n; j++) {
-        const p = lu[pivotRow + j];
-        lu[row + j] -= factor * p;
-        lu[next + j] -= factor2 * p;
-      }
-    }
-    for (; i < n; i++) {
-      const row = i * n;
-      const factor = lu[row + k] / diagonal;
-      lu[row + k] = factor;
-      for (let j = k + 1; j < n; j++) lu[row + j] -= factor * lu[pivotRow + j];
-    }
+    eliminateBelow(lu, k, n, lu[k * n + k]);
   }
   return { n, lu, pivots };
 }

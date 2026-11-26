@@ -53,7 +53,7 @@ describe("luSolve", () => {
   });
 });
 
-describe("the LU factorization, two rows per pass", () => {
+describe("the LU factorization, four rows per pass", () => {
   /** The row-by-row elimination it replaced. */
   function reference(a: Float64Array, n: number): Float64Array {
     const lu = Float64Array.from(a);
