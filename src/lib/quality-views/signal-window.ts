@@ -14,6 +14,13 @@
  */
 
 import {
+  productStem,
+  readSegments,
+  readTable,
+  recipeLabel,
+  tableIsRecordings,
+} from "./floor-tables";
+import {
   CAPS,
   type FileDecl,
   type FileSource,
@@ -25,7 +32,9 @@ import {
 } from "./model";
 import { PresetRefused } from "./preset-refused";
 import type { SignalStore } from "./presets";
-import { KindRefused, type Tsv, cellValue, cells, readTsv } from "./read";
+import { KindRefused, readTsv } from "./read";
+
+export { productStem, tableIsRecordings };
 
 export const NO_BAD_SEGMENT_TABLE = "no_bad_segment_table";
 
@@ -69,40 +78,6 @@ export function windowSamples(
   return { first, count: Math.max(firstAtOrAfter(end) - first, 0) };
 }
 
-const basename = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
-const dirname = (path: string): string => {
-  const at = path.lastIndexOf("/");
-  return at < 0 ? "" : path.slice(0, at).replace(/\/+$/, "") || path.slice(0, at);
-};
-
-/** nemar-process's `naming.product_stem`: the recording's name without its last `_<suffix>.<ext>`,
- *  its first `desc-<x>` becoming `desc-<x><label>`, or `_desc-<label>` appended. */
-export function productStem(recording: string, label: string): string {
-  const name = basename(recording);
-  const parts = name.slice(0, name.includes("_") ? name.lastIndexOf("_") : name.length).split("_");
-  const at = parts.findIndex((part) => /^desc-[^_]*$/.test(part));
-  if (at >= 0) {
-    parts[at] = `${parts[at]}${label}`;
-    return parts.join("_");
-  }
-  return [...parts, `desc-${label}`].join("_");
-}
-
-/** Whether a table lies beside the recording, named `<stem>_<suffix>.tsv` with the stem the
- *  recipe of `label` gives the recording's products. */
-export function tableIsRecordings(
-  location: string,
-  recording: string,
-  label: string,
-  suffix: string,
-): boolean {
-  const found = /^(.+)_([A-Za-z0-9]+)\.tsv$/.exec(basename(location));
-  if (!found || dirname(location) !== dirname(recording) || !basename(recording).includes("_")) {
-    return false;
-  }
-  return found[2] === suffix && found[1] === productStem(recording, label);
-}
-
 type Input = {
   readonly role: string;
   readonly file?: FileDecl;
@@ -110,26 +85,6 @@ type Input = {
 };
 const inputOf = (view: ViewDecl, role: string): Input | undefined =>
   (view.inputs as readonly Input[] | undefined)?.find((i) => i.role === role);
-
-/** One of the floor's tables: its columns present in order, `numbers` columns finite numbers. */
-function readTable(
-  tsv: Tsv,
-  columns: readonly string[],
-  numbers: readonly string[],
-  cellCap: number,
-): Record<string, string | number>[] {
-  if (tsv.rows.length * tsv.header.length > cellCap) {
-    throw new KindRefused("cap_exceeded", `${tsv.rows.length} rows`);
-  }
-  for (const name of columns) {
-    if (!tsv.header.includes(name)) throw new KindRefused("column_missing", name);
-  }
-  const values: Record<string, (string | number)[]> = {};
-  for (const name of columns) values[name] = cells(tsv, name);
-  for (const name of numbers)
-    values[name] = values[name].map((t) => cellValue(String(t), "number"));
-  return tsv.rows.map((_, k) => Object.fromEntries(columns.map((name) => [name, values[name][k]])));
-}
 
 /** The checks of a signal window, in order; `PresetRefused` (outcome `nothing`) on the first fault. */
 export async function checkSignalWindow(
@@ -143,8 +98,7 @@ export async function checkSignalWindow(
     recording?: string;
     content_sha256?: string | null;
   };
-  const recipe = (view as { source?: { recipe?: { name?: string } } }).source?.recipe?.name;
-  const label = recipe === undefined ? null : recipe.replaceAll("-", "");
+  const label = recipeLabel(view);
   for (const role of ["channels", "badsegments"]) {
     const file = inputOf(view, role)?.file;
     if (!file) continue;
@@ -187,18 +141,8 @@ export async function checkSignalWindow(
         }
       }
     }
-    if (tables.badsegments) {
-      segments = readTable(
-        readTsv(tables.badsegments),
-        ["onset", "duration", "label"],
-        ["onset", "duration"],
-        caps.cells_per_role,
-      ) as unknown as BadSegment[];
-      for (const row of segments) {
-        if (!(row.duration > 0))
-          throw new KindRefused("duration_not_positive", String(row.duration));
-      }
-    }
+    if (tables.badsegments)
+      segments = readSegments(readTsv(tables.badsegments), caps.cells_per_role);
   } catch (error) {
     if (error instanceof KindRefused) throw new PresetRefused(error.word, "nothing");
     throw error;
