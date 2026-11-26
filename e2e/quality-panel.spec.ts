@@ -1364,6 +1364,9 @@ test.describe("the Activations export", () => {
     expect(texts["nemar:window-start-s"]).toBe("0");
     expect(texts["nemar:window-length-s"]).toBe("10");
     expect(texts["nemar:color-maps"]).toBeUndefined();
+    // The window is in the picture: 18 components draw 354 px of traces, twice that at 2×.
+    const header = new DataView(chunks[0].data.buffer, chunks[0].data.byteOffset);
+    expect(header.getUint32(4)).toBeGreaterThan(2 * 354);
     const pixels = inflateSync(
       Buffer.concat(chunks.filter((c) => c.type === "IDAT").map((c) => c.data)),
     );
