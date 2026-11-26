@@ -124,7 +124,7 @@ src/
     host.ts                           two-host route classification + noindex/production host logic
     embed.ts                          embed route matcher, ?theme= parser, embed/dataset URLs, iframe snippet
     embed-analytics.ts                pure Analytics Engine data point for an embed call (dataset, embedding host, kind) and whether a response counts; written by middleware.ts (ADR 0024)
-    qa.ts                             /qa/* contract (Phase 3, pending nemar-cli#511 backend)
+    qa.ts                             the retired Phase 3 `/qa/*` client and types; only `bucketAgesBySex` and `pickAgeBuckets` are live (render-age-gender.ts). The Data quality tab reads `extensions.dataQuality` (quality-views/dataset-summary.ts)
     filters.ts                        FilterState ↔ URL params; modality AND/OR; license tier
     tags.ts                           modality/license/keyword classification + /discover hrefs
     provenance.ts                     detectProvenance for on*; listMirrorVersions
@@ -179,7 +179,6 @@ Open dependencies blocking work in this repo:
 
 | Issue | Blocks | Status |
 |---|---|---|
-| `nemar-cli#511` | Phase 3 — `/qa/*` endpoint for QualityPanel + Vis modal data | not started |
 | `nemar-cli#512` | `on*` detail page right rail (sparse metadata.json + catalog row) | not started |
 | `nemar-cli#513` | BIDS-shaped download filenames (currently SHA-named) | not started |
 | `nemar-cli#653` | `license` on catalog rows → Discover license tier filter (color works today; filtering is a guarded no-op until this lands) | not started |
