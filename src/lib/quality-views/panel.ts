@@ -6,24 +6,16 @@
  * (`#quality/<recording>/<view key>`) and a Turbo toggle. Loaded on demand, when its tab first opens
  * or a deep link names it.
  *
- * Before a view is drawn its declaration's digest is recomputed and compared with the one the
- * route sent (`view_digest_mismatch` draws nothing), and its files are checked against their sizes
- * and SHA-256 before they are parsed (`model.ts`). A record the panel cannot show says why in one
+ * Each view is drawn by the steps the admin drill-down shares (`draw-view.ts`): before a view is
+ * drawn its declaration's digest is recomputed and compared with the one the route sent
+ * (`view_digest_mismatch` draws nothing), and its files are checked against their sizes and
+ * SHA-256 before they are parsed (`model.ts`). A record the panel cannot show says why in one
  * of three states (`quality-api.ts`): none, not on this server yet, or failed with a word.
  */
 
+import { drawView, mapKeeper, sayFailed } from "./draw-view";
 import { attachExport } from "./export-hook";
-import type { ExtraContext } from "./extras/context";
-import {
-  type BuiltModel,
-  type FileSource,
-  type ModelOptions,
-  type SensorFieldModel,
-  type ViewDecl,
-  ViewRefused,
-  buildModel,
-  downloadsOf,
-} from "./model";
+import type { SensorFieldModel, ViewDecl } from "./model";
 import { type PanelRecording, panelRecordings, preloaded, recordFor } from "./panel-bridge";
 import {
   DEFAULT_TAB,
@@ -42,24 +34,7 @@ import { preloadedSource } from "./preloaded";
 import type { RecordOutcome } from "./quality-api";
 import { fileUrl, recordFiles } from "./quality-files";
 import type { QualityRecord } from "./record";
-import { type MountedView, mountView, renderRefusal, viewContext } from "./render/index";
-
-type FieldHandle = NonNullable<MountedView["field"]>;
-import { toDom } from "./tree";
-import { viewDigest } from "./verify";
 import { type SensorFieldClient, sharedSensorFieldClient } from "./worker-client";
-
-/** Each kind's extras beyond its base, a chunk of its own. */
-const EXTRAS: Readonly<Record<string, () => Promise<{ draw(x: ExtraContext): Promise<void> }>>> = {
-  "nemar.spectrum": () => import("./extras/spectrum"),
-  "nemar.ic-maps": () => import("./extras/components"),
-  "nemar.ic-classes": () => import("./extras/components"),
-  "nemar.signal-window": () => import("./extras/signal"),
-  "nemar.ic-activity": () => import("./extras/activity"),
-};
-
-/** The computed presets: no stored data for a base to draw, their extras draw them whole. */
-const COMPUTED = ["nemar.signal-window", "nemar.ic-activity"];
 
 /** A word's sentence, from the panel's words, loaded the first time one is needed. */
 const sentence = (word: string): Promise<string> =>
@@ -94,17 +69,6 @@ export interface PanelHandle {
   destroy(): void;
 }
 
-/** Paint colors from the page's tokens. */
-function paintColors(root: HTMLElement) {
-  const style = getComputedStyle(root);
-  const token = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
-  return {
-    foreground: token("--qv-head-line", "#334155"),
-    background: token("--color-bg", "#ffffff"),
-    contour: token("--qv-contour-line", "rgb(15 23 42 / 45%)"),
-  };
-}
-
 export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): PanelHandle {
   const { root, datasetId, recipe, base } = config;
   const doc = root.ownerDocument;
@@ -135,12 +99,12 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
    *  signal it started under and stops at its next step once that signal aborts. */
   let controller = new AbortController();
   let drawn = new Map<TabId, Promise<void>>();
-  /** The scalp maps drawn, by the element they were drawn into: one live handle per target. */
-  const fields = new Map<
-    HTMLElement,
-    { field: FieldHandle; model: SensorFieldModel; built: BuiltModel & { model: SensorFieldModel } }
-  >();
   let turbo = readTurbo(storage);
+  /** The scalp maps drawn, by the element they were drawn into: one live handle per target. */
+  const maps = mapKeeper(root, client, (field) => {
+    if (turbo) field.setColorMap("turbo");
+  });
+  const { fields } = maps;
   let current: Promise<void> = Promise.resolve();
 
   const say = async (word: string | null): Promise<void> => {
@@ -163,141 +127,25 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
     }
   };
 
-  /** Every scalp-map handle not yet destroyed: one per drawn target (the tests read it). */
-  const live = new Set<FieldHandle>();
-  const end = (field: FieldHandle | undefined): void => {
-    if (!field) return;
-    field.destroy();
-    live.delete(field);
-  };
-
-  const dropFields = (): void => {
-    for (const { field } of fields.values()) end(field);
-    fields.clear();
-  };
-
   /** The address bar's hash names the recording and view on show: the deep link to copy. */
   const showLink = (key: string | null): void =>
     history.replaceState(history.state ?? null, "", formatQualityHash({ recording: path, key }));
 
-  const options = (): ModelOptions => ({
-    checks: client().checks(),
-    // Montages are needed only for template positions: loaded with the first that is.
-    montage: (name) => import("./montage-loader").then((m) => m.loadMontage(name)),
-  });
-
   const source = (r: QualityRecord, signal: AbortSignal) =>
     preloadedSource(recordFiles(base, r, { signal, fetch: deps.fetch }));
 
-  const pageDeps = (layoutKey: string) => ({
-    client,
-    layoutKey,
-    colors: paintColors(root),
-  });
-
-  const layoutKeyOf = (view: ViewDecl): string =>
-    view.data?.find((d) => d.role === "layout")?.sha256 ?? `view:${view.key}`;
-
-  const mountInto = async (
-    target: HTMLElement,
-    built: BuiltModel,
-    ctx: ReturnType<typeof viewContext>,
-    layoutKey: string,
-    signal: AbortSignal,
-  ): Promise<HTMLElement | null> => {
-    // A redraw into the same element (the spectrum's maps at a picked row) ends the one before.
-    end(fields.get(target)?.field);
-    fields.delete(target);
-    const mounted = await mountView(target, built, ctx, pageDeps(layoutKey), signal);
-    if (mounted.field) live.add(mounted.field);
-    if (signal.aborted) {
-      end(mounted.field);
-      return null;
-    }
-    if (mounted.field && built.model.type === "sensor-field") {
-      fields.set(target, {
-        field: mounted.field,
-        model: built.model,
-        built: built as BuiltModel & { model: SensorFieldModel },
-      });
-      if (turbo) mounted.field.setColorMap("turbo");
-    }
-    return mounted.element;
-  };
-
-  /** Draw one view; what it drew, for its export, or nothing when it drew nothing to export. */
-  async function drawView(
-    view: ViewDecl,
-    r: QualityRecord,
-    container: HTMLElement,
-    signal: AbortSignal,
-  ): Promise<{ built: BuiltModel | null; files: FileSource } | undefined> {
-    const ctx = viewContext(view, `qp-${view.key}`, (file) => fileUrl(base, r, file));
-    const refuse = (word: string, downloads = downloadsOf(view)): undefined => {
-      if (!signal.aborted)
-        container.replaceChildren(toDom(renderRefusal(word, downloads, ctx), doc));
-    };
-    const digest = await viewDigest(view);
-    if (signal.aborted) return;
-    if (digest === null || digest !== r.digests[view.key]) return refuse("view_digest_mismatch");
-    const opts = options();
-    const files = source(r, signal);
-    const layoutKey = layoutKeyOf(view);
-    const extras = Object.hasOwn(EXTRAS, view.kind) ? EXTRAS[view.kind] : null;
-    const loading = extras?.();
-    let built: BuiltModel | null = null;
-    let figure: HTMLElement | null = null;
-    if (!COMPUTED.includes(view.kind)) {
-      try {
-        built = await buildModel(view, files, {
-          ...opts,
-          onLayout: (places) => {
-            if (!signal.aborted) void client().prepare({ layoutKey, ...places });
-          },
-        });
-      } catch (error) {
-        if (signal.aborted) return;
-        if (!(error instanceof ViewRefused)) throw error;
-        return refuse(error.word, error.downloads);
-      }
-      if (signal.aborted) return;
-      const target = doc.createElement("div");
-      container.replaceChildren(target);
-      figure = await mountInto(target, built, ctx, layoutKey, signal);
-      // A base that refused its files shows the fallback; the preset adds nothing to it.
-      if (!figure || built.refused !== null) return;
-    }
-    if (!loading) return { built, files };
-    try {
-      const own = await loading;
-      if (signal.aborted) return;
-      await own.draw({
-        doc,
-        view,
-        record: r,
-        built,
-        figure,
-        container,
-        source: files,
-        options: opts,
-        ctx,
-        signal,
-        mount: async (target, b, c) => void (await mountInto(target, b, c, layoutKey, signal)),
-        client: client(),
-        sentence,
-      });
-      return { built, files };
-    } catch (error) {
-      if (signal.aborted) return;
-      const word = (error as { word?: unknown }).word;
-      if (typeof word !== "string") throw error;
-      if (error instanceof ViewRefused) return refuse(word, error.downloads);
-      // A preset's own word: the base stays drawn, and says why the extras are missing.
-      const { noteOf, intoFigure } = await import("./extras/context");
-      intoFigure(figure, await noteOf({ doc, sentence } as ExtraContext, word));
-      return { built, files };
-    }
-  }
+  /** Draw one view as the admin drill-down draws it (`draw-view.ts`), the computed ones too. */
+  const draw = (view: ViewDecl, r: QualityRecord, container: HTMLElement, signal: AbortSignal) =>
+    drawView(view, r, container, signal, {
+      doc,
+      idPrefix: "qp",
+      fileUrl: (file) => fileUrl(base, r, file),
+      files: source(r, signal),
+      client,
+      mount: maps.mount,
+      sentence,
+      computed: true,
+    });
 
   function drawTab(tab: TabId): Promise<void> {
     const held = drawn.get(tab);
@@ -329,7 +177,7 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
         container.className = "qp-view";
         container.dataset.qpView = key;
         panel.append(container);
-        return drawView(view, r, container, signal).then(
+        return draw(view, r, container, signal).then(
           (drew) => {
             // The view's Export toggle, its code loaded when first opened (phase W8).
             if (drew && !signal.aborted)
@@ -344,14 +192,10 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
                 origin: location.origin,
               });
           },
-          async (error: unknown) => {
+          (error: unknown) => {
             if (signal.aborted) return;
             console.error("[quality-views] a view of the panel could not be drawn:", error);
-            const p = doc.createElement("p");
-            p.className = "qv-note";
-            p.dataset.word = "failed";
-            p.textContent = await sentence("failed");
-            if (!signal.aborted) container.replaceChildren(p);
+            return sayFailed(container, signal, sentence);
           },
         );
       }),
@@ -398,7 +242,7 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
     controller = new AbortController();
     const { signal } = controller;
     drawn = new Map();
-    dropFields();
+    maps.drop();
     path = recording;
     wanted = key;
     record = null;
@@ -511,11 +355,11 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
       await Promise.all([...drawn.values()]);
     },
     route,
-    liveMaps: () => live.size,
+    liveMaps: () => maps.live.size,
     destroy() {
       controller.abort();
       removeEventListener("hashchange", onHash);
-      dropFields();
+      maps.drop();
     },
   };
 }

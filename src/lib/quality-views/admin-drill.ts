@@ -15,39 +15,19 @@
  * and each file's size and SHA-256 before it is parsed (`buildModel`). The admin mount sends no
  * `ETag` (nothing of it may be cached), so a record is read without one, and checked against one
  * when it comes with one. The views the record says were not written (`views_skipped`) are said
- * in their group, in the public panel's words. Panel overlap: `panel.ts` holds the same drawing
- * steps for the public route; they are repeated here, not shared, while W7 and W8 change that
- * file. nemarOrg/website#600 lifts one shared `drawView` out of both once W7 and W8 land.
+ * in their group, in the public panel's words. Each view is drawn by the panel's own steps
+ * (`draw-view.ts`), so the admin and the public renders of a view are the same.
  */
 
 import { ADMIN_VIEW_SENTENCES, PIPELINE_QUALITY_LABELS } from "../pipeline-quality-labels";
 import { siteAdminFilePath, siteAdminRecordPath } from "./admin-route-contract";
-import type { ExtraContext } from "./extras/context";
-import {
-  type BuiltModel,
-  type FileSource,
-  type ModelOptions,
-  type ViewDecl,
-  ViewRefused,
-  buildModel,
-  downloadsOf,
-} from "./model";
+import { drawView, mapKeeper, sayFailed } from "./draw-view";
+import type { FileSource, ViewDecl } from "./model";
 import { TABS, type TabId, tabOf } from "./panel-model";
 import { readLimited } from "./preloaded";
 import { type QualityRecord, readRecordAnswer } from "./record";
-import { type MountedView, mountView, renderRefusal, viewContext } from "./render/index";
 import { QUALITY_RECORD_MAX_BYTES } from "./route-contract";
-import { toDom } from "./tree";
-import { viewDigest } from "./verify";
 import { type SensorFieldClient, sharedSensorFieldClient } from "./worker-client";
-
-type FieldHandle = NonNullable<MountedView["field"]>;
-
-const EXTRAS: Readonly<Record<string, () => Promise<{ draw(x: ExtraContext): Promise<void> }>>> = {
-  "nemar.spectrum": () => import("./extras/spectrum"),
-  "nemar.ic-maps": () => import("./extras/components"),
-  "nemar.ic-classes": () => import("./extras/components"),
-};
 
 /** A word's sentence: the admin mount's and the proxy's, else the panel's. */
 export async function adminSentence(word: string): Promise<string> {
@@ -190,16 +170,6 @@ export interface DrillHandle {
   destroy(): void;
 }
 
-function paintColors(root: HTMLElement) {
-  const style = getComputedStyle(root);
-  const token = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
-  return {
-    foreground: token("--qv-head-line", "#334155"),
-    background: token("--color-bg", "#ffffff"),
-    contour: token("--qv-contour-line", "rgb(15 23 42 / 45%)"),
-  };
-}
-
 /** Mount the drill-down on `root`: its `[data-qd-recording]` picker, status, views and computed list. */
 export function mountAdminDrill(config: DrillConfig, deps: DrillDeps = {}): DrillHandle {
   const { root, stampId, datasetId, recipe } = config;
@@ -209,7 +179,7 @@ export function mountAdminDrill(config: DrillConfig, deps: DrillDeps = {}): Dril
   const status = root.querySelector<HTMLElement>("[data-qd-status]")!;
   const views = root.querySelector<HTMLElement>("[data-qd-views]")!;
   const computed = root.querySelector<HTMLElement>("[data-qd-computed]")!;
-  const live = new Set<FieldHandle>();
+  const maps = mapKeeper(root, client);
   let controller = new AbortController();
   let current: Promise<void> = Promise.resolve();
 
@@ -220,93 +190,23 @@ export function mountAdminDrill(config: DrillConfig, deps: DrillDeps = {}): Dril
     else delete status.dataset.word;
   };
 
-  const dropFields = (): void => {
-    for (const field of live) field.destroy();
-    live.clear();
-  };
-
-  const options = (): ModelOptions => ({
-    checks: client().checks(),
-    montage: (name) => import("./montage-loader").then((m) => m.loadMontage(name)),
-  });
-
-  async function drawView(
+  /** Draw one stored view as the panel draws it (`draw-view.ts`). */
+  const draw = (
     view: ViewDecl,
     record: QualityRecord,
     files: FileSource,
     container: HTMLElement,
     signal: AbortSignal,
-  ): Promise<void> {
-    const ctx = viewContext(view, `qd-${view.key}`, (file) =>
-      siteAdminFilePath(stampId, file.sha256, record.recording),
-    );
-    const refuse = (word: string, downloads = downloadsOf(view)): void => {
-      if (!signal.aborted)
-        container.replaceChildren(toDom(renderRefusal(word, downloads, ctx), doc));
-    };
-    const digest = await viewDigest(view);
-    if (signal.aborted) return;
-    if (digest === null || digest !== record.digests[view.key])
-      return refuse("view_digest_mismatch");
-    const opts = options();
-    const layoutKey = view.data?.find((d) => d.role === "layout")?.sha256 ?? `view:${view.key}`;
-    const loading = Object.hasOwn(EXTRAS, view.kind) ? EXTRAS[view.kind]() : null;
-    let built: BuiltModel;
-    try {
-      built = await buildModel(view, files, {
-        ...opts,
-        onLayout: (places) => {
-          if (!signal.aborted) void client().prepare({ layoutKey, ...places });
-        },
-      });
-    } catch (error) {
-      if (signal.aborted) return;
-      if (!(error instanceof ViewRefused)) throw error;
-      return refuse(error.word, error.downloads);
-    }
-    if (signal.aborted) return;
-    const mount = async (target: HTMLElement, b: BuiltModel, c: ReturnType<typeof viewContext>) => {
-      const mounted = await mountView(
-        target,
-        b,
-        c,
-        { client, layoutKey, colors: paintColors(root) },
-        signal,
-      );
-      if (mounted.field) live.add(mounted.field);
-      return mounted.element;
-    };
-    const target = doc.createElement("div");
-    container.replaceChildren(target);
-    const figure = await mount(target, built, ctx);
-    if (!figure || built.refused !== null || !loading) return;
-    try {
-      const own = await loading;
-      if (signal.aborted) return;
-      await own.draw({
-        doc,
-        view,
-        record,
-        built,
-        figure,
-        container,
-        source: files,
-        options: opts,
-        ctx,
-        signal,
-        mount: async (t, b, c) => void (await mount(t, b, c)),
-        client: client(),
-        sentence: adminSentence,
-      });
-    } catch (error) {
-      if (signal.aborted) return;
-      const word = (error as { word?: unknown }).word;
-      if (typeof word !== "string") throw error;
-      if (error instanceof ViewRefused) return refuse(word, error.downloads);
-      const { noteOf, intoFigure } = await import("./extras/context");
-      intoFigure(figure, await noteOf({ doc, sentence: adminSentence } as ExtraContext, word));
-    }
-  }
+  ) =>
+    drawView(view, record, container, signal, {
+      doc,
+      idPrefix: "qd",
+      fileUrl: (file) => siteAdminFilePath(stampId, file.sha256, record.recording),
+      files,
+      client,
+      mount: maps.mount,
+      sentence: adminSentence,
+    });
 
   function listComputed(list: readonly ViewDecl[]): void {
     if (list.length === 0) {
@@ -332,7 +232,7 @@ export function mountAdminDrill(config: DrillConfig, deps: DrillDeps = {}): Dril
     controller.abort();
     controller = new AbortController();
     const { signal } = controller;
-    dropFields();
+    maps.drop();
     views.replaceChildren();
     computed.replaceChildren();
     if (select) select.value = recording;
@@ -382,15 +282,14 @@ export function mountAdminDrill(config: DrillConfig, deps: DrillDeps = {}): Dril
         container.dataset.qdView = view.key;
         section.append(container);
         work.push(
-          drawView(view, record, files, container, signal).catch(async (error: unknown) => {
-            if (signal.aborted) return;
-            console.error("[admin-quality] a view could not be drawn:", error);
-            const p = doc.createElement("p");
-            p.className = "qv-note";
-            p.dataset.word = "failed";
-            p.textContent = await adminSentence("failed");
-            container.replaceChildren(p);
-          }),
+          draw(view, record, files, container, signal).then(
+            () => {},
+            (error: unknown) => {
+              if (signal.aborted) return;
+              console.error("[admin-quality] a view could not be drawn:", error);
+              return sayFailed(container, signal, adminSentence);
+            },
+          ),
         );
       }
     }
@@ -414,7 +313,7 @@ export function mountAdminDrill(config: DrillConfig, deps: DrillDeps = {}): Dril
     },
     destroy() {
       controller.abort();
-      dropFields();
+      maps.drop();
     },
   };
 }
