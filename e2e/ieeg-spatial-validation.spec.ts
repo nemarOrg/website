@@ -21,7 +21,10 @@
  *   stage and in the saved SVG and PNG, no surface, the contacts as declared in the flat views.
  * - Native frames: on005415 (ACPC, channel names joined by a rule) and on004473 (ACPC and ScanRAS,
  *   meters, names with spaces): never placed on the template (no mesh, no outlines requested), the
- *   join said in words, and the recorded location shown exactly as the file wrote it.
+ *   join said in words, and the recorded location shown exactly as the file wrote it. Both
+ *   subjects have an entry in their dataset's geometry index (uploaded beside the Zarr copy), so
+ *   the panel opens on "This subject's anatomy" (ADR 0034); the tests check that default, then
+ *   choose the frame itself, where no surface is drawn.
  * - Refusals: nm000537 (no coordinates), on004642 (no electrodes file): a disabled toggle and its
  *   sentence. nm000377 and on004624 (names that carry no usable link to a contact): the toggle opens
  *   a refusal that lists both sets of names.
@@ -114,6 +117,9 @@ const SCALE_PATTERN =
 const UNREADABLE_SENTENCE = "The electrodes file could not be read.";
 
 const OWN_LABEL = "Template brain (MNI152NLin2009cAsym), not this subject's anatomy";
+/** The label of a subject's own surface fitted by depth contacts (ADR 0034, grade `plausible`). */
+const SUBJECT_LABEL =
+  "This subject's anatomy, from the dataset's own surfaces; approximate alignment (depth contacts)";
 /**
  * Banner lines across a figure cover most of the content width in the rows under the title; the
  * first row of the three views (three short titles, a few letters) covers a small part of it.
@@ -756,6 +762,28 @@ async function expectSurfaceDrawn(page: Page, dataset: string): Promise<void> {
   expect(share).toBeGreaterThan(MESH_INK_MIN);
 }
 
+/**
+ * A native frame whose subject has an entry in the dataset's geometry index opens on the subject's
+ * own surface (ADR 0034): wait until that default is actually shown, with its option labels, so the
+ * test confirms it rather than racing past it, check what it says, then choose `frame` itself,
+ * where no surface is drawn. The template is never involved in either.
+ */
+async function leaveSubjectAnatomy(
+  page: Page,
+  subjectOption: string,
+  frame: string,
+): Promise<void> {
+  await expect(
+    page.locator(PANEL),
+    "the subject surface from the live geometry index did not load: a geometry file fetch failed (for example a server error from the data host), or the index was regenerated, removed or regraded",
+  ).toHaveAttribute("data-template-state", "ready", { timeout: 60_000 });
+  await expect(page.locator("[data-spatial-frame] option:checked")).toHaveText(subjectOption);
+  await expect(page.locator(TEMPLATE_LABEL)).toHaveText(SUBJECT_LABEL);
+  await expect(page.locator(NOTES)).toContainText("Subject surfaces: ");
+  await page.selectOption("[data-spatial-frame]", { label: frame });
+  await expect(page.locator("[data-spatial-frame] option:checked")).toHaveText(frame);
+}
+
 /** The plain-text, not-a-brain case: a few small spheres. */
 async function expectContactsOnly(page: Page, dataset: string): Promise<void> {
   const { share } = await inkShare(page);
@@ -967,6 +995,8 @@ test("native frame ACPC: on005415 joins names by a rule, says so, and never goes
   // Since IS-J1 the toggle is enabled: the store's "LTP1-20000" joins the file's "LTP1".
   await expect(page.locator(TOGGLE)).toBeEnabled();
   await openBrain(page);
+  // sub-72 has its own surfaces in the geometry index, so they are the default (ADR 0034).
+  await leaveSubjectAnatomy(page, "Subject anatomy", "ACPC");
 
   await expect(page.locator(STATUS)).toHaveText(
     /^\d+ of \d+ channels located; frame: ACPC; positions as declared by the dataset; joined by name rules: \d+ suffix match$/,
@@ -1014,9 +1044,16 @@ test("native frames ACPC and ScanRAS: on004473 keeps exponent notation, joins na
   const sidecars = watchSidecars(page);
   await openViewer(page, "on004473");
   await openBrain(page);
+  // sub-1's ACPC contacts have its own surfaces in the geometry index; its ScanRAS ones do not.
+  await leaveSubjectAnatomy(page, "ACPC: Subject anatomy", "ACPC");
 
-  // Two frames offered, none preferred by the panel's own taste: the first that can be shown.
-  expect(await texts(page, "[data-spatial-frame] option")).toEqual(["ACPC", "ScanRAS"]);
+  // Two frames, ACPC with the subject's own surface beside it; the panel opened on the first
+  // frame's subject anatomy (checked in leaveSubjectAnatomy).
+  expect(await texts(page, "[data-spatial-frame] option")).toEqual([
+    "ACPC",
+    "ACPC: Subject anatomy",
+    "ScanRAS",
+  ]);
   await expect(page.locator(STATUS)).toHaveText(
     /^\d+ of \d+ channels located; frame: ACPC; positions as declared by the dataset; joined by name rules: \d+ normalized match$/,
   );
@@ -1495,6 +1532,7 @@ for (const theme of THEMES) {
   }) => {
     await openViewer(page, "on005415", `?theme=${theme}`);
     await openBrain(page);
+    await leaveSubjectAnatomy(page, "Subject anatomy", "ACPC");
     await expect(page.locator(PANEL)).toHaveAttribute("data-template-state", "none");
     await expectContactsOnly(page, `on005415 ${theme}`);
     expect(await contrastOf(page, CREDIT)).toBeGreaterThanOrEqual(MIN_CONTRAST);
@@ -1906,10 +1944,10 @@ async function installDrawProbe(page: Page): Promise<void> {
 
 async function timeOpen(
   page: Page,
-  withSurface: boolean,
+  timeTemplateSurface: boolean,
 ): Promise<{ contactsMs: number; surfaceMs: number | null; readyMs: number }> {
   await openBrain(page);
-  if (withSurface) await waitTemplate(page);
+  if (timeTemplateSurface) await waitTemplate(page);
   await expect
     .poll(
       () =>
@@ -1917,7 +1955,7 @@ async function timeOpen(
       { timeout: 30_000 },
     )
     .toBeGreaterThan(0);
-  if (withSurface) {
+  if (timeTemplateSurface) {
     await expect
       .poll(
         () =>
@@ -1938,15 +1976,18 @@ async function timeOpen(
   expect((await canvasColors(page)).saturated).toBeGreaterThan(20);
   return {
     contactsMs: q.contacts - q.t0,
-    surfaceMs: withSurface ? q.surface - q.t0 : null,
+    surfaceMs: timeTemplateSurface ? q.surface - q.t0 : null,
     readyMs: q.ready,
   };
 }
 
+// `timeTemplateSurface`: also wait for and time the vendored template surface. on005415 sits in a
+// native frame, so it draws the subject's own surface from the live geometry index (ADR 0034),
+// never the template; only its first contacts are timed.
 const FIRST_CONTACT_CASES = [
-  { dataset: "on005522", surface: true, warmRuns: 3 },
-  { dataset: "nm000485", surface: true, warmRuns: 1 },
-  { dataset: "on005415", surface: false, warmRuns: 1 },
+  { dataset: "on005522", timeTemplateSurface: true, warmRuns: 3 },
+  { dataset: "nm000485", timeTemplateSurface: true, warmRuns: 1 },
+  { dataset: "on005415", timeTemplateSurface: false, warmRuns: 1 },
 ] as const;
 
 for (const c of FIRST_CONTACT_CASES) {
@@ -1956,7 +1997,7 @@ for (const c of FIRST_CONTACT_CASES) {
     await installDrawProbe(page);
     // Cold: the first open in a fresh browser context (the surface is not in the HTTP cache).
     await openViewer(page, c.dataset);
-    const cold = await timeOpen(page, c.surface);
+    const cold = await timeOpen(page, c.timeTemplateSurface);
     // Warm: reloaded in the same context. The dev server sends an ETag and `no-cache`, so every
     // file is revalidated (a conditional request each) and the surface is fetched and decoded again;
     // the HTTP cache saves bytes, not round trips or decoding.
@@ -1967,7 +2008,7 @@ for (const c of FIRST_CONTACT_CASES) {
       await page.reload();
       await expect(page.locator(TOGGLE)).toBeAttached({ timeout: 90_000 });
       await settled(page);
-      const t = await timeOpen(page, c.surface);
+      const t = await timeOpen(page, c.timeTemplateSurface);
       warm.push(t.contactsMs);
       warmReady.push(t.readyMs);
       if (t.surfaceMs !== null) warmSurface.push(t.surfaceMs);
