@@ -20,7 +20,7 @@ import {
   openServingStore,
   workerTransform,
 } from "../activations";
-import { downloadsOf } from "../model";
+import { CAPS, downloadsOf } from "../model";
 import { storeUrlOf } from "../panel-bridge";
 import { numberText } from "../read";
 import { renderRefusal } from "../render/index";
@@ -57,6 +57,12 @@ export async function draw(x: ExtraContext): Promise<void> {
     if (word !== null) return refuse(word);
     const files = await fetchInputs(view, x.source, x.options.caps);
     if (signal.aborted) return;
+    // Checks 2 to 4 in the worker before the store is opened: a view whose tables or files are
+    // not the record's is refused for that, whether or not the page can read a serving copy.
+    const run = workerTransform(sharedSensorFieldClient());
+    const prepared = await run.prepare({ view, files, caps: x.options.caps ?? CAPS });
+    if (signal.aborted) return;
+    if (prepared.word !== null) return refuse(prepared.word);
     const url = storeUrlOf(x.record.recording);
     const serving = url && (await openServingStore(url, String(store.group), signal));
     if (signal.aborted) return;
@@ -65,9 +71,8 @@ export async function draw(x: ExtraContext): Promise<void> {
     const transform = obj(obj(obj(view).transform).parameters);
     const label = String(obj(transform.shaded).label);
     const bursts = burstsRepaired(x.record.metrics);
-    const run = workerTransform(sharedSensorFieldClient());
-    const shown = (w: { start: number; count: number }) =>
-      activity(view, files, serving, w, bursts, run, signal);
+    const shown = (w: { start: number; count: number }, stop = signal) =>
+      activity(view, files, serving, w, bursts, run, stop, x.options.caps ?? CAPS);
 
     let window = firstWindow(serving.samples, serving.rate, parameters.max_window_s as number);
     const first = await shown(window);
@@ -82,8 +87,9 @@ export async function draw(x: ExtraContext): Promise<void> {
       `${view.caption} (${view.kind}, version ${view.kind_version})`,
     );
     const nav = el("div", "qp-activity__nav");
-    const earlier = el("button", "qp-open", "Earlier");
-    const later = el("button", "qp-open", "Later");
+    // Never `disabled`: a button that loses focus as it ends the recording drops the keyboard user.
+    const earlier = el("button", "qp-open", "Earlier window");
+    const later = el("button", "qp-open", "Later window");
     const where = el("span", "qp-activity__where");
     where.setAttribute("role", "status");
     nav.append(earlier, where, later);
@@ -117,7 +123,6 @@ export async function draw(x: ExtraContext): Promise<void> {
 
     let dispose = (): void => {};
     signal.addEventListener("abort", () => dispose(), { once: true });
-    let drawn = 0;
     const paint = async (a: Activity): Promise<void> => {
       const style = getComputedStyle(x.container);
       const token = (name: string, fallback: string) =>
@@ -151,27 +156,34 @@ export async function draw(x: ExtraContext): Promise<void> {
         "aria-label",
         `Activations of ${n} components (${a.plan.components.join(", ")}) from ${t0} s to ${t1} s, in arbitrary units, filtered for display.`,
       );
-      earlier.disabled = window.start === 0;
-      later.disabled = window.start + window.count >= serving.samples;
+      earlier.setAttribute("aria-disabled", String(window.start === 0));
+      later.setAttribute("aria-disabled", String(window.start + window.count >= serving.samples));
     };
     await paint(first);
-    const move = async (direction: number): Promise<void> => {
+    let moving: AbortController | null = null;
+    const move = async (button: HTMLElement, direction: number): Promise<void> => {
+      if (button.getAttribute("aria-disabled") === "true") return;
       const start = Math.max(
         0,
         Math.min(serving.samples - window.count, window.start + direction * window.count),
       );
       window = { start, count: window.count };
-      const mine = ++drawn;
+      // A newer window stops the one still computing, in the worker too.
+      moving?.abort();
+      moving = new AbortController();
+      const stop = AbortSignal.any([signal, moving.signal]);
       try {
-        const next = await shown(window);
-        if (next && mine === drawn) await paint(next);
+        const next = await shown(window, stop);
+        if (next && !stop.aborted) await paint(next);
       } catch (error) {
-        if (!signal.aborted && error instanceof ActivityRefused) await refuse(error.word);
-        else if (!signal.aborted) throw error;
+        if (stop.aborted) return;
+        if (error instanceof ActivityRefused) return refuse(error.word);
+        console.error("[quality-views] the activations could not be drawn:", error);
+        await refuse("failed");
       }
     };
-    earlier.addEventListener("click", () => void move(-1));
-    later.addEventListener("click", () => void move(1));
+    earlier.addEventListener("click", () => void move(earlier, -1));
+    later.addEventListener("click", () => void move(later, 1));
   } catch (error) {
     if (signal.aborted) return;
     if (error instanceof ActivityRefused) return refuse(error.word);

@@ -83,6 +83,8 @@ interface MountOptions {
     readonly recording?: string;
     /** Another kind for the view (one this site does not know draws under Other). */
     readonly kind?: string;
+    /** Another location for the view's bad-segment table: a decoy the record does not name. */
+    readonly badsegments?: string;
   };
   /** Where the page says the serving copy is (`registerStoreUrl`): the test's served Zarr store. */
   readonly zarr?: boolean;
@@ -124,6 +126,11 @@ async function mount(page: Page, options: MountOptions = {}): Promise<void> {
           if (view.key !== options.patch.key) continue;
           if (options.patch.parameters) Object.assign(view.parameters, options.patch.parameters);
           if (options.patch.kind) view.kind = options.patch.kind;
+          for (const input of view.inputs) {
+            if (options.patch.badsegments && input.role === "badsegments") {
+              input.file.location = options.patch.badsegments;
+            }
+          }
           if (options.patch.recording) {
             for (const input of view.inputs) {
               if (input.store) input.store.recording = options.patch.recording;
@@ -654,9 +661,12 @@ test("the Activations tab draws the serving copy's activations, shaded and capti
     });
   expect(painted).toBeGreaterThan(1000);
   // The next window: computed again, with its own context.
-  await view.getByRole("button", { name: "Later" }).click();
+  await view.getByRole("button", { name: "Later window" }).click();
   await expect(view.locator(".qp-activity__where")).toHaveText("10 s to 19.995 s of 30 s");
-  await expect(view.getByRole("button", { name: "Earlier" })).toBeEnabled();
+  await expect(view.getByRole("button", { name: "Earlier window" })).toHaveAttribute(
+    "aria-disabled",
+    "false",
+  );
   expect(await page.evaluate(() => (window as unknown as { figures: string[] }).figures)).toEqual([
     "qv-figure qp-activity",
   ]);
@@ -718,4 +728,41 @@ test("a switch of recording while the samples load computes and draws no activat
   );
   expect(counted.computes).toBe(0);
   await expect(page.locator(".qp-activity, canvas")).toHaveCount(0);
+});
+
+test("the window buttons keep the keyboard's focus at the recording's ends", async ({ page }) => {
+  await serveZarr(page);
+  await mount(page, { zarr: true, hash: `#quality/${provenance.recording}/icactivity` });
+  const view = page.locator('[data-qp-view="icactivity"]');
+  const earlier = view.getByRole("button", { name: "Earlier window" });
+  const later = view.getByRole("button", { name: "Later window" });
+  await expect(earlier).toHaveAttribute("aria-disabled", "true");
+  await later.focus();
+  for (const text of ["10 s to 19.995 s of 30 s", "20 s to 29.995 s of 30 s"]) {
+    await page.keyboard.press("Enter");
+    await expect(view.locator(".qp-activity__where")).toHaveText(text);
+  }
+  // At the end: Later says it does nothing more, and keeps the focus.
+  await expect(later).toHaveAttribute("aria-disabled", "true");
+  await expect(later).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(view.locator(".qp-activity__where")).toHaveText("20 s to 29.995 s of 30 s");
+  await expect(later).toBeFocused();
+  await expect(earlier).toHaveAttribute("aria-disabled", "false");
+});
+
+test("a decoy bad-segment table is refused before the serving copy is asked for", async ({
+  page,
+}) => {
+  // No serving copy on this page: the decoy's word comes first, not no_store.
+  await mount(page, {
+    hash: `#quality/${provenance.recording}/icactivity`,
+    patch: {
+      key: "icactivity",
+      badsegments: "sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_desc-decoy_badsegments.tsv",
+    },
+  });
+  const view = page.locator('[data-qp-view="icactivity"]');
+  await expect(view.locator("[data-word]")).toHaveAttribute("data-word", "table_location_mismatch");
+  await expect(view.locator("canvas")).toHaveCount(0);
 });

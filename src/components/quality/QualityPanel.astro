@@ -190,6 +190,10 @@ const idp = `qp-${datasetId}`;
     padding: 2px var(--space-3);
     cursor: pointer;
   }
+  .qp-open[aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: default;
+  }
   .qp__turbo[aria-pressed="true"] {
     background: var(--color-fg);
     color: var(--color-bg);
