@@ -61,7 +61,20 @@ for (const [name, viewBudget] of [
         const maps = Array.from({ length: thetaDeg.length }, (_, m) =>
           Float64Array.from(base, (v, s) => v * Math.cos(m + 1) + Math.sin(s * (m + 1))),
         );
-        type Run = { firstMaps: number; view: number; drawn: number; kind: string; worker: number };
+        type Run = {
+          firstMaps: number;
+          view: number;
+          drawn: number;
+          kind: string;
+          worker: number;
+          storeHits: number;
+          grids: Float64Array[];
+        };
+        // A first visit: the page's storage holds no geometry yet.
+        await new Promise((resolve) => {
+          const req = indexedDB.deleteDatabase("nemar-quality-views");
+          req.onsuccess = req.onerror = req.onblocked = () => resolve(null);
+        });
         // biome-ignore lint/suspicious/noExplicitAny: the client module is imported by URL.
         const timeDraw = async (client: any, layoutKey: string): Promise<Run> => {
           let firstMaps = Number.NaN;
@@ -85,8 +98,18 @@ for (const [name, viewBudget] of [
               outcome.kind === "done"
                 ? outcome.maps.filter((m: { kind: string }) => m.kind === "map").length
                 : 0,
+            storeHits: outcome.kind === "done" ? outcome.stats.storeHits : 0,
+            grids:
+              outcome.kind === "done"
+                ? outcome.maps.map((m: { grid?: Float64Array }) => m.grid ?? new Float64Array())
+                : [],
           };
         };
+        const sameBits = (a: Float64Array[], b: Float64Array[]): boolean =>
+          a.length === b.length &&
+          a.every(
+            (grid, m) => grid.length === b[m].length && grid.every((v, i) => Object.is(v, b[m][i])),
+          );
         // Each scenario's client starts a new module worker, so its first view is cold.
         // Cold: the panel warms the worker when it mounts, prepares the layout's geometry when the
         // layout arrives, and the values arrive after the warm-up.
@@ -115,10 +138,21 @@ for (const [name, viewBudget] of [
         const later: Run[] = [];
         for (let run = 1; run <= 5; run++) later.push(await timeDraw(client, `${name}-${run}`));
         client.terminate();
+        // A repeat visit: cached data at mount, and the geometry the cold visit stored.
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const repeatClient = new SensorFieldClient();
+        const repeatWarm = repeatClient.warm();
+        const repeat = await timeDraw(repeatClient, `${name}-cold`);
+        await repeatWarm;
+        repeatClient.terminate();
+        const repeatSame = sameBits(repeat.grids, cold.grids);
+        for (const run of [cold, eager, midWarm, repeat, ...later]) run.grids = [];
         return {
           cold,
           eager,
           midWarm,
+          repeat,
+          repeatSame,
           later,
           warmMs: warm.ms,
           warmed: warm.draw.kind,
@@ -128,8 +162,8 @@ for (const [name, viewBudget] of [
       },
       { name, data: sensors(name) },
     );
-    const { cold, eager, midWarm, later } = timings;
-    for (const run of [cold, eager, midWarm, ...later]) {
+    const { cold, eager, midWarm, repeat, later } = timings;
+    for (const run of [cold, eager, midWarm, repeat, ...later]) {
       expect(run.kind).toBe("done");
       expect(run.drawn).toBe(sensors(name).value.length);
     }
@@ -139,11 +173,15 @@ for (const [name, viewBudget] of [
     const worker = median(later.map((r) => r.worker));
     const at = (r: { firstMaps: number; view: number }) =>
       `first maps ${r.firstMaps.toFixed(1)} ms, view ${r.view.toFixed(1)} ms`;
-    const line = `${name} in ${timings.userAgent} (${timings.cores} cores): warm-up ${timings.warmMs.toFixed(1)} ms (${timings.warmed}); cold ${at(cold)}; eager ${at(eager)}; mid-warm ${at(midWarm)}; median of 5: ${at({ firstMaps, view })} (in the worker ${worker.toFixed(1)} ms)`;
+    const line = `${name} in ${timings.userAgent} (${timings.cores} cores): warm-up ${timings.warmMs.toFixed(1)} ms (${timings.warmed}); cold ${at(cold)}; first-visit eager ${at(eager)}; repeat-visit eager ${at(repeat)} (geometries from storage ${repeat.storeHits}); mid-warm ${at(midWarm)}; median of 5: ${at({ firstMaps, view })} (in the worker ${worker.toFixed(1)} ms)`;
     info.annotations.push({ type: "quality-views perf", description: line });
     console.info(`[quality-views perf] ${line}`);
     expect(timings.warmed).toBe("done");
-    for (const run of [cold, eager, { firstMaps, view }]) {
+    // The repeat visit read the cold visit's geometry back from IndexedDB, and drew its maps to
+    // the bit.
+    expect(repeat.storeHits).toBeGreaterThan(0);
+    expect(timings.repeatSame).toBe(true);
+    for (const run of [cold, eager, repeat, { firstMaps, view }]) {
       expect(run.firstMaps).toBeLessThanOrEqual(BUDGET.firstMaps);
       expect(run.view).toBeLessThanOrEqual(viewBudget);
     }

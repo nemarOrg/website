@@ -26,10 +26,11 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+import type { GeometryStore } from "../src/lib/quality-views/geometry-store";
 import { inThreadWorker } from "../src/lib/quality-views/worker";
 import { SensorFieldClient } from "../src/lib/quality-views/worker-client";
 import { nodeProcess } from "./node";
-import { loadFieldVectors, numbers } from "./quality-views-vectors";
+import { loadFieldVectors, numbers, serializedStore } from "./quality-views-vectors";
 
 const GATED = (await nodeProcess()).env.QUALITY_VIEWS_PERF === "gate";
 const field = await loadFieldVectors();
@@ -78,7 +79,7 @@ async function timeView(
 
 const median = (values: number[]): number => [...values].sort((a, b) => a - b)[values.length >> 1];
 
-type Scenario = "cold" | "eager" | "mid-warm";
+type Scenario = "cold" | "eager" | "mid-warm" | "repeat-eager";
 
 interface FirstView {
   readonly warmMs: number;
@@ -90,6 +91,7 @@ interface FirstView {
   readonly drawn: number;
   readonly cacheHits: number;
   readonly cacheMisses: number;
+  readonly storeHits: number;
 }
 
 /**
@@ -103,13 +105,17 @@ interface FirstView {
  *
  * The view is timed from the moment its values arrive.
  */
-async function firstView(name: string, scenario: Scenario): Promise<FirstView> {
+async function firstView(
+  name: string,
+  scenario: Scenario,
+  store?: GeometryStore,
+): Promise<FirstView> {
   vi.resetModules();
   const worker = await import("../src/lib/quality-views/worker");
   const { SensorFieldClient: Client } = await import("../src/lib/quality-views/worker-client");
   const { thetaDeg, radius, maps } = view(name);
-  const client = new Client(worker.inThreadWorker);
-  const layoutKey = `${name}-${scenario}`;
+  const client = new Client(() => worker.inThreadWorker({ store: store ?? null }));
+  const layoutKey = scenario === "repeat-eager" ? `${name}-visited` : `${name}-${scenario}`;
   let midway: () => void = () => {};
   const firstBatch = new Promise<void>((resolve) => {
     midway = resolve;
@@ -145,7 +151,24 @@ async function firstView(name: string, scenario: Scenario): Promise<FirstView> {
     drawn: outcome.maps.filter((map) => map.kind === "map").length,
     cacheHits: outcome.stats.cacheHits,
     cacheMisses: outcome.stats.cacheMisses,
+    storeHits: outcome.stats.storeHits,
   };
+}
+
+/** A repeat visit: an earlier visit drew the view and stored its geometry; this one opens with
+ *  cached data, on freshly imported code and a new worker. */
+async function repeatVisit(name: string): Promise<FirstView> {
+  const store = await serializedStore();
+  vi.resetModules();
+  const worker = await import("../src/lib/quality-views/worker");
+  const { SensorFieldClient: Client } = await import("../src/lib/quality-views/worker-client");
+  const { thetaDeg, radius } = view(name);
+  const earlier = new Client(() => worker.inThreadWorker({ store }));
+  await earlier.prepare({ layoutKey: `${name}-visited`, thetaDeg, radius });
+  earlier.terminate();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  if (store.bytes.size === 0) throw new Error("the earlier visit stored no geometry");
+  return firstView(name, "repeat-eager", store);
 }
 
 const line = (name: string, scenario: Scenario, run: FirstView): string =>
@@ -159,7 +182,8 @@ describe.skipIf(!GATED)("first views (QUALITY_VIEWS_PERF=gate)", () => {
     "%s: cold, eager and mid-warm first views",
     async (name, viewBudget) => {
       const cold = await firstView(name, "cold");
-      const eager = await firstView(name, "eager");
+      // A first visit: the page's storage is there and empty.
+      const eager = await firstView(name, "eager", await serializedStore());
       const midWarm = await firstView(name, "mid-warm");
       for (const [scenario, run] of [
         ["cold", cold],
@@ -181,6 +205,25 @@ describe.skipIf(!GATED)("first views (QUALITY_VIEWS_PERF=gate)", () => {
         expect(run.firstMaps, `${scenario} first maps`).toBeLessThanOrEqual(BUDGET.firstMaps);
         expect(run.view, `${scenario} view`).toBeLessThanOrEqual(viewBudget);
       }
+    },
+    60_000,
+  );
+});
+
+describe.skipIf(!GATED)("repeat visits (QUALITY_VIEWS_PERF=gate)", () => {
+  it.each([
+    ["montage_128", BUDGET.view128],
+    ["montage_256", BUDGET.view256],
+  ] as const)(
+    "%s: eager, the geometry read back from the earlier visit's storage",
+    async (name, viewBudget) => {
+      const run = await repeatVisit(name);
+      console.info(line(name, "repeat-eager", run));
+      expect(run.drawn).toBe(view(name).maps.length);
+      expect(run.storeHits).toBeGreaterThan(0);
+      expect(run.cacheMisses).toBe(0);
+      expect(run.firstMaps).toBeLessThanOrEqual(BUDGET.firstMaps);
+      expect(run.view).toBeLessThanOrEqual(viewBudget);
     },
     60_000,
   );
