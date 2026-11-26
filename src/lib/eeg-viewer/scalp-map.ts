@@ -341,6 +341,65 @@ export async function placeScalpSensors(
   }
 }
 
+/** Where a viewer's sensors go, decided as late as it can be (`scalpPlacer`). */
+export interface ScalpPlacer {
+  /** The placement once known; null while placement by name waits for `show` or is running. */
+  readonly placement: Placement | null;
+  /** The map is shown: start the placement by name, once, if one is waiting. */
+  show(): void;
+}
+
+/**
+ * The viewer's placement, in two steps. Step 1 (the recording's own positions, or the word they
+ * are refused with) needs no montage and runs at once, so the map's toggle can say where the
+ * positions come from, or why there is no map, before it is opened. Placement by name loads the
+ * fourteen montages names reach, so it waits until the map is first shown (`show`). `onPlaced` is
+ * called once with the placement: at once for step 1, after `show` for names. Never rejects.
+ */
+export function scalpPlacer(
+  input: ScalpInput,
+  load: (name: string) => Promise<Montage>,
+  onPlaced: (placement: Placement) => void,
+): ScalpPlacer {
+  let placement: Placement | null = null;
+  let waiting: ToNames | null = null;
+  const failed = (error: unknown): Placement => {
+    // A bug here must not end the viewer: the map is left undrawn and says it could not be drawn.
+    console.error("[eeg-viewer] scalp placement failed:", error);
+    return {
+      kind: "refused",
+      word: "worker",
+      detail: error instanceof Error ? error.message : String(error),
+      unusedPositions: null,
+    };
+  };
+  const settle = (placed: Placement): void => {
+    placement = placed;
+    onPlaced(placed);
+  };
+  let first: Placement | ToNames;
+  try {
+    first = placeByPositions(input);
+  } catch (error) {
+    first = failed(error);
+  }
+  if (first.kind === "names") waiting = first;
+  else settle(first);
+  return {
+    get placement() {
+      return placement;
+    },
+    show() {
+      if (waiting === null) return;
+      const names = waiting;
+      waiting = null;
+      void placeByNames(input, names.unusedPositions, load, names.labels)
+        .catch(failed)
+        .then(settle);
+    },
+  };
+}
+
 /** The sentence in place of a refused placement's map. */
 export function placementSentence(placement: Placement & { kind: "refused" }): string {
   return placement.sentence ?? refusalSentence(placement.word);

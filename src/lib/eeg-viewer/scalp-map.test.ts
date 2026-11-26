@@ -5,7 +5,7 @@
  * own loader; the maps are drawn by the real worker handler on this thread (`inThreadWorker`).
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { loadMontage } from "../quality-views/montage-loader";
 import type { Montage } from "../quality-views/montages";
 import { sensorField } from "../quality-views/sensor-field";
@@ -23,11 +23,13 @@ import {
   placeScalpSensors,
   refusalSentence,
   rowValues,
+  scalpPlacer,
   templateNote,
   toCanvas,
   viewOfDraw,
   viewOfPlacement,
 } from "./scalp-map";
+import { topoToggleTitle } from "./viewer";
 
 const TEN_TWENTY = "Fp1 Fp2 F7 F3 Fz F4 F8 T7 C3 Cz C4 T8 P7 P3 Pz P4 P8 O1 O2".split(" ");
 
@@ -345,6 +347,97 @@ describe("placement by name", () => {
     await expect(placeScalpSensors(byName(TEN_TWENTY), broken)).resolves.toMatchObject({
       kind: "refused",
     });
+  });
+});
+
+describe("the viewer's placer: positions at once, names when the map is first shown", () => {
+  const counting = () => {
+    const asked: string[] = [];
+    return {
+      asked,
+      load: (name: string): Promise<Montage> => {
+        asked.push(name);
+        return loadMontage(name);
+      },
+    };
+  };
+
+  it("places a recording's own positions at mount, so the toggle's title says so before it opens", async () => {
+    const input = await measured("biosemi64", "CapTrak");
+    const { asked, load } = counting();
+    const seen: Placement[] = [];
+    const placer = scalpPlacer(input, load, (p) => seen.push(p));
+    // Synchronously, before any show(): the placement and its title.
+    expect(seen).toHaveLength(1);
+    expect(placer.placement).toMatchObject({ kind: "placed", source: "positions" });
+    const provenance = {
+      electrodePositionsSource: "subject" as const,
+      electrodePositionsFile: "sub-01/eeg/sub-01_electrodes.tsv",
+    };
+    expect(topoToggleTitle(placer.placement!, provenance)).toContain(
+      "sub-01/eeg/sub-01_electrodes.tsv",
+    );
+    placer.show();
+    await Promise.resolve();
+    expect(seen).toHaveLength(1);
+    expect(asked).toEqual([]);
+  });
+
+  it("says a positions refusal at mount too (frame_not_scalp), with no montage", () => {
+    const input: ScalpInput = {
+      positions: { Cz: [0, 0, 0.09] },
+      coordinateSystem: "ACPC",
+      channels: [{ label: "Cz", channelType: "EEG" }],
+    };
+    const { asked, load } = counting();
+    const placer = scalpPlacer(input, load, () => {});
+    expect(placer.placement).toMatchObject({ kind: "refused", word: "frame_not_scalp" });
+    expect(
+      topoToggleTitle(placer.placement!, {
+        electrodePositionsSource: null,
+        electrodePositionsFile: null,
+      }),
+    ).toContain(SCALP_MAP_SENTENCES.frame_not_scalp);
+    expect(asked).toEqual([]);
+  });
+
+  it("fetches no montage for a names-only recording until the map is first shown, then places once", async () => {
+    const { asked, load } = counting();
+    let placed: (p: Placement) => void = () => {};
+    const done = new Promise<Placement>((resolve) => {
+      placed = resolve;
+    });
+    const calls: Placement[] = [];
+    const placer = scalpPlacer(byName(TEN_TWENTY), load, (p) => {
+      calls.push(p);
+      placed(p);
+    });
+    expect(placer.placement).toBeNull();
+    await Promise.resolve();
+    expect(asked).toEqual([]);
+    // The map is shown (a click, or the restored view state): the placement starts, once.
+    placer.show();
+    placer.show();
+    const p = await done;
+    expect(p).toMatchObject({ kind: "placed", source: "names", montage: "standard_1005" });
+    expect(placer.placement).toBe(p);
+    expect(calls).toHaveLength(1);
+    expect(asked.length).toBeGreaterThan(0);
+  });
+
+  it("never rejects: a placement that throws is a refusal handed to onPlaced", async () => {
+    const broken = (): Promise<Montage> => {
+      throw new Error("loader bug");
+    };
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const done = new Promise<Placement>((resolve) => {
+        scalpPlacer(byName(TEN_TWENTY), broken, resolve).show();
+      });
+      await expect(done).resolves.toMatchObject({ kind: "refused" });
+    } finally {
+      error.mockRestore();
+    }
   });
 });
 
