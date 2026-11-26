@@ -22,6 +22,12 @@ import {
   warmInput,
 } from "../src/lib/quality-views/model";
 import { type Montage, parseMontage } from "../src/lib/quality-views/montages";
+import {
+  forgetPreloads,
+  preloadedSource,
+  prepareAhead,
+  shouldPreload,
+} from "../src/lib/quality-views/prepare-ahead";
 import { readTsv } from "../src/lib/quality-views/read";
 import { fieldDrawInput } from "../src/lib/quality-views/render/sensor-field-view";
 import { inThreadWorker } from "../src/lib/quality-views/worker";
@@ -297,5 +303,162 @@ describe("the layout before the values", () => {
     expect(new Set(requested)).toEqual(new Set([VALUES, LAYOUT]));
     releaseValues();
     expect((await building).model.type).toBe("sensor-field");
+  });
+});
+
+describe("preloading the first screen ahead of the panel (prepareAhead)", () => {
+  const layoutUrl = "https://data.example.invalid/layout.tsv";
+  const valuesUrl = "https://data.example.invalid/values.tsv";
+  const served: Record<string, Uint8Array> = {
+    [layoutUrl]: encode(layoutText),
+    [valuesUrl]: encode(valuesText),
+  };
+  const fetched: string[] = [];
+  const fetchBytes = async (url: string) => {
+    fetched.push(url);
+    return served[url] ?? null;
+  };
+  const layoutFile = { ...view.data[1], url: layoutUrl };
+  const valuesFile = { ...view.data[0], url: valuesUrl };
+
+  it("prepares the geometry and keeps the first windows' files, so the panel only draws", async () => {
+    forgetPreloads();
+    fetched.length = 0;
+    const client = new SensorFieldClient(inThreadWorker);
+    const ahead = await prepareAhead(
+      { layout: { view: view as never, file: layoutFile }, files: [valuesFile, layoutFile] },
+      { client, fetchBytes },
+    );
+    expect(ahead.layout).toMatchObject({ kind: "prepared", cached: false });
+    expect([...ahead.files.values()]).toEqual(["preloaded", "preloaded"]);
+    // The panel builds its model from the preloaded bytes, fetching nothing.
+    const panelFetches: string[] = [];
+    const built = await buildModel(
+      view,
+      preloadedSource(async (file) => {
+        panelFetches.push(file.location);
+        return null;
+      }),
+      { checks: localChecks, montage },
+    );
+    expect(panelFetches).toEqual([]);
+    const draw = fieldDrawInput({ ...built, model: built.model as SensorFieldModel })!;
+    const outcome = await client.draw({
+      layoutKey: layoutFile.sha256,
+      thetaDeg: draw.thetaDeg,
+      radius: draw.radius,
+      maps: draw.maps,
+    });
+    client.terminate();
+    if (outcome.kind !== "done") throw new Error(outcome.kind);
+    expect(outcome.stats.cacheMisses).toBe(0);
+    expect(outcome.stats.cacheHits).toBeGreaterThan(0);
+    // Each file was fetched once, the layout's twice-named entry included.
+    expect(fetched.sort()).toEqual([layoutUrl, valuesUrl].sort());
+  });
+
+  it("is idempotent: a second call fetches and prepares nothing again", async () => {
+    forgetPreloads();
+    fetched.length = 0;
+    const client = new SensorFieldClient(inThreadWorker);
+    const input = { layout: { view: view as never, file: layoutFile }, files: [valuesFile] };
+    const [a, b] = await Promise.all([
+      prepareAhead(input, { client, fetchBytes }),
+      prepareAhead(input, { client, fetchBytes }),
+    ]);
+    const c = await prepareAhead(input, { client, fetchBytes });
+    client.terminate();
+    expect(a.layout).toEqual(b.layout);
+    expect(c.layout).toEqual(a.layout);
+    expect(fetched.sort()).toEqual([layoutUrl, valuesUrl].sort());
+  });
+
+  it("keeps to its byte cap and stops when cancelled", async () => {
+    forgetPreloads();
+    fetched.length = 0;
+    const client = new SensorFieldClient(inThreadWorker);
+    const capped = await prepareAhead(
+      { files: [layoutFile, valuesFile], maxBytes: layoutFile.size },
+      { client, fetchBytes },
+    );
+    expect(capped.files.get(layoutFile.sha256)).toBe("preloaded");
+    expect(capped.files.get(valuesFile.sha256)).toMatchObject({ kind: "skipped" });
+    const stop = new AbortController();
+    stop.abort();
+    const cancelled = await prepareAhead(
+      {
+        warm: true,
+        layout: { view: view as never, file: layoutFile },
+        files: [valuesFile],
+        signal: stop.signal,
+      },
+      { client, fetchBytes },
+    );
+    client.terminate();
+    expect(cancelled.warm).toBeNull();
+    expect(cancelled.layout).toBeNull();
+    expect(cancelled.files.get(valuesFile.sha256)).toMatchObject({ kind: "skipped" });
+    expect(fetched).toEqual([layoutUrl]);
+  });
+
+  it("prepares nothing for a layout not the one recorded, missing, or unreachable", async () => {
+    forgetPreloads();
+    const client = new SensorFieldClient(inThreadWorker);
+    const wrong = { ...layoutFile, sha256: "0".repeat(64) };
+    expect(
+      (await prepareAhead({ layout: { view: view as never, file: wrong } }, { client, fetchBytes }))
+        .layout,
+    ).toMatchObject({ kind: "skipped" });
+    const missing = { ...layoutFile, url: "https://x.invalid/none.tsv" };
+    expect(
+      (
+        await prepareAhead(
+          { layout: { view: view as never, file: missing } },
+          { client, fetchBytes },
+        )
+      ).layout,
+    ).toMatchObject({ kind: "skipped" });
+    const offline = await prepareAhead(
+      { layout: { view: view as never, file: layoutFile } },
+      {
+        client,
+        fetchBytes: async () => {
+          throw new Error("offline");
+        },
+      },
+    );
+    expect(offline.layout).toEqual({ kind: "skipped", reason: "offline" });
+    // Nothing was prepared: the draw builds the geometry itself.
+    const built = await buildModel(view, source(files), { checks: localChecks, montage });
+    const draw = fieldDrawInput({ ...built, model: built.model as SensorFieldModel })!;
+    const outcome = await client.draw({
+      layoutKey: layoutFile.sha256,
+      thetaDeg: draw.thetaDeg,
+      radius: draw.radius,
+      maps: draw.maps,
+    });
+    client.terminate();
+    if (outcome.kind !== "done") throw new Error(outcome.kind);
+    expect(outcome.stats.cacheMisses).toBe(1);
+  });
+
+  it("is a no-op, and never throws, when the worker cannot start", async () => {
+    forgetPreloads();
+    const client = new SensorFieldClient(() => {
+      throw new Error("no workers");
+    });
+    const ahead = await prepareAhead(
+      { warm: true, layout: { view: view as never, file: layoutFile } },
+      { client, fetchBytes },
+    );
+    expect(ahead.layout?.kind).toBe("unavailable");
+  });
+
+  it("skips a data-saving or 2G-class connection", () => {
+    expect(shouldPreload({ connection: { saveData: true } })).toBe(false);
+    expect(shouldPreload({ connection: { effectiveType: "2g" } })).toBe(false);
+    expect(shouldPreload({ connection: { effectiveType: "slow-2g" } })).toBe(false);
+    expect(shouldPreload({ connection: { effectiveType: "4g" } })).toBe(true);
+    expect(shouldPreload({})).toBe(true);
   });
 });

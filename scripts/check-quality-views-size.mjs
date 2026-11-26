@@ -89,6 +89,8 @@ try {
       "model.ts",
       "checks.ts",
       "render/index.ts",
+      // The idle-time preload a dataset page runs before the panel opens (W6's trigger).
+      "prepare-ahead.ts",
     ]
       .map((file) => `export * from ${JSON.stringify(join(lib, file))};\n`)
       .join(""),
