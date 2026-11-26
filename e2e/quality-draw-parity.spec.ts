@@ -6,8 +6,10 @@
  * element for element and pixel for pixel: drawn, refused for its declaration's digest, refused for
  * a file's, and drawn with a preset's own word under its base. The answers reach both through their
  * `fetch` dependency as the route's own bytes (HTTP fixtures); nothing either decides is stood in
- * for. Only what differs by design is set aside: each caller's element ids (`qp-`, `qd-`), the
- * file links' addresses (the data plane's, the admin proxy's), and the panel's Export toggle.
+ * for. Only what differs by design is set aside: each caller's prefix (`qp-`, `qd-`), rewritten
+ * wherever it appears in the markup (element ids, and so also class names and data attributes that
+ * start with it, the same in both), the file links' addresses (the data plane's, the admin
+ * proxy's), and the panel's Export toggle.
  *
  * Run with `bun run test:e2e e2e/quality-draw-parity.spec.ts`.
  */
@@ -209,8 +211,16 @@ async function drawnBy(page: Page, key: string) {
         if (sha) a.setAttribute("href", sha);
       }
       const html = copy.innerHTML.replace(/\bq[pd]-/g, "Q-");
-      const pixels = [...container.querySelectorAll("canvas")].map((c) => c.toDataURL());
-      return { html, pixels };
+      const canvases = [...container.querySelectorAll("canvas")];
+      const pixels = canvases.map((c) => c.toDataURL());
+      // Whether each canvas is still as a new one of its size would be: unpainted.
+      const blank = canvases.map((c) => {
+        const empty = document.createElement("canvas");
+        empty.width = c.width;
+        empty.height = c.height;
+        return c.toDataURL() === empty.toDataURL();
+      });
+      return { html, pixels, blank };
     };
     return {
       panel: pick(`[data-qp-view="${key}"]`),
@@ -249,6 +259,8 @@ async function sameIn(page: Page, key: string): Promise<string> {
   expect(drill, key).toEqual(panel);
   // Painted, not blank: maps of different values are different pictures.
   if (panel!.pixels.length > 1) expect(new Set(panel!.pixels).size, key).toBeGreaterThan(1);
+  // And every canvas painted, a view with one canvas included.
+  expect(panel!.blank, key).toEqual(panel!.blank.map(() => false));
   return panel!.html;
 }
 
