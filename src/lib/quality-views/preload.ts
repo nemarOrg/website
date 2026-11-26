@@ -35,6 +35,8 @@ import {
 import { fetchRecord } from "./quality-api";
 import { fileUrl } from "./quality-files";
 import type { QualityRecord } from "./record";
+import { QUALITY_FILE_MAX_BYTES } from "./route-contract";
+import { viewDigest } from "./verify";
 import type { SensorFieldClient } from "./worker-client";
 
 export interface PreloadTarget {
@@ -51,6 +53,8 @@ export interface PreloadDeps {
   readonly recordings?: () => Promise<readonly PanelRecording[] | null>;
   /** Whether the page's signal viewer is open now. */
   readonly viewerOpen?: () => boolean;
+  /** Whether the panel has opened (it then reads what it needs itself, at its own priority). */
+  readonly panelOpened?: () => boolean;
   /** Calls `leave` when the visitor leaves the page. */
   readonly onLeave?: (leave: () => void) => void;
   readonly navigator?: unknown;
@@ -86,7 +90,7 @@ export function preloadPlan(record: QualityRecord, url: (file: FileDecl) => stri
   let layout: PreloadPlan["layout"] = null;
   for (const view of first) {
     const file = layoutOf(view);
-    if (file) {
+    if (file && fetchable(file)) {
       layout = { view, file: { ...pick(file), url: url(file) } };
       break;
     }
@@ -95,7 +99,7 @@ export function preloadPlan(record: QualityRecord, url: (file: FileDecl) => stri
   const files: PreloadFile[] = [];
   for (const view of first) {
     for (const entry of view.data ?? []) {
-      if (seen.has(entry.sha256)) continue;
+      if (seen.has(entry.sha256) || !fetchable(entry)) continue;
       seen.add(entry.sha256);
       files.push({ ...pick(entry), url: url(entry) });
     }
@@ -105,6 +109,24 @@ export function preloadPlan(record: QualityRecord, url: (file: FileDecl) => stri
 }
 
 const pick = (f: FileDecl): FileDecl => ({ location: f.location, size: f.size, sha256: f.sha256 });
+
+/** A file a preload may fetch: a SHA-256 of 64 hexadecimal digits and a whole size within the
+ *  route's cap. Anything else is left to the panel, whose model refuses it. */
+const fetchable = (f: FileDecl): boolean =>
+  /^[0-9a-f]{64}$/.test(f.sha256) &&
+  Number.isSafeInteger(f.size) &&
+  f.size >= 0 &&
+  f.size <= QUALITY_FILE_MAX_BYTES;
+
+/** The views of a record whose declaration matches the digest the route computed: the only ones
+ *  the preload plans from, as the panel draws only those. */
+export async function digestedViews(record: QualityRecord): Promise<QualityRecord> {
+  const kept = [];
+  for (const view of record.views) {
+    if ((await viewDigest(view)) === record.digests[view.key as string]) kept.push(view);
+  }
+  return { ...record, views: kept };
+}
 
 export type PreloadRun =
   | { readonly kind: "skipped"; readonly reason: string }
@@ -176,6 +198,9 @@ export function startIdlePreload(
     if (signal.aborted) return { kind: "skipped", reason: "cancelled" };
     const viewerOpen = deps.viewerOpen ?? (() => document.querySelector(".eegv") !== null);
     if (viewerOpen()) return { kind: "skipped", reason: "viewer open" };
+    const panelOpened =
+      deps.panelOpened ?? (() => document.querySelector("[data-qp-opening]") !== null);
+    if (panelOpened()) return { kind: "skipped", reason: "panel open" };
     const ask = { ...target, recording: first.path };
     const outcome = fetchRecord(ask, { signal, priority: "low", fetch: deps.fetch });
     holdRecord({ path: first.path, outcome });
@@ -183,7 +208,9 @@ export function startIdlePreload(
     if (read.kind !== "ok" || signal.aborted) {
       return { kind: "ran", recording: first.path, outcome: null };
     }
-    const plan = preloadPlan(read.record, (file) => fileUrl(target.base, read.record, file));
+    const checked = await digestedViews(read.record);
+    if (signal.aborted) return { kind: "skipped", reason: "cancelled" };
+    const plan = preloadPlan(checked, (file) => fileUrl(target.base, read.record, file));
     const prepared = await prepareAhead(preloadInput(plan, signal), preloadOptions(deps));
     return { kind: "ran", recording: first.path, outcome: prepared };
   })().catch((): PreloadRun => {

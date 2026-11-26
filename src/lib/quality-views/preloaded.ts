@@ -12,7 +12,8 @@ export async function readLimited(
   response: Response,
   limit = Number.POSITIVE_INFINITY,
 ): Promise<Uint8Array | null> {
-  if (!response.ok) return null;
+  // A limit that is not a number reads nothing: a declared size that is not one is no size.
+  if (!response.ok || Number.isNaN(limit)) return null;
   if (!response.body) return new Uint8Array(await response.arrayBuffer());
   const reader = response.body.getReader();
   const parts: Uint8Array[] = [];
