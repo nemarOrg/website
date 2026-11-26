@@ -67,6 +67,17 @@ export function sensorReadout(model: SensorFieldModel, map: number, row: number)
   return `${item.label}, ${model.sensors.labels[row]}: ${withUnit(item.text[row], model.unit)}`;
 }
 
+/** The readout for the `k`-th plotted marker of a drawn map: that sensor's stored text. */
+export function markerReadout(
+  model: SensorFieldModel,
+  draw: FieldDraw,
+  map: DrawnMap,
+  mapIndex: number,
+  k: number,
+): string {
+  return sensorReadout(model, mapIndex, draw.rows[map.geometry.plotted[k]]);
+}
+
 /** The plotted sensor (by its index among `markers`) nearest a canvas point, within `reach`. */
 export function nearestMarker(
   markers: readonly (readonly [number, number])[],
@@ -389,8 +400,7 @@ export function mountSensorField(
     const map = results.get(m);
     if (!map) return;
     selected.set(m, k);
-    const row = draw.rows[map.geometry.plotted[k]];
-    if (readout) readout.textContent = sensorReadout(model, m, row);
+    if (readout) readout.textContent = markerReadout(model, draw, map, m, k);
     paint(m);
   };
 

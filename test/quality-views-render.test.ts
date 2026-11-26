@@ -37,6 +37,7 @@ import {
 import {
   fieldDrawInput,
   mapTextRow,
+  markerReadout,
   placementStatement,
   sensorReadout,
 } from "../src/lib/quality-views/render/sensor-field-view";
@@ -301,10 +302,12 @@ describe("scalp maps", () => {
     const map = outcome.maps[0];
     if (map.kind !== "map") throw new Error("map refused");
     const m = draw.mapIndices[0];
-    for (const plotted of map.geometry.plotted) {
+    for (const [k, plotted] of map.geometry.plotted.entries()) {
       const row = draw.rows[plotted];
-      const text = sensorReadout(model, m, row);
-      expect(text).toContain(`${model.sensors.labels[row]}: ${model.maps.items[m].text[row]}`);
+      const stored = `${model.sensors.labels[row]}: ${model.maps.items[m].text[row]}`;
+      expect(sensorReadout(model, m, row)).toContain(stored);
+      // What a pointer or a key on the k-th marker shows.
+      expect(markerReadout(model, draw, map, m, k)).toContain(stored);
     }
     // The grid near a sensor is interpolated and differs from the stored value: a readout that
     // read the grid would print another number.
