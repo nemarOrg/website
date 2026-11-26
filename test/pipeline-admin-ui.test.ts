@@ -17,10 +17,16 @@ import TABLE from "../src/components/admin/PipelineGridTable.astro?raw";
 import LEGEND from "../src/components/admin/PipelineLegend.astro?raw";
 import API from "../src/lib/compute-pipeline-api.ts?raw";
 import VIEW from "../src/lib/compute-pipeline-view.ts?raw";
+import QAPI from "../src/lib/pipeline-quality-api.ts?raw";
+import QVIEW from "../src/lib/pipeline-quality-view.ts?raw";
+import DRILL from "../src/lib/quality-views/admin-drill.ts?raw";
+import PROXY from "../src/lib/quality-views/admin-proxy.ts?raw";
 import OVERVIEW from "../src/pages/admin/index.astro?raw";
 import GRID from "../src/pages/admin/pipelines/[recipe].astro?raw";
 import LANDING from "../src/pages/admin/pipelines/index.astro?raw";
 import RUN from "../src/pages/admin/pipelines/runs/[stamp].astro?raw";
+import QUALITY from "../src/pages/admin/pipelines/runs/[stamp]/quality.astro?raw";
+import PROXY_ROUTE from "../src/pages/admin/pipelines/runs/[stamp]/quality/[...rest].ts?raw";
 
 /** A source without the comments that explain it, so a rule is checked against code only. */
 function code(source: string): string {
@@ -32,7 +38,7 @@ function code(source: string): string {
 
 const PAGES = { LANDING, GRID, RUN } as const;
 const MARKUP = { ...PAGES, PANEL, TABLE, LEGEND } as const;
-const ALL = { ...MARKUP, API, VIEW } as const;
+const ALL = { ...MARKUP, QUALITY, API, VIEW, QAPI, QVIEW, DRILL, PROXY, PROXY_ROUTE } as const;
 
 describe("backend text is never rendered as markup", () => {
   it.each(Object.entries(ALL))("%s has no set:html", (_name, source) => {
@@ -113,7 +119,7 @@ describe("no backend word is put in a link", () => {
 });
 
 describe("the gate, the cache and the sync", () => {
-  it.each(Object.entries({ ...PAGES, OVERVIEW }))(
+  it.each(Object.entries({ ...PAGES, QUALITY, OVERVIEW }))(
     "%s calls adminGate before it fetches anything",
     (_n, page) => {
       const gate = page.indexOf("adminGate(session");
@@ -124,11 +130,11 @@ describe("the gate, the cache and the sync", () => {
     },
   );
 
-  it.each(Object.entries({ ...PAGES, OVERVIEW }))("%s is never cached", (_name, page) => {
+  it.each(Object.entries({ ...PAGES, QUALITY, OVERVIEW }))("%s is never cached", (_name, page) => {
     expect(code(page)).toContain('Astro.response.headers.set("Cache-Control", "no-store")');
   });
 
-  it.each(Object.entries({ ...PAGES, OVERVIEW, API, VIEW }))(
+  it.each(Object.entries({ ...PAGES, QUALITY, OVERVIEW, API, VIEW, QAPI, QVIEW, DRILL }))(
     "%s never asks the Worker to sync",
     (_name, source) => {
       expect(code(source)).not.toMatch(/\bsync\b/);
@@ -143,5 +149,56 @@ describe("the gate, the cache and the sync", () => {
       "`/pipeline/runs",
     ]);
     expect(code(API)).not.toMatch(/"POST"|"PUT"|"DELETE"|"PATCH"/);
+  });
+});
+
+describe("the run drill-down (website phase W9)", () => {
+  it("has no multi-word sentence typed in the page", () => {
+    const body = code(
+      QUALITY.replace(/<style>[\s\S]*?<\/style>/g, "").replace(/<script>[\s\S]*?<\/script>/g, ""),
+    );
+    for (const line of body.split("\n")) {
+      if (/^\s*import\b/.test(line) || /\bclass(:list)?=/.test(line)) continue;
+      expect(line, line).not.toMatch(
+        /["`][^"`\n]*\b[A-Za-z]{3,} [A-Za-z]{3,} [A-Za-z]{3,}[^"`\n]*["`]/,
+      );
+      expect(line, line).not.toMatch(/>[^<>{}\n]*\b[A-Za-z]{3,} [A-Za-z]{3,}[^<>{}\n]*</);
+    }
+  });
+
+  it("links the public page only through publicHref, and prints recording paths as text", () => {
+    for (const page of [RUN, QUALITY]) {
+      expect(code(page)).not.toMatch(/href=\{[^}]*(\.path|dataset_id)/);
+      expect(code(page)).toMatch(/href=\{(view|quality)\.publicHref\}/);
+    }
+    expect(code(QUALITY)).toContain("displaySafeLine(path)");
+  });
+
+  it("draws only views without inputs, and never reads a signal store", () => {
+    expect(code(DRILL)).toContain('!Object.hasOwn(v, "inputs")');
+    expect(code(DRILL)).not.toMatch(/zarr|signal-window|extras\/signal|openSignal/);
+  });
+
+  it("fetches only same-origin proxy paths from the browser", () => {
+    expect(code(DRILL)).not.toMatch(/https?:\/\//);
+    expect(code(DRILL)).toMatch(/siteAdminRecordPath\(/);
+    expect(code(DRILL)).toMatch(/siteAdminFilePath\(/);
+  });
+
+  it("the proxy route decides nothing itself and never reads its params", () => {
+    expect(code(PROXY_ROUTE)).toContain("proxyAdminQuality(request");
+    // Forwarded through the API service binding where the site has one (apiFetch), as itself.
+    expect(code(PROXY_ROUTE)).toMatch(/fetch: apiFetch,/);
+    expect(code(PROXY_ROUTE)).toMatch(/apiBase: apiBase\(\),/);
+    expect(code(PROXY_ROUTE)).not.toMatch(/params/);
+    expect(code(PROXY_ROUTE)).toMatch(/export const ALL\b/);
+    expect(code(PROXY_ROUTE)).not.toMatch(/export const (GET|POST|PUT|DELETE|PATCH|HEAD)\b/);
+  });
+
+  it("the run-quality client calls one route, with GET", () => {
+    expect([...code(QAPI).matchAll(/`\/pipeline\/[^`]*`/g)].map((m) => m[0])).toEqual([
+      "`/pipeline/runs/${stampId}/quality${qs}`",
+    ]);
+    expect(code(QAPI)).not.toMatch(/"POST"|"PUT"|"DELETE"|"PATCH"/);
   });
 });
