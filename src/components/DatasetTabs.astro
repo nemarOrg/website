@@ -1,9 +1,13 @@
 ---
+import type { QualitySummary } from "../lib/quality-views/dataset-summary";
+import DatasetQualitySummary from "./quality/DatasetQualitySummary.astro";
+
 /**
  * Tabbed summary on the dataset detail page. Demographics is the primary
- * tab (eager client hydration from participants.tsv); Data quality is a
- * "coming soon" placeholder until nemar-cli#511 ships the static QA
- * aggregate.
+ * tab (eager client hydration from participants.tsv); Data quality is the
+ * dataset quality summary drawn on the server (DatasetQualitySummary, phase
+ * W5 of website#588), present only when the page has a summary to show or a
+ * sentence saying why one is not shown.
  *
  * Both tabs render server-side as static markup; only the demographics
  * panel hydrates client-side. The tabs themselves switch via a tiny
@@ -15,11 +19,14 @@ import QualityPanel from "./quality/QualityPanel.astro";
 interface Props {
   datasetId: string;
   version: string | null;
+  /** The dataset quality summary as `readQualitySummary` read it; no tab when it shows nothing. */
+  quality?: QualitySummary;
   /** The per-recording quality panel's recipe and data plane (website W6), or null for none. */
   recordingQuality?: { recipe: string; dataBase: string } | null;
 }
 
-const { datasetId, version, recordingQuality = null } = Astro.props;
+const { datasetId, version, quality, recordingQuality = null } = Astro.props;
+const showQuality = quality !== undefined && quality.kind !== "none";
 // Per-dataset id prefix so multiple instances of this component on the
 // same page wouldn't collide on hardcoded tab/panel ids. Today only one
 // is rendered, but the tablist click + keydown handlers are document-
@@ -33,10 +40,12 @@ const idp = `dt-${datasetId}`;
     <button class="dtabs__tab" role="tab" id={`${idp}-tab-demo`} aria-controls={`${idp}-panel-demo`} aria-selected="true" tabindex="0" type="button">
       Demographics
     </button>
-    <button class="dtabs__tab dtabs__tab--soon" role="tab" id={`${idp}-tab-qa`} aria-controls={`${idp}-panel-qa`} aria-selected="false" tabindex="-1" type="button">
-      Data quality <span class="dtabs__tab-suffix">(coming soon)</span>
-    </button>
-    {recordingQuality && (
+    {showQuality && (
+      <button class="dtabs__tab" role="tab" id={`${idp}-tab-qa`} aria-controls={`${idp}-panel-qa`} aria-selected="false" tabindex="-1" type="button">
+        Data quality
+      </button>
+    )}
+    {recordingQuality && version && (
       <button class="dtabs__tab" role="tab" id={`${idp}-tab-rq`} aria-controls={`${idp}-panel-rq`} aria-selected="false" tabindex="-1" type="button" data-quality-tab>
         Recording quality
       </button>
@@ -56,13 +65,11 @@ const idp = `dt-${datasetId}`;
     <p class="dtabs__skeleton">Loading demographics…</p>
   </div>
 
-  <div class="dtabs__panel" role="tabpanel" id={`${idp}-panel-qa`} aria-labelledby={`${idp}-tab-qa`} hidden>
-    <p class="dtabs__soon">
-      <strong>Coming soon.</strong> Per-file data-quality summaries are precomputed by the
-      NEMAR processing pipeline. The static aggregate is on the way — tracked at
-      <a href="https://github.com/nemarOrg/nemar-cli/issues/511" rel="external">nemar-cli#511</a>.
-    </p>
-  </div>
+  {showQuality && (
+    <div class="dtabs__panel" role="tabpanel" id={`${idp}-panel-qa`} aria-labelledby={`${idp}-tab-qa`} tabindex="0" hidden>
+      <DatasetQualitySummary summary={quality!} idPrefix={`${idp}-qs`} />
+    </div>
+  )}
 
   {recordingQuality && version && (
     <div class="dtabs__panel" role="tabpanel" id={`${idp}-panel-rq`} aria-labelledby={`${idp}-tab-rq`} hidden>
@@ -267,15 +274,6 @@ const idp = `dt-${datasetId}`;
     outline-offset: 2px;
     border-radius: var(--radius-pill);
   }
-  .dtabs__tab--soon {
-    opacity: 0.75;
-  }
-  .dtabs__tab-suffix {
-    color: inherit;
-    opacity: 0.7;
-    font-size: var(--fs-xs);
-    margin-inline-start: 2px;
-  }
   .dtabs__panel {
     padding: var(--space-5);
   }
@@ -294,15 +292,6 @@ const idp = `dt-${datasetId}`;
     padding: 1px 4px;
     border-radius: var(--radius-sm);
     font-size: var(--fs-xs);
-  }
-  .dtabs__soon {
-    color: var(--color-fg-muted);
-    font-size: var(--fs-sm);
-    line-height: var(--lh-relaxed);
-    margin: 0;
-  }
-  .dtabs__soon strong {
-    color: var(--color-fg);
   }
   .dtabs__demo {
     display: grid;

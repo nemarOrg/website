@@ -3,11 +3,11 @@
  * `views/vectors/kinds-verdicts.v1.json` (`nemar.kinds-verdicts.v1`): every case of a schema the
  * renderer checks, view declarations and the two JSON contents it reads, gets the corpus's verdict.
  *
- * The corpus's other schemas (`dataQuality`, the data paper and the dataset document) are read by
- * the dataset summary and the panel (phases W5 and W6), not by the drawing; they are counted here
- * so a new schema in the corpus is a decision, not a silent skip. The `dataQuality` cases, every
- * one a recording's record, are replayed by the panel's record guard in
- * test/quality-views-record.test.ts.
+ * The corpus's other schemas (`dataQuality`, the data paper and the dataset document) are not read
+ * by the drawing; they are counted here so a new schema in the corpus is a decision, not a silent
+ * skip. The data paper and the root are replayed by test/quality-views-dataset-guards.test.ts
+ * (W5); the `dataQuality` cases are recording entries, which the panel reads and
+ * test/quality-views-record.test.ts replays (W6).
  */
 
 import { describe, expect, it } from "vitest";
@@ -32,8 +32,8 @@ const corpus = JSON.parse(
 /** Schemas the drawing does not read, with the phase that does. */
 const NOT_DRAWN: Readonly<Record<string, string>> = {
   dataQuality: "W6 (test/quality-views-record.test.ts)",
-  "definitions/dataPaper.schema.json": "W5",
-  "neuroschema.schema.json": "W5",
+  "definitions/dataPaper.schema.json": "test/quality-views-dataset-guards.test.ts",
+  "neuroschema.schema.json": "test/quality-views-dataset-guards.test.ts",
 };
 
 function verdict(schema: string, instance: unknown): boolean {

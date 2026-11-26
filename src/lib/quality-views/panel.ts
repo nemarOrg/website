@@ -42,7 +42,7 @@ import { fileUrl, recordFiles } from "./quality-files";
 import type { QualityRecord } from "./record";
 import { type MountedView, mountView, renderRefusal, viewContext } from "./render/index";
 import { toDom } from "./tree";
-import { viewDigest } from "./view-digest";
+import { viewDigest } from "./verify";
 import { type SensorFieldClient, sharedSensorFieldClient } from "./worker-client";
 
 /** Each kind's extras beyond its base, a chunk of its own. */
@@ -187,7 +187,7 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
     const ctx = viewContext(view, `qp-${view.key}`, (file) => fileUrl(base, r, file));
     const refuse = (word: string, downloads = downloadsOf(view)): void =>
       void container.replaceChildren(toDom(renderRefusal(word, downloads, ctx), doc));
-    const digest = await viewDigest(view).catch(() => null);
+    const digest = await viewDigest(view);
     if (digest === null || digest !== r.digests[view.key]) return refuse("view_digest_mismatch");
     const opts = options();
     const files = source(r);

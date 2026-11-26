@@ -20,7 +20,7 @@ import {
   recordChecks,
   recordDocumentValid,
 } from "../src/lib/quality-views/record";
-import { viewDigest } from "../src/lib/quality-views/view-digest";
+import { viewDigest } from "../src/lib/quality-views/verify";
 import { nodeFs, repoPath } from "./node";
 
 const fs = await nodeFs();

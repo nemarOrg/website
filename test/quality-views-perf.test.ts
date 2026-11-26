@@ -225,7 +225,7 @@ describe.skipIf(!GATED)("first views (QUALITY_VIEWS_PERF=gate)", () => {
 /** One recording's record as the route serves it, with one `nemar.ic-maps` view of `name`'s
  *  sensors (one component per sensor), its files, and the route's answer bytes. */
 async function icMapsRecord(name: string) {
-  const { viewDigest } = await import("../src/lib/quality-views/view-digest");
+  const { viewDigest } = await import("../src/lib/quality-views/verify");
   const { subtleSha256 } = await import("../src/lib/quality-views/model");
   const { thetaDeg, radius, maps } = view(name);
   const n = thetaDeg.length;

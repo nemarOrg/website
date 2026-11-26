@@ -36,6 +36,8 @@ import {
   readTsv,
 } from "./read";
 import { MONTAGE_NAMES, clean, finish, typeClass } from "./sensor-names";
+import { type ColumnDecl, declaredColumns, typedColumn } from "./tsv";
+import { subtleSha256 } from "./verify";
 // A named import, so the build keeps only the caps of the registry.
 import { caps as registryCaps } from "./vocabulary/registry.json";
 
@@ -48,11 +50,7 @@ export const CAPS: Caps = registryCaps;
 
 // ── Declarations ────────────────────────────────────────────────────────
 
-export interface ColumnDecl {
-  readonly name: string;
-  readonly type: CellType;
-  readonly unit?: string;
-}
+export type { ColumnDecl };
 export type CoordsDecl =
   | { readonly column: string }
   | { readonly header: true }
@@ -289,10 +287,8 @@ export interface ModelOptions {
   ) => { readonly word: string | null; readonly notes: readonly string[] };
 }
 
-export async function subtleSha256(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
-}
+/** The page's SHA-256 (`verify.ts`), named here too for the callers that build models. */
+export { subtleSha256 };
 
 /** Reads a view's files, each checked before it is parsed (the presets read through it too). */
 export class Reader {
@@ -358,15 +354,7 @@ export class Reader {
 
 // ── The generic kinds ───────────────────────────────────────────────────
 
-function declared(entry: DataDecl, tsv: Tsv): ColumnDecl[] {
-  const columns = [...(entry.columns ?? [])];
-  const names = columns.map((c) => c.name);
-  if (new Set(names).size !== names.length) throw new KindRefused("column_repeated");
-  for (const name of names) {
-    if (!tsv.header.includes(name)) throw new KindRefused("column_missing", name);
-  }
-  return columns;
-}
+const declared = (entry: DataDecl, tsv: Tsv): ColumnDecl[] => declaredColumns(entry.columns, tsv);
 
 /** A coordinate column's declared type and unit are its dimension's. */
 function match(dim: DimDecl, column: ColumnDecl): void {
@@ -407,10 +395,7 @@ function checkCaps(caps: Caps, rows: number, values: number, read: number): void
   }
 }
 
-function parseColumn(tsv: Tsv, column: ColumnDecl): { values: number[]; text: string[] } {
-  const text = cells(tsv, column.name);
-  return { values: text.map((t) => cellValue(t, column.type) as number), text };
-}
+const parseColumn = typedColumn;
 
 async function roleLabels(reader: Reader, dim: DimDecl, count: number): Promise<string[]> {
   const { role, column: name } = dim.coords as { role: string; column: string };
@@ -573,15 +558,26 @@ async function histogramModel(reader: Reader): Promise<HistogramModel> {
   if (!(await reader.checks.content(HISTOGRAM_CONTENT, content))) {
     throw new KindRefused("content_invalid");
   }
-  const c = content as {
-    counts: number[];
-    categories?: string[];
-    edges?: number[];
-    underflow?: number;
-    overflow?: number;
-    unit?: string;
-    missing?: number;
-  };
+  return histogramOf(content as HistogramContent);
+}
+
+/** A histogram's content (`content.nemar.histogram.v1`), as its schema admits it. */
+export interface HistogramContent {
+  readonly counts: readonly number[];
+  readonly categories?: readonly string[];
+  readonly edges?: readonly number[];
+  readonly underflow?: number;
+  readonly overflow?: number;
+  readonly unit?: string;
+  readonly missing?: number;
+}
+
+/**
+ * The model of a histogram's content, which its schema admits (the caller checks it): the bins by
+ * edges or by category, the ends, the missing count and the totals. The dataset summary builds
+ * its histograms here too, from a `dataQuality` distribution's histogram and unit.
+ */
+export function histogramOf(c: HistogramContent): HistogramModel {
   const counts = c.counts.map((n) => n + 0);
   const missing = c.missing === undefined ? null : { label: "missing", count: c.missing + 0 };
   const lacking = missing?.count ?? 0;

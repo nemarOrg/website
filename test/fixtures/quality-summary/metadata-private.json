@@ -1,0 +1,18 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-quality-summary-fixtures.mjs",
+    "nemar_cli_commit": "39e2ee3f",
+    "route": "GET /nm099209/metadata.json",
+    "world": {
+      "dataset": {
+        "visibility": "private"
+      },
+      "derivative": {
+        "retention": "catalog"
+      }
+    },
+    "note": "The real dataRoutes over a real migrated database; rows as backend/test/metadata-json-quality.test.ts writes them. `text` is the body as served, byte for byte."
+  },
+  "status": 404,
+  "text": "{\"error\":\"Dataset not found\"}"
+}

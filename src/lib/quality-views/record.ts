@@ -16,7 +16,7 @@
  * 5. `nemar.record-checks.v1` (`recordChecks`), held to `views/vectors/record-checks.v1.json`.
  *
  * Each view's `nemar.view-digest.v1` is recomputed by the panel against `view_digests` before the
- * view is drawn (`view-digest.ts`).
+ * view is drawn (`verify.ts`).
  */
 
 import { subtleSha256 } from "./model";

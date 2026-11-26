@@ -2,7 +2,8 @@
  * The quality views' figures (src/lib/quality-views/render/; website ADR 0035 decision 7).
  * Colors are tokens from tokens.css: the axes and series take the chart tokens, which follow the
  * theme; the scalp maps' and heatmap's data colors are the --qv-* maps, the same in both themes.
- * A panel that draws views imports this sheet (phase W6).
+ * A panel that draws views imports this sheet (phase W6), and so does the dataset summary
+ * (DatasetQualitySummary.astro, W5), whose histograms are the same tree.
  */
 
 .qv-figure {

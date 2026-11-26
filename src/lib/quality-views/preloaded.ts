@@ -5,7 +5,7 @@
  */
 
 import type { FileDecl, FileSource } from "./model";
-import { subtleSha256 } from "./model";
+import { verifyBytes } from "./verify";
 
 /** A response's body, or null when it is not OK or runs past `limit` bytes (read no further). */
 export async function readLimited(
@@ -43,7 +43,7 @@ const settled = new Map<string, Uint8Array>();
 
 /** Whether `bytes` are `file`'s: its declared size and SHA-256. */
 async function verified(file: FileDecl, bytes: Uint8Array | null): Promise<boolean> {
-  return !!bytes && bytes.length === file.size && (await subtleSha256(bytes)) === file.sha256;
+  return (await verifyBytes(bytes, file)) === null;
 }
 
 /** The bytes of `file`, checked against its size and SHA-256 once per page, or null. */

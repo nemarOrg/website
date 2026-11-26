@@ -32,6 +32,7 @@ import { splitModalities } from "../../lib/format";
 import { canonicalOriginFor } from "../../lib/host";
 import { datasetJsonLdScript } from "../../lib/jsonld";
 import { detectProvenance } from "../../lib/provenance";
+import { readQualitySummary } from "../../lib/quality-views/dataset-summary";
 import { buildSignposting, signpostingLinkHeader } from "../../lib/signposting";
 import { modalityHref, zarrTag } from "../../lib/tags";
 import { buildUseThisData, markdownMirrorUrl } from "../../lib/use-this-data";
@@ -64,8 +65,7 @@ const versionParam = url.searchParams.get("v");
 // SSR fan-out: landing + metadata only. The qa/ tree walk used to run here
 // but burned 5–28 s on HBN-sized datasets (see #81). Demographics now
 // hydrates client-side from participants.tsv, and the Data quality tab is
-// a "coming soon" placeholder until nemar-cli#511 ships a precomputed
-// static aggregate JSON we can fetch cheaply on tab click.
+// drawn on the server from metadata.json's extensions.dataQuality (W5).
 const [landingOut, metadataOut, catalogRow] = await Promise.all([
   getLandingOutcome(id),
   getMetadataOutcome(id),
@@ -410,6 +410,7 @@ Astro.response.headers.set(
             <DatasetTabs
               datasetId={id}
               version={selectedVersion}
+              quality={readQualitySummary(metadata, id)}
               recordingQuality={selectedVersion && qualityRecipe ? { recipe: qualityRecipe, dataBase: resolveDataBase() } : null}
             />
             {selectedVersion && (
