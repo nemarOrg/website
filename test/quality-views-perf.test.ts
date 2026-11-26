@@ -17,6 +17,14 @@
  * view's draw found the layout's geometry in the cache. A view whose data arrive in the middle of
  * the warm-up is measured and printed, not gated (the owner's ruling on #594).
  *
+ * "Panel opened after page load" (phase W6, the owner's ruling of 2026-11-25) replaces W4's
+ * printed-only first-visit eager case at 256 sensors: the dataset page's idle preload
+ * (`startIdlePreload`) runs first, through its real code (the record read and checked, the layout
+ * fetched, checked and its geometry prepared in the worker, the first windows' files fetched and
+ * checked), the panel opens at least one idle period later, and the view is built from the
+ * preloaded files with no fetch (`preloadedSource`), so its values are there at mount. The draw is
+ * gated at 50 / 100 / 300 ms at 128 and 256 sensors, and must find the geometry in the cache.
+ *
  * The gate is the budget itself, and it runs on CI's own runner in a step of its own
  * (`bun run test:quality-views-perf`), after the other tests, so nothing else competes for the
  * machine; the runner stands in for the mid-range laptop. Inside the parallel `bun run test` the
@@ -206,9 +214,229 @@ describe.skipIf(!GATED)("first views (QUALITY_VIEWS_PERF=gate)", () => {
       }
       gate(cold, "cold", viewBudget);
       // A first visit's eager view at 256 sensors is printed, not gated (the owner's ruling on
-      // #594): the dataset page prepares the geometry at page load (`prepareAhead`), and phase W6
-      // gates that case as "panel opened after page load".
+      // #594): the dataset page prepares the geometry at page load, and "panel opened after page
+      // load" below gates that case (phase W6).
       if (name === "montage_128") gate(eager, "eager", viewBudget);
+    },
+    120_000,
+  );
+});
+
+/** One recording's record as the route serves it, with one `nemar.ic-maps` view of `name`'s
+ *  sensors (one component per sensor), its files, and the route's answer bytes. */
+async function icMapsRecord(name: string) {
+  const { viewDigest } = await import("../src/lib/quality-views/view-digest");
+  const { subtleSha256 } = await import("../src/lib/quality-views/model");
+  const { thetaDeg, radius, maps } = view(name);
+  const n = thetaDeg.length;
+  const sensors = Array.from({ length: n }, (_, s) => `E${s + 1}`);
+  const ics = Array.from({ length: n }, (_, m) => `IC${String(m + 1).padStart(3, "0")}`);
+  const tsv = (rows: string[][]) => new TextEncoder().encode(`${rows.map((r) => r.join("\t")).join("\n")}\n`);
+  const layout = tsv([
+    ["name", "sensor_type", "theta_deg", "radius"],
+    ...sensors.map((label, s) => [label, "EEG", String(thetaDeg[s]), String(radius[s])]),
+  ]);
+  const values = tsv([ics, ...sensors.map((_, s) => maps.map((m) => String(m[s])))]);
+  const components = tsv([["component", "variance_pct"], ...ics.map((ic, m) => [ic, String(m + 1)])]);
+  const stem = "sub-01/eeg/sub-01_task-rest_desc-nemarica";
+  const file = async (suffix: string, bytes: Uint8Array) => ({
+    location: `${stem}_${suffix}.tsv`,
+    format: "tsv",
+    size: bytes.length,
+    sha256: await subtleSha256(bytes),
+  });
+  const declaration = {
+    key: "icmaps",
+    kind: "nemar.ic-maps",
+    kind_version: 1,
+    base: "nemar.sensor-field",
+    base_version: 1,
+    caption: "Scalp maps of the independent components.",
+    source: { recipe: { name: "nemar-ica", version: "1.0.0" } },
+    data: [
+      {
+        role: "values",
+        ...(await file("mixing", values)),
+        columns: ics.map((ic) => ({ name: ic, type: "number" })),
+        dims: [
+          { name: "sensor", axis: "rows", type: "string", coords: { role: "layout", column: "name" } },
+          { name: "component", axis: "columns", type: "string", coords: { header: true } },
+        ],
+      },
+      {
+        role: "layout",
+        ...(await file("chanlocs", layout)),
+        columns: [
+          { name: "name", type: "string" },
+          { name: "sensor_type", type: "string" },
+          { name: "theta_deg", type: "number", unit: "deg" },
+          { name: "radius", type: "number" },
+        ],
+        dims: [{ name: "sensor", axis: "rows", type: "string", coords: { column: "name" } }],
+        coordinate_system: "CapTrak",
+        position_source: "measured",
+      },
+      {
+        role: "components",
+        ...(await file("components", components)),
+        columns: [
+          { name: "component", type: "string" },
+          { name: "variance_pct", type: "number", unit: "%" },
+        ],
+        dims: [{ name: "component", axis: "rows", type: "string", coords: { column: "component" } }],
+      },
+    ],
+  };
+  const recording = "sub-01/eeg/sub-01_task-rest_eeg.edf";
+  const answer = {
+    format: "nemar.quality-record.v1",
+    dataset_id: "nm000001",
+    recipe: "nemar-ica",
+    recording,
+    derivative: {
+      key: "a".repeat(64),
+      version: "v1.0.0",
+      recipe_version: "1.0.0",
+      retention: "catalog",
+      stored_at: "2026-11-20 10:00:00",
+    },
+    dataQuality: {
+      level: "record",
+      recipes: {
+        "nemar-ica": {
+          recipe_version: "1.0.0",
+          input_kind: "zarr",
+          profile: "serving",
+          record_sha256: "b".repeat(64),
+          metrics: {},
+          views: [declaration],
+        },
+      },
+    },
+    view_digests: { icmaps: await viewDigest(declaration) },
+  };
+  const bytes = new Map<string, Uint8Array>();
+  for (const [entry, data] of [
+    [declaration.data[0], values],
+    [declaration.data[1], layout],
+    [declaration.data[2], components],
+  ] as const) {
+    bytes.set(entry.sha256, data);
+  }
+  return { recording, declaration, answer: JSON.stringify(answer), bytes };
+}
+
+interface OpenedView extends FirstView {
+  readonly buildMs: number;
+  readonly fetchedAtMount: number;
+}
+
+/** The panel opened after page load: the idle preload first, then, an idle period later, the view
+ *  built from the preloaded files and drawn. Freshly imported code, as a first visit has it. */
+async function panelAfterLoad(name: string): Promise<OpenedView> {
+  vi.resetModules();
+  const worker = await import("../src/lib/quality-views/worker");
+  const { SensorFieldClient: Client } = await import("../src/lib/quality-views/worker-client");
+  const { startIdlePreload } = await import("../src/lib/quality-views/preload");
+  const { preloadedSource } = await import("../src/lib/quality-views/preloaded");
+  const { buildModel } = await import("../src/lib/quality-views/model");
+  const { fieldDrawInput } = await import("../src/lib/quality-views/render/sensor-field-view");
+  const fixture = await icMapsRecord(name);
+  const client = new Client(worker.inThreadWorker);
+  const base = "https://data.example.invalid";
+  const fetchAnswer = async (input: RequestInfo | URL): Promise<Response> => {
+    const url = String(input);
+    if (url.includes("/record/")) return new Response(fixture.answer);
+    const sha = [...fixture.bytes.keys()].find((s) => url.includes(`/${s}/`));
+    return sha ? new Response(fixture.bytes.get(sha)!) : new Response(null, { status: 404 });
+  };
+  const preload = await startIdlePreload(
+    { base, datasetId: "nm000001", recipe: "nemar-ica" },
+    {
+      loaded: Promise.resolve(),
+      idle: (run) => run(),
+      recordings: async () => [{ path: fixture.recording, name: "x" }],
+      viewerOpen: () => false,
+      onLeave: () => {},
+      fetch: fetchAnswer,
+      client,
+    },
+  ).done;
+  if (preload.kind !== "ran" || preload.outcome?.layout?.kind !== "prepared") {
+    throw new Error(`the preload did not prepare the layout: ${JSON.stringify(preload)}`);
+  }
+  // At least one idle period between the page's load and the panel's opening, in which the
+  // warm-up's throwaway batches (started by the preload) finish.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  let fetchedAtMount = 0;
+  const panelFetch = async () => {
+    fetchedAtMount++;
+    return null;
+  };
+  const layoutKey = fixture.declaration.data[1].sha256;
+  const mount = performance.now();
+  const built = await buildModel(fixture.declaration, preloadedSource(panelFetch), {
+    checks: client.checks(),
+    montage: () => Promise.reject(new Error("no montage")),
+    onLayout: (places) => void client.prepare({ layoutKey, ...places }),
+  });
+  const buildMs = performance.now() - mount;
+  const draw = fieldDrawInput(built as never);
+  if (!draw) throw new Error("no maps to draw");
+  let firstMaps = Number.NaN;
+  const start = performance.now();
+  const outcome = await client.draw(
+    { layoutKey, thetaDeg: draw.thetaDeg, radius: draw.radius, maps: draw.maps },
+    {
+      first: VISIBLE,
+      onBatch: () => {
+        if (Number.isNaN(firstMaps)) firstMaps = performance.now() - start;
+      },
+    },
+  );
+  const elapsed = performance.now() - start;
+  client.terminate();
+  if (outcome.kind !== "done") throw new Error(`the view was not drawn: ${outcome.kind}`);
+  return {
+    warmMs: 0,
+    warmed: "preload",
+    warmMaps: 0,
+    firstMaps,
+    view: elapsed,
+    drawn: outcome.maps.filter((map) => map.kind === "map").length,
+    cacheHits: outcome.stats.cacheHits,
+    cacheMisses: outcome.stats.cacheMisses,
+    geometryMs: outcome.stats.geometryMs,
+    mapsMs: outcome.stats.mapsMs,
+    buildMs,
+    fetchedAtMount,
+  };
+}
+
+describe.skipIf(!GATED)("panel opened after page load (QUALITY_VIEWS_PERF=gate)", () => {
+  it.each([
+    ["montage_128", BUDGET.view128],
+    ["montage_256", BUDGET.view256],
+  ] as const)(
+    "%s: the idle preload, then the panel's first view within the budget",
+    async (name, viewBudget) => {
+      const list: OpenedView[] = [];
+      for (let k = 0; k < FIRST_VIEW_RUNS; k++) list.push(await panelAfterLoad(name));
+      for (const run of list) {
+        console.info(
+          `${line(name, "eager", run).replace("eager first view", "panel opened after page load")} (model built from the preloaded files in ${run.buildMs.toFixed(1)} ms)`,
+        );
+        expect(run.drawn).toBe(view(name).maps.length);
+        // The values were there at mount: the panel fetched nothing, and the geometry the preload
+        // prepared was the draw's.
+        expect(run.fetchedAtMount).toBe(0);
+        expect(run.cacheMisses).toBe(0);
+        expect(run.cacheHits).toBeGreaterThan(0);
+      }
+      console.info(
+        `[quality-views perf] ${name} panel opened after page load, median of ${list.length}: first maps ${medianOf(list, "firstMaps").toFixed(1)} ms, view ${medianOf(list, "view").toFixed(1)} ms`,
+      );
+      gate(list, "panel opened after page load", viewBudget);
     },
     120_000,
   );
