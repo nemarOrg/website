@@ -54,7 +54,6 @@ staging D1 is being documented.
 ## Cross-repo dependencies (open nemar-cli issues)
 
 - #910/#911/#912/#913 — settings self-service backend (see workstream 1)
-- #511 — QA sync + `/qa/*` route (Phase 3 live data)
 - #512 — OpenNeuro import backfill (sparse `on*` rail)
 - #513 — BIDS-shaped download filenames
 - #653 — `license` on catalog rows (Discover license filter)
