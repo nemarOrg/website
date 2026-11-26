@@ -37,7 +37,7 @@ describe("the Recording quality tab", () => {
     const tabs = [...html.matchAll(/<button[^>]*data-qp-tab="([a-z]+)"[^>]*>/g)];
     expect(tabs.map((m) => m[1])).toEqual(TABS.map((t) => t.id));
     expect(tabs[0][0]).toContain('aria-selected="true"');
-    expect(tabs[3][0]).toContain("hidden");
+    expect(tabs[TABS.findIndex((t) => t.id === "other")][0]).toContain("hidden");
     expect(html.match(/data-qp-panel="/g)?.length).toBe(TABS.length);
     expect(html).toContain("need JavaScript");
     // The panel's tab list is its own: the summary's script binds only `.dtabs__list`.

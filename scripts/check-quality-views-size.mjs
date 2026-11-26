@@ -116,6 +116,12 @@ function siteUnions(dir) {
       "Components tab with no idle preload",
       ["panel", "sensor-field-view", "histogram", "components", "quality-api"],
     ],
+    // W7: the Activations tab's own chunk (its checks, the transfer, the trace adapter, the
+    // captions). The transform runs in the worker; the store reader, zarrita and the trace renderer
+    // it loads lazily are the chunks the page already loads for its signal viewer, which do not count
+    // against the tab's budget (the owner's ruling of 2026-11-26): their total is printed, not gated.
+    ["Activations tab", ["panel", "activity"]],
+    ["Activations tab with no idle preload", ["panel", "activity", "quality-api"]],
   ]) {
     const roots = stems.map(named);
     if (roots.some((name) => !name)) {
@@ -141,6 +147,18 @@ function siteUnions(dir) {
       raw: all.reduce((sum, b) => sum + b.length, 0),
       budget: BUDGET.mainThread,
     });
+    if (stems.includes("activity")) {
+      // The viewer's chunks the tab loads on demand: every chunk the activity chunk imports
+      // dynamically but the transform's own (the page runs it only when the worker cannot start).
+      const lazy = dynamicImports(files.get(named("activity")).toString("utf8"), files).filter(
+        (name) => !name.startsWith("ic-activity."),
+      );
+      const viewer = [...staticClosure(lazy, files)].filter((name) => !set.has(name));
+      const both = [...set, ...viewer].map((name) => files.get(name));
+      notes.push(
+        `site build: ${tab} with the signal viewer's chunks it loads lazily (${viewer.sort().join(", ")}), ${set.size + viewer.length} files gzipped together: ${kb(gzipped(Buffer.concat(both)))}, printed, not gated.`,
+      );
+    }
   }
 }
 

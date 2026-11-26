@@ -27,6 +27,10 @@
  * the figure's tree and the maps' draw), gated at 50 / 100 / 300 ms at 128 and 256 sensors; the
  * draw must find the geometry in the cache.
  *
+ * Every fresh-first-view case (cold, eager, and the panel opened after page load) is gated on the
+ * median of five fresh runs, each printed (the owner's ruling on #599: a steadier gate, the
+ * budgets unchanged).
+ *
  * The gate is the budget itself, and it runs on CI's own runner in a step of its own
  * (`bun run test:quality-views-perf`), after the other tests, so nothing else competes for the
  * machine; the runner stands in for the mid-range laptop. Inside the parallel `bun run test` the
@@ -168,7 +172,7 @@ const line = (name: string, scenario: Scenario, run: FirstView): string =>
 
 /** Fresh first views gated by their median: each run imports the code afresh, so each is a first
  *  view, and one slow or fast run of a shared runner does not decide the gate. */
-const FIRST_VIEW_RUNS = 3;
+const FIRST_VIEW_RUNS = 5;
 
 async function runs(make: () => Promise<FirstView>): Promise<FirstView[]> {
   const out: FirstView[] = [];
@@ -220,7 +224,7 @@ describe.skipIf(!GATED)("first views (QUALITY_VIEWS_PERF=gate)", () => {
       // load" below gates that case (phase W6).
       if (name === "montage_128") gate(eager, "eager", viewBudget);
     },
-    120_000,
+    240_000,
   );
 });
 
@@ -472,7 +476,7 @@ describe.skipIf(!GATED)("panel opened after page load (QUALITY_VIEWS_PERF=gate)"
       );
       gate(list, "panel opened after page load", viewBudget);
     },
-    120_000,
+    240_000,
   );
 });
 

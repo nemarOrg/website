@@ -295,6 +295,7 @@ export function mountAdminDrill(config: DrillConfig, deps: DrillDeps = {}): Dril
         ctx,
         signal,
         mount: async (t, b, c) => void (await mount(t, b, c)),
+        client: client(),
         sentence: adminSentence,
       });
     } catch (error) {

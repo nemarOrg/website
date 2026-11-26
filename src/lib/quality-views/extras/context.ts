@@ -7,6 +7,7 @@
 import type { BuiltModel, FileSource, ModelOptions, ViewDecl } from "../model";
 import type { QualityRecord } from "../record";
 import type { ViewContext } from "../render/index";
+import type { SensorFieldClient } from "../worker-client";
 
 export interface ExtraContext {
   readonly doc: Document;
@@ -25,6 +26,8 @@ export interface ExtraContext {
   readonly signal: AbortSignal;
   /** Draw a built model into `target` as the panel draws every view (the page's client, Turbo). */
   mount(target: HTMLElement, built: BuiltModel, ctx: ViewContext): Promise<void>;
+  /** The page's one map client, whose worker runs the computed views' transforms too. */
+  readonly client: SensorFieldClient;
   /** A word's sentence (`panel-words.ts`). */
   sentence(word: string): Promise<string>;
 }

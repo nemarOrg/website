@@ -61,6 +61,9 @@ export interface ViewerFrame {
   unitBase: "V" | "T";
   /** When true, render axis ticks as HH:MM:SS clock rather than bare seconds. */
   timeClock?: boolean;
+  /** A unit the scale bar names instead of `unitBase` (the quality panel's activations, website W7,
+   *  are in arbitrary units, `a.u.`). */
+  unitLabel?: string;
 }
 
 export interface RenderOptions {
@@ -591,7 +594,10 @@ function drawScaleBar(
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.font = "9px ui-monospace, SFMono-Regular, Menlo, monospace";
-  ctx.fillText(formatSi(physDiv, frame.unitBase), x + 8, (yTop + yBottom) / 2);
+  const text = frame.unitLabel
+    ? `${Number(physDiv.toPrecision(2))} ${frame.unitLabel}`
+    : formatSi(physDiv, frame.unitBase);
+  ctx.fillText(text, x + 8, (yTop + yBottom) / 2);
 }
 
 /** A "nice" axis tick step (s) for a given visible span. Exported for tests. */
