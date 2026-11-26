@@ -16,8 +16,10 @@ import PANEL from "../src/components/admin/PipelineCoveragePanel.astro?raw";
 import TABLE from "../src/components/admin/PipelineGridTable.astro?raw";
 import LEGEND from "../src/components/admin/PipelineLegend.astro?raw";
 import API from "../src/lib/compute-pipeline-api.ts?raw";
+import { PIPELINE_LABELS } from "../src/lib/compute-pipeline-labels";
 import VIEW from "../src/lib/compute-pipeline-view.ts?raw";
 import QAPI from "../src/lib/pipeline-quality-api.ts?raw";
+import { PIPELINE_QUALITY_LABELS } from "../src/lib/pipeline-quality-labels";
 import QVIEW from "../src/lib/pipeline-quality-view.ts?raw";
 import DRILL from "../src/lib/quality-views/admin-drill.ts?raw";
 import PROXY from "../src/lib/quality-views/admin-proxy.ts?raw";
@@ -174,6 +176,11 @@ describe("the run drill-down (website phase W9)", () => {
     expect(code(QUALITY)).toContain("displaySafeLine(path)");
   });
 
+  it("says the record's views_skipped in each group", () => {
+    expect(code(DRILL)).toContain("drillGroups(stored, record.skipped)");
+    expect(code(DRILL)).toContain("p.dataset.qdSkipped = s.key;");
+  });
+
   it("draws only views without inputs, and never reads a signal store", () => {
     expect(code(DRILL)).toContain('!Object.hasOwn(v, "inputs")');
     expect(code(DRILL)).not.toMatch(/zarr|signal-window|extras\/signal|openSignal/);
@@ -183,6 +190,32 @@ describe("the run drill-down (website phase W9)", () => {
     expect(code(DRILL)).not.toMatch(/https?:\/\//);
     expect(code(DRILL)).toMatch(/siteAdminRecordPath\(/);
     expect(code(DRILL)).toMatch(/siteAdminFilePath\(/);
+  });
+
+  it.each(Object.entries({ RUN, QUALITY }))(
+    "%s gives every region a label of its own",
+    (_n, page) => {
+      const tables: Record<string, Readonly<Record<string, string>>> = {
+        QL: PIPELINE_QUALITY_LABELS,
+        PIPELINE_LABELS,
+      };
+      const ids = [...page.matchAll(/aria-labelledby="([^"]+)"/g)].map((m) => m[1]);
+      expect(ids.length).toBeGreaterThan(1);
+      const labels = ids.map((id) => {
+        const m = new RegExp(`id="${id}"[^>]*>\\{(QL|PIPELINE_LABELS)\\.(\\w+)\\}`).exec(page);
+        expect(m, id).not.toBeNull();
+        const text = tables[m![1]][m![2]];
+        expect(typeof text, id).toBe("string");
+        return text;
+      });
+      expect(new Set(labels).size).toBe(labels.length);
+    },
+  );
+
+  it("the proxy route never reads the Cookie header: the proxy chooses the credential", () => {
+    expect(code(PROXY_ROUTE)).not.toMatch(/headers\.get\(\s*["']cookie["']/i);
+    expect(code(PROXY_ROUTE)).not.toMatch(/\bcookies\b|readSessionCookie|sessionCookie/);
+    expect(code(PROXY)).toContain('sessionCookieOf(request.headers.get("cookie"))');
   });
 
   it("the proxy route decides nothing itself and never reads its params", () => {
