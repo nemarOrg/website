@@ -1468,7 +1468,12 @@ Astro.response.headers.set(
     const target = ctx.recordings.find((r) => r.path === path);
     if (!target) return false;
     pendingMarks = { path, marks };
-    await session.openRecording(target, ctx);
+    try {
+      await session.openRecording(target, ctx);
+    } finally {
+      // The marks are this open's only: a later open of the recording draws it unmarked.
+      pendingMarks = null;
+    }
     return true;
   });
 

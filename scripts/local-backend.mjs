@@ -45,7 +45,8 @@
  *                   runner), and the same SQL the backend's grid test uses for a silent report and a
  *                   runner job. Open http://localhost:4321/admin/pipelines as `owner`.
  *
- *   --seed-quality  also seeds the dataset page's quality panel (website phase W6, nemar-cli ADR 0137): the
+ *   --seed-quality  with --seed-pipeline (and so LOCAL_BACKEND_JOBS=1): the script's later observer-run
+ *                   step needs the environment those give. Also seeds the dataset page's quality panel (website phase W6, nemar-cli ADR 0137): the
  *                   dataset row of nemar-ica's real product (`test/fixtures/quality/ica-views` of the
  *                   checkout, `on007823`), a stored `catalog` derivative of it with the backend's own
  *                   fixture helpers (`backend/test/helpers/quality-fixture.ts`), and the product under the
@@ -847,6 +848,8 @@ if (SEED_PIPELINE) await seedPipelineRuns();
  * store stores it, under a `catalog` row, as `backend/test/quality-route.test.ts` builds it.
  */
 const SEED_QUALITY = process.argv.includes("--seed-quality");
+if (SEED_QUALITY && !SEED_PIPELINE)
+  refuse("--seed-quality needs --seed-pipeline (and LOCAL_BACKEND_JOBS=1).");
 const qualityHost = SEED_QUALITY
   ? new (await import(join(root, "node_modules/miniflare/dist/src/index.js"))).Miniflare({
       modules: true,
