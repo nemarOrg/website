@@ -39,15 +39,25 @@ export async function verifyBytes(
 
 /**
  * Whether a value has a canonical form: every string free of lone surrogates and noncharacters,
- * every number finite, at most 64 levels of nesting, and nothing but JSON's values.
+ * every number finite, at most 64 levels of nesting, and nothing but JSON's values: an array with
+ * no hole, and an object that is a plain object (its prototype `Object.prototype`, or none, as
+ * `read.ts` makes them), never a `Date`, a `Map` or a class instance.
  */
 export function digestable(value: unknown, depth = 0): boolean {
   if (typeof value === "string") return !forbiddenCharacter(value);
   if (typeof value === "number") return Number.isFinite(value);
   if (value === null || typeof value === "boolean") return true;
   if (typeof value !== "object" || depth + 1 > MAX_DEPTH) return false;
-  const members = Array.isArray(value) ? value : Object.entries(value).flat();
-  return members.every((member) => digestable(member, depth + 1));
+  if (Array.isArray(value)) {
+    // A hole is no JSON value; `every` would skip it, so the indexes are counted.
+    if (Object.keys(value).length !== value.length) return false;
+    return value.every((member) => digestable(member, depth + 1));
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  return Object.entries(value)
+    .flat()
+    .every((member) => digestable(member, depth + 1));
 }
 
 function canonical(value: unknown): string {

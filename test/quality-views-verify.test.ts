@@ -71,6 +71,20 @@ describe("nemar.view-digest.v1", () => {
     expect(digestable(nest(65))).toBe(false);
   });
 
+  it("has no canonical form for a sparse array or an object that is not a plain object", async () => {
+    // biome-ignore lint/suspicious/noSparseArray: the hole is the case
+    const sparse = [1, , 3];
+    for (const value of [sparse, new Date(0), new Map([["a", 1]]), new (class Point {})()]) {
+      expect(canonicalJson({ x: value }), String(value)).toBeNull();
+      expect(digestable(value), String(value)).toBe(false);
+    }
+    expect(await viewDigest(new Map())).toBeNull();
+    // JSON.parse's objects and read.ts's prototype-free objects are plain.
+    expect(canonicalJson(Object.assign(Object.create(null), { a: [1, 2, 3] }))).toBe(
+      '{"a":[1,2,3]}',
+    );
+  });
+
   it("canonicalizes a member named __proto__ as any other member", async () => {
     const value = parseIJson('{"b":1,"__proto__":{"a":2}}');
     expect(canonicalJson(value)).toBe('{"__proto__":{"a":2},"b":1}');
