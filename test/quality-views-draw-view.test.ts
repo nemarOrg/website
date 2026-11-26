@@ -24,7 +24,6 @@ const record = (await readRecordAnswer(
   new TextEncoder().encode(captured.body),
   captured.headers.ETag,
   {
-    base: "https://data.example.invalid",
     datasetId: provenance.dataset_id,
     recipe: provenance.recipe,
     recording: provenance.recording,
