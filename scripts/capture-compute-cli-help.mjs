@@ -39,7 +39,9 @@ function run(args) {
     env: { ...process.env, NO_COLOR: "1", NEMAR_NO_UPDATE_CHECK: "1" },
   });
   if (result.status !== 0) {
-    console.error(`nemar ${args.join(" ")} --help-all failed (${result.status}):\n${result.stderr}`);
+    console.error(
+      `nemar ${args.join(" ")} --help-all failed (${result.status}):\n${result.stderr}`,
+    );
     process.exit(1);
   }
   return result.stdout;

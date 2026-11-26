@@ -119,7 +119,13 @@ try {
   });
   const key = await derivative();
 
-  const HEADERS = ["Content-Type", "Cache-Control", "ETag", "X-Content-Type-Options", "Content-Disposition"];
+  const HEADERS = [
+    "Content-Type",
+    "Cache-Control",
+    "ETag",
+    "X-Content-Type-Options",
+    "Content-Disposition",
+  ];
   const answer = async (path) => {
     const res = await app.request(path, {}, env);
     const bytes = new Uint8Array(await res.arrayBuffer());
@@ -173,10 +179,7 @@ try {
     "path_invalid",
     `/${DATASET}/quality/v1/${RECIPE}/record/sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_meg.fif`,
   );
-  await refusal(
-    "not_declared",
-    qualityFilePath(DATASET, RECIPE, key, "0".repeat(64), RECORDING),
-  );
+  await refusal("not_declared", qualityFilePath(DATASET, RECIPE, key, "0".repeat(64), RECORDING));
   await refusal("expired", qualityFilePath(DATASET, RECIPE, expired, anySha, RECORDING));
   await writeFile(join(OUT, "refusals.json"), `${JSON.stringify(refusals, null, 2)}\n`);
 

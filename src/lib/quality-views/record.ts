@@ -21,30 +21,26 @@
 
 import { subtleSha256 } from "./model";
 import { KindRefused, readJson } from "./read";
-import { QUALITY_RECORD_FORMAT, QUALITY_RECORD_MAX_BYTES } from "./route-contract";
+import { QUALITY_RECORD_FORMAT } from "./route-contract";
 
 type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 const own = (o: Json, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 const text =
-  (pattern: RegExp, max = Number.POSITIVE_INFINITY, min = 0) =>
-  (v: unknown): boolean => {
-    if (typeof v !== "string") return false;
-    const length = [...v].length;
-    return length >= min && length <= max && pattern.test(v);
-  };
-const ANY = /^/;
+  (pattern: RegExp) =>
+  (v: unknown): boolean =>
+    typeof v === "string" && pattern.test(v);
 
 // processingTypes.schema.json (neuroschema 0.6.0); `$` without the `m` flag ends the text, so the
-// schemas' `$(?!\n)` is plain `$` here.
+// schemas' `$(?!\n)` is plain `$` here, and a length counted in code points is a `u` quantifier.
 const recipeId = text(/^[a-z0-9-]{1,64}$/);
 const version = text(/^[0-9A-Za-z._+-]{1,64}$/);
 const sha256 = text(/^[0-9a-f]{64}$/);
-const metricName = text(/^[A-Za-z][A-Za-z0-9_-]*(:[A-Za-z][A-Za-z0-9_-]*)?$/, 128);
+const metricName = text(/^(?=[\s\S]{1,128}$)[A-Za-z][A-Za-z0-9_-]*(:[A-Za-z][A-Za-z0-9_-]*)?$/);
 const pluginName = text(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/);
 const viewKey = text(/^[a-z][a-z0-9_]{0,63}$/);
-const kindName = text(/^[a-z][a-z0-9]*(\.[a-z][a-z0-9-]*)+$/, 128);
+const kindName = text(/^(?=[\s\S]{1,128}$)[a-z][a-z0-9]*(\.[a-z][a-z0-9-]*)+$/);
 const failureCode = text(/^[a-z][a-z0-9_]{0,63}$/);
 const numberOrNull = (v: unknown): boolean => v === null || typeof v === "number";
 
@@ -58,8 +54,8 @@ const producer = (name: (v: unknown) => boolean) => (v: unknown) =>
   closed(v, { name, version }, ["name", "version"]);
 const METRIC = {
   value: numberOrNull,
-  unit: text(ANY, 32, 1),
-  description: text(ANY, 500, 1),
+  unit: text(/^[\s\S]{1,32}$/u),
+  description: text(/^[\s\S]{1,500}$/u),
   bounds: (v: unknown) => closed(v, { min: numberOrNull, max: numberOrNull }, ["min", "max"]),
   plugin: producer(pluginName),
   recipe: producer(recipeId),
@@ -182,14 +178,6 @@ export interface QualityRecord {
   readonly digests: Readonly<Record<string, string>>;
 }
 
-/** Why a record answer is not read: a fixed word. */
-export class RecordRefused extends Error {
-  constructor(readonly word: string) {
-    super(word);
-    this.name = "RecordRefused";
-  }
-}
-
 /** The digest an `ETag` names (`"<sha256>"`, weak or strong), or null. */
 export function etagDigest(etag: string | null): string | null {
   const m = etag ? /^(?:W\/)?"([0-9a-f]{64})"$/.exec(etag.trim()) : null;
@@ -198,23 +186,22 @@ export function etagDigest(etag: string | null): string | null {
 
 /**
  * Read a record answer's bytes for the recording asked for. The digest is checked first; nothing
- * is parsed when it differs. Throws `RecordRefused`.
+ * is parsed when it differs. Resolves with the record, or with the fixed word it is refused with.
  */
 export async function readRecordAnswer(
   bytes: Uint8Array,
   etag: string | null,
   asked: { readonly datasetId: string; readonly recipe: string; readonly recording: string },
-): Promise<QualityRecord> {
-  if (bytes.length > QUALITY_RECORD_MAX_BYTES) throw new RecordRefused("record_too_large");
+): Promise<QualityRecord | string> {
   const digest = etagDigest(etag);
   if (digest !== null && (await subtleSha256(bytes)) !== digest) {
-    throw new RecordRefused("record_digest_mismatch");
+    return "record_digest_mismatch";
   }
   let body: unknown;
   try {
     body = readJson(bytes);
   } catch (error) {
-    if (error instanceof KindRefused) throw new RecordRefused("record_invalid");
+    if (error instanceof KindRefused) return "record_invalid";
     throw error;
   }
   const b = objectOf(body);
@@ -230,18 +217,18 @@ export async function readRecordAnswer(
     !Object.values(digests).every(sha256) ||
     !recordDocumentValid(b.dataQuality)
   ) {
-    throw new RecordRefused("record_invalid");
+    return "record_invalid";
   }
   if (
     b.dataset_id !== asked.datasetId ||
     b.recipe !== asked.recipe ||
     b.recording !== asked.recording
   ) {
-    throw new RecordRefused("record_elsewhere");
+    return "record_elsewhere";
   }
   const entry = objectOf(objectOf(doc.recipes)[asked.recipe]);
-  if (!own(objectOf(doc.recipes), asked.recipe)) throw new RecordRefused("record_invalid");
-  if (recordChecks(asked.recipe, entry).length > 0) throw new RecordRefused("record_checks_failed");
+  if (!own(objectOf(doc.recipes), asked.recipe)) return "record_invalid";
+  if (recordChecks(asked.recipe, entry).length > 0) return "record_checks_failed";
   return {
     datasetId: asked.datasetId,
     recipe: asked.recipe,

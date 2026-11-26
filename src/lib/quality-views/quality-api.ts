@@ -14,15 +14,9 @@
  * - `failed`: anything else, with a word (one of the route's, a record refusal, or `network`).
  */
 
-import type { FileDecl, FileSource } from "./model";
-import { readLimited } from "./prepare-ahead";
-import { type QualityRecord, RecordRefused, readRecordAnswer } from "./record";
-import {
-  QUALITY_RECORD_MAX_BYTES,
-  QUALITY_ROUTE_WORDS,
-  qualityFilePath,
-  qualityRecordPath,
-} from "./route-contract";
+import { readLimited } from "./preloaded";
+import { type QualityRecord, readRecordAnswer } from "./record";
+import { QUALITY_RECORD_MAX_BYTES, QUALITY_ROUTE_WORDS, qualityRecordPath } from "./route-contract";
 
 export type RecordOutcome =
   | { readonly kind: "ok"; readonly record: QualityRecord }
@@ -76,7 +70,7 @@ export async function fetchRecord(
     return { kind: "failed", word: "network" };
   }
   if (!response.ok) {
-    const word = routeWord(await readLimited(new Response(response.body, { status: 200 }), 4096));
+    const word = routeWord(await readLimited(new Response(response.body), 4096));
     if (word === "quality_not_found") return { kind: "none" };
     if (word !== null) return { kind: "failed", word };
     return response.status === 404
@@ -88,55 +82,8 @@ export async function fetchRecord(
     return null;
   });
   if (!bytes) return { kind: "failed", word: "record_too_large" };
-  try {
-    const record = await readRecordAnswer(bytes, response.headers.get("ETag"), ask);
-    return { kind: "ok", record };
-  } catch (error) {
-    if (error instanceof RecordRefused) return { kind: "failed", word: error.word };
-    throw error;
-  }
+  const record = await readRecordAnswer(bytes, response.headers.get("ETag"), ask);
+  return typeof record === "string" ? { kind: "failed", word: record } : { kind: "ok", record };
 }
 
-/** Where one declared file of a record is served. */
-export function fileUrl(base: string, record: QualityRecord, file: FileDecl): string {
-  return `${base}${qualityFilePath(record.datasetId, record.recipe, record.derivative.key, file.sha256, record.recording)}`;
-}
-
-/**
- * The model's file source for a record's views: each file fetched once per source, read no
- * further than its declared size (null when the route refuses it or sends more), and left to the
- * model to check against its size and SHA-256 before anything parses it.
- */
-export function recordFiles(
-  base: string,
-  record: QualityRecord,
-  options: FetchOptions = {},
-): FileSource {
-  const held = new Map<string, Promise<Uint8Array | null>>();
-  return (file) => {
-    let pending = held.get(file.sha256);
-    if (!pending) {
-      pending = (async () => {
-        try {
-          const response = await (options.fetch ?? fetch)(fileUrl(base, record, file), {
-            signal: options.signal,
-            priority: options.priority ?? "auto",
-          } as RequestInit);
-          return await readLimited(response, file.size);
-        } catch (error) {
-          if (options.signal?.aborted) throw error;
-          return null;
-        }
-      })();
-      held.set(file.sha256, pending);
-      // A failure is not kept, so a later draw asks again.
-      void pending.then(
-        (bytes) => {
-          if (!bytes && held.get(file.sha256) === pending) held.delete(file.sha256);
-        },
-        () => held.delete(file.sha256),
-      );
-    }
-    return pending;
-  };
-}
+export { fileUrl, recordFiles } from "./quality-files";

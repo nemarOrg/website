@@ -15,13 +15,9 @@ import {
   type SensorFieldModel,
 } from "../src/lib/quality-views/model";
 import { type Montage, parseMontage } from "../src/lib/quality-views/montages";
-import {
-  type SignalStore,
-  checkPreset,
-  icClassesContent,
-  icMapsRows,
-  spectrumMaps,
-} from "../src/lib/quality-views/presets";
+import { icClassesContent, icMapsRows } from "../src/lib/quality-views/preset-components";
+import { spectrumMaps } from "../src/lib/quality-views/preset-spectrum";
+import { type SignalStore, checkPreset } from "../src/lib/quality-views/presets";
 import {
   productStem,
   tableIsRecordings,

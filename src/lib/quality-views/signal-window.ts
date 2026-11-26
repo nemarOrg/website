@@ -23,7 +23,8 @@ import {
   ViewRefused,
   subtleSha256,
 } from "./model";
-import { PresetRefused, type SignalStore } from "./presets";
+import { PresetRefused } from "./preset-refused";
+import type { SignalStore } from "./presets";
 import { KindRefused, type Tsv, cellValue, cells, readTsv } from "./read";
 
 export const NO_BAD_SEGMENT_TABLE = "no_bad_segment_table";

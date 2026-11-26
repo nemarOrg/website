@@ -196,7 +196,8 @@ export function renderLines(
 }
 
 /** The page's side: a pointer or the arrow keys pick a stored row (left, right) and a series (up,
- *  down), and the readout prints their stored texts. */
+ *  down), and the readout prints their stored texts; a click or Enter dispatches `qv-pick` with
+ *  that row on `root`. */
 export function attachLines(root: HTMLElement, model: LinesModel): void {
   const svg = root.querySelector<SVGSVGElement>("svg.qv-lines");
   const cursor = root.querySelector<SVGLineElement>(".qv-cursor");
@@ -225,7 +226,18 @@ export function attachLines(root: HTMLElement, model: LinesModel): void {
     series = nearestSeries(model, plot, row, py);
     show();
   });
+  // A click or Enter picks the stored row on show: a preset that draws more at a row (the
+  // spectrum's scalp maps) listens for `qv-pick` on the figure.
+  const pick = (): void => {
+    root.dispatchEvent(new CustomEvent("qv-pick", { detail: { row } }));
+  };
+  svg.addEventListener("click", pick);
   drawing.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      pick();
+      return;
+    }
     const vertical = event.key === "ArrowUp" || event.key === "ArrowDown";
     const next = vertical
       ? step(

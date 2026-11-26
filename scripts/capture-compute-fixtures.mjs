@@ -47,9 +47,7 @@ const { hashApiKey } = await import(join(root, "backend/src/services/token.ts"))
 const { issueSession } = await import(join(root, "backend/src/services/web-session.ts"));
 const { authWebRoutes } = await import(join(root, "backend/src/routes/auth-web.ts"));
 const { Hono } = await import(join(root, "backend/node_modules/hono/dist/index.js"));
-const { COMPUTE_TERMS_VERSION } = await import(
-  join(root, "shared/contract/compute-terms.ts")
-);
+const { COMPUTE_TERMS_VERSION } = await import(join(root, "shared/contract/compute-terms.ts"));
 
 const COMMIT = "3a869903";
 const FIXED_REQUESTED_AT = "2026-11-05 12:00:00";

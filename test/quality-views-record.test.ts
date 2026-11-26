@@ -14,6 +14,7 @@ import { declarationValid } from "../src/lib/quality-views/guards";
 import { COMPUTED_SCHEMAS } from "../src/lib/quality-views/guards-computed";
 import { fetchRecord, fileUrl, recordFiles } from "../src/lib/quality-views/quality-api";
 import {
+  type QualityRecord,
   etagDigest,
   readRecordAnswer,
   recordChecks,
@@ -58,7 +59,7 @@ const answering =
 
 describe("a record answer", () => {
   it("reads the captured answer, and every view's digest is the one the route computed", async () => {
-    const record = await readRecordAnswer(BODY, ETAG, ASK);
+    const record = (await readRecordAnswer(BODY, ETAG, ASK)) as QualityRecord;
     expect(record.derivative.key).toMatch(/^[0-9a-f]{64}$/);
     expect(record.views.map((v) => v.key)).toEqual([
       "icmaps",
@@ -76,21 +77,15 @@ describe("a record answer", () => {
   it("checks the digest before it parses: a body that is not the one served is never read", async () => {
     const changed = BODY.slice();
     changed[changed.length - 2] ^= 1;
-    await expect(readRecordAnswer(changed, ETAG, ASK)).rejects.toMatchObject({
-      word: "record_digest_mismatch",
-    });
+    expect(await readRecordAnswer(changed, ETAG, ASK)).toBe("record_digest_mismatch");
     // Bytes that are not JSON at all: parsed first, they would be `record_invalid`.
     const garbage = new Uint8Array([0xff, 0xfe, 0x7b]);
-    await expect(readRecordAnswer(garbage, ETAG, ASK)).rejects.toMatchObject({
-      word: "record_digest_mismatch",
-    });
-    await expect(readRecordAnswer(garbage, null, ASK)).rejects.toMatchObject({
-      word: "record_invalid",
-    });
+    expect(await readRecordAnswer(garbage, ETAG, ASK)).toBe("record_digest_mismatch");
+    expect(await readRecordAnswer(garbage, null, ASK)).toBe("record_invalid");
   });
 
   it("is read without an ETag the browser does not expose", async () => {
-    await expect(readRecordAnswer(BODY, null, ASK)).resolves.toMatchObject({ recipe: ASK.recipe });
+    expect(await readRecordAnswer(BODY, null, ASK)).toMatchObject({ recipe: ASK.recipe });
   });
 
   it("refuses an answer for another recording, dataset or recipe", async () => {
@@ -98,12 +93,12 @@ describe("a record answer", () => {
       { ...ASK, recording: "sub-X/eeg/sub-X_task-COVID_eeg.edf" },
       { ...ASK, datasetId: "nm000001" },
     ]) {
-      await expect(readRecordAnswer(BODY, ETAG, other)).rejects.toMatchObject({
-        word: "record_elsewhere",
-      });
+      expect(await readRecordAnswer(BODY, ETAG, other)).toBe("record_elsewhere");
     }
     // Asked of another recipe, the document holds no entry for it.
-    await expect(readRecordAnswer(BODY, ETAG, { ...ASK, recipe: "nemar-floor" })).rejects.toThrow();
+    expect(await readRecordAnswer(BODY, ETAG, { ...ASK, recipe: "nemar-floor" })).toBe(
+      "record_elsewhere",
+    );
   });
 
   it("refuses an envelope or a document the shape does not admit", async () => {
@@ -116,15 +111,13 @@ describe("a record answer", () => {
     ];
     for (const variant of variants) {
       const bytes = new TextEncoder().encode(JSON.stringify(variant));
-      await expect(readRecordAnswer(bytes, null, ASK)).rejects.toMatchObject({
-        word: "record_invalid",
-      });
+      expect(await readRecordAnswer(bytes, null, ASK)).toBe("record_invalid");
     }
     const shuffled = structuredClone(body);
     shuffled.dataQuality.recipes["nemar-ica"].views[1].key = "icmaps";
-    await expect(
-      readRecordAnswer(new TextEncoder().encode(JSON.stringify(shuffled)), null, ASK),
-    ).rejects.toMatchObject({ word: "record_checks_failed" });
+    expect(
+      await readRecordAnswer(new TextEncoder().encode(JSON.stringify(shuffled)), null, ASK),
+    ).toBe("record_checks_failed");
   });
 });
 
