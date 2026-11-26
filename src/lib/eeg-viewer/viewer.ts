@@ -717,13 +717,49 @@ export async function mountEegViewer(
       if (disposed) return;
       placement = placed;
       ui.topoBtn.title = topoToggleTitle(placed, store);
-      if (showTopo) drawTopo();
+      if (showTopo) {
+        // The places are known before the first frame's samples: build the map's geometry in the
+        // worker now, so the first map does not wait for it (website#592).
+        if (placed.kind === "placed") void prepareTopo(placed);
+        drawTopo();
+      }
     });
   }
   // The map is drawn in the quality views' worker (worker-client.ts), loaded the first time the
   // panel draws. One draw is in flight at a time; a newer request waits and replaces any older one.
+  // The page's one client is shared with any quality panel beside the viewer, so the viewer never
+  // ends it: closing the viewer cancels its own draws.
   let topoClient: SensorFieldClient | null = null;
   let topoClientLoad: Promise<SensorFieldClient> | null = null;
+  const topoAbort = new AbortController();
+  const topoLayoutKey = `eeg-viewer:${opts.datasetId}:${opts.filePath}`;
+  async function loadTopoClient(): Promise<SensorFieldClient> {
+    if (!topoClient) {
+      topoClientLoad ??= import("../quality-views/worker-client").then((m) =>
+        m.sharedSensorFieldClient(),
+      );
+      topoClient = await topoClientLoad;
+    }
+    return topoClient;
+  }
+  async function prepareTopo(placed: {
+    thetaDeg: Float64Array;
+    radius: Float64Array;
+  }): Promise<void> {
+    try {
+      const client = await loadTopoClient();
+      if (!disposed) {
+        await client.prepare({
+          layoutKey: topoLayoutKey,
+          thetaDeg: placed.thetaDeg,
+          radius: placed.radius,
+        });
+      }
+    } catch (err) {
+      topoClientLoad = null;
+      console.warn("[eeg-viewer] scalp map: the map worker could not be prepared:", err);
+    }
+  }
   let topoInFlight = false;
   let topoQueued: TopoRequest | null = null;
 
@@ -751,7 +787,7 @@ export async function mountEegViewer(
   const spatialWanted = !!opts.spatial && store.groups.some((g) => isIeegModality(g.modality));
   const ui = buildDom(slot, store, eventTypes, preloadEnabled, preloadCapMB, spatialWanted);
   const cleanups: Array<() => void> = [];
-  cleanups.push(() => topoClient?.terminate());
+  cleanups.push(() => topoAbort.abort());
   // `fitHeight` hosts get chrome whose height cannot change from one render to
   // the next (`.eegv--fit` in eeg-viewer.css); see `fitScopeHeight`.
   if (opts.fitHeight) ui.root.classList.add("eegv--fit");
@@ -1794,20 +1830,15 @@ export async function mountEegViewer(
     const placed = request.placement;
     let outcome: Awaited<ReturnType<SensorFieldClient["draw"]>>;
     try {
-      if (!topoClient) {
-        topoClientLoad ??= import("../quality-views/worker-client").then(
-          (m) => new m.SensorFieldClient(),
-        );
-        topoClient = await topoClientLoad;
-      }
-      outcome = await topoClient.draw(
+      const client = await loadTopoClient();
+      outcome = await client.draw(
         {
-          layoutKey: `eeg-viewer:${opts.datasetId}:${opts.filePath}`,
+          layoutKey: topoLayoutKey,
           thetaDeg: placed.thetaDeg,
           radius: placed.radius,
           maps: [request.values],
         },
-        { contours: "none" },
+        { contours: "none", signal: topoAbort.signal },
       );
     } catch (err) {
       topoClientLoad = null;
