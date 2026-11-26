@@ -47,7 +47,10 @@ describe("two lazy panels sharing the client (website#592)", () => {
   });
 
   it("finds the panel over budget that the client's chunk alone would hide", () => {
-    const { results } = measureChunks("fixture", layout);
+    const { results, eager } = measureChunks("fixture", layout);
+    // Each panel is measured once, from its lazy root, never again as an eager importer.
+    expect(eager).toEqual({ direct: [], above: [] });
+    expect(results.filter((r) => r.root === "panel-a.js")).toHaveLength(1);
     const fromA = results.find((r) => r.root === "panel-a.js")!;
     const fromB = results.find((r) => r.root === "panel-b.js")!;
     expect(fromA.size).toBeGreaterThan(BUDGET.mainThread);
@@ -57,6 +60,28 @@ describe("two lazy panels sharing the client (website#592)", () => {
     const clientOnly = [...staticClosure(["client.js"], layout)];
     expect(clientOnly).toEqual(["client.js"]);
     expect(results.filter((r) => r.label.includes("worker-abc.js"))).toHaveLength(1);
+  });
+});
+
+describe("a panel imported statically by the page (the review of website#593)", () => {
+  const layout = files({
+    "page.js": `import{p}from"./dataset-panel.js";${bulk(80)}const v=()=>import("./viewer.js");export{p,v};`,
+    "dataset-panel.js": `import{m}from"./worker-client.js";${bulk(45)}export const p=m;`,
+    "viewer.js": `const c=()=>import("./worker-client.js");export{c};`,
+    "worker-client.js": client,
+    "worker-abc.js": worker,
+  });
+
+  it("measures the panel that imports the client eagerly, which no lazy root holds", () => {
+    const measured = measureChunks("fixture", layout);
+    expect(measured.roots).toEqual(["worker-client.js"]);
+    expect(measured.eager).toEqual({ direct: ["dataset-panel.js"], above: ["page.js"] });
+    const panel = measured.results.find((r) => r.root === "dataset-panel.js")!;
+    expect(panel.label).toContain("dataset-panel.js + worker-client.js");
+    expect(panel.size).toBeGreaterThan(BUDGET.mainThread);
+    expect(measured.notes.join("\n")).toContain(
+      "page.js reaches the client through a static import",
+    );
   });
 });
 
@@ -87,6 +112,7 @@ describe("the signal viewer's layout", () => {
     expect(measured.roots).toEqual(["measured-entry.js"]);
     const main = measured.results.find((r) => r.root === "measured-entry.js")!;
     expect(main.label).not.toContain("fallback.js");
+    expect(measured.eager).toEqual({ direct: [], above: [] });
     expect(measured.notes.join("\n")).toContain("fallback.js");
   });
 

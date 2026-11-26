@@ -13,6 +13,11 @@
  *   own, measuring from that chunk alone would miss a panel's own code (website#592).
  * - When no dynamically imported chunk reaches the client (it is bundled into an entry, or into the
  *   chunk under measurement as a whole), the client chunks themselves are the roots, as before.
+ * - Every other chunk whose static imports reach the client but that no root's set holds: the
+ *   client loaded eagerly, not lazily (a page statically importing a panel that imports the
+ *   client). Each such chunk that imports a client chunk itself is measured, with its static
+ *   imports, against the main-thread budget; the chunks above it (the page) are named in a note,
+ *   since their own code is the page's, not the views'.
  * - The module worker(s) a `new Worker(new URL(...))` in a measured set names, against the worker
  *   budget. A chunk a measured set imports only dynamically (the fallback for a browser without
  *   workers) is listed but not counted.
@@ -86,6 +91,28 @@ export function measurementRoots(files) {
  * Measure one directory's scripts (`files`: name to bytes). Returns one result per module worker
  * and per root, each with its gzipped and minified size and its budget, and notes for the reader.
  */
+/**
+ * The chunks whose static imports reach a client chunk but which no measured set holds: `direct`
+ * import a client chunk themselves, `above` reach one only through another chunk.
+ */
+export function eagerImporters(files, clients, roots) {
+  const text = (name) => files.get(name).toString("utf8");
+  const covered = new Set();
+  for (const root of roots) for (const name of staticClosure([root], files)) covered.add(name);
+  // The client's own lazy chunks (its in-thread fallback) import its shared code back; they are
+  // the client's, loaded only without workers, never a page's eager import.
+  const clientLazy = new Set(clients.flatMap((client) => dynamicImports(text(client), files)));
+  const direct = [];
+  const above = [];
+  for (const name of [...files.keys()].sort()) {
+    if (covered.has(name) || clients.includes(name) || clientLazy.has(name)) continue;
+    if (!clients.some((client) => staticClosure([name], files).has(client))) continue;
+    const imports = staticImports(text(name), files);
+    (imports.some((file) => clients.includes(file)) ? direct : above).push(name);
+  }
+  return { direct, above };
+}
+
 export function measureChunks(label, files) {
   const text = (name) => files.get(name).toString("utf8");
   const results = [];
@@ -124,6 +151,29 @@ export function measureChunks(label, files) {
       budget: BUDGET.mainThread,
     });
   }
+  const eager = eagerImporters(files, clients, roots);
+  for (const name of eager.direct) {
+    const set = staticClosure([name], files);
+    let size = 0;
+    let raw = 0;
+    for (const member of set) {
+      size += gzipped(files.get(member));
+      raw += files.get(member).length;
+    }
+    results.push({
+      label: `${label}: main thread from ${name}, which imports the client statically (${[...set].sort().join(" + ")})`,
+      root: name,
+      eager: true,
+      size,
+      raw,
+      budget: BUDGET.mainThread,
+    });
+  }
+  for (const name of eager.above) {
+    notes.push(
+      `${label}: ${name} reaches the client through a static import and is not measured itself (its own code is the page's); the chunk importing the client is.`,
+    );
+  }
   if (workers.size === 0) throw new Error(`${label}: no module worker is named by ${roots}`);
   for (const name of workers) {
     if (!files.has(name)) throw new Error(`${label}: the worker ${name} was not emitted`);
@@ -140,5 +190,5 @@ export function measureChunks(label, files) {
       `${label}: ${name} (${kb(gzipped(files.get(name)))} gzipped) is imported only dynamically by a measured set, and is not counted.`,
     );
   }
-  return { results, notes, clients, roots };
+  return { results, notes, clients, roots, eager };
 }
