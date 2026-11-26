@@ -105,3 +105,44 @@ export const PIPELINE_RECIPE_UNKNOWN = "recipe_unknown";
  * to the API; the backend still decides whether the recipe exists.
  */
 export const PIPELINE_RECIPE_SEGMENT_RE = /^[a-z][a-z0-9-]{0,63}$/;
+
+/**
+ * Where a run's derivative stands (`GET /admin/compute/pipeline/runs/:stamp/quality`, nemar-cli
+ * ADR 0137 decision 7, epic #2324 phase B3; website phase W9), in the backend's order.
+ */
+export const COMPUTE_RUN_QUALITY_STATES = [
+  "run_in_progress",
+  "run_not_succeeded",
+  "not_keyed",
+  "awaiting_derivative",
+  "failed",
+  "expired",
+  "copying",
+  "canary",
+  "current",
+  "superseded",
+  "not_current",
+] as const;
+export type ComputeRunQualityState = (typeof COMPUTE_RUN_QUALITY_STATES)[number];
+
+/** What a run's recordings list holds. */
+export const COMPUTE_RUN_QUALITY_RECORDINGS_STATES = [
+  "listed",
+  "not_stored",
+  "store_unavailable",
+  "table_missing",
+  "table_too_large",
+  "table_unreadable",
+] as const;
+export type ComputeRunQualityRecordingsState =
+  (typeof COMPUTE_RUN_QUALITY_RECORDINGS_STATES)[number];
+
+/** Succeeded recordings per page of a run's quality. */
+export const COMPUTE_RUN_QUALITY_PAGE_SIZE = 100;
+
+/**
+ * The refusal word a deferred run's stamp records (nemar-cli ADR 0141, phase B2b): the serving
+ * index could not be staged for a temporary fault. A dispatch's answer names, in
+ * `runs_without_index_after`, when the run goes ahead without the index.
+ */
+export const SERVING_INDEX_DEFERRED = "serving_index_deferred";
