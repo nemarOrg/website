@@ -1,0 +1,18 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-quality-summary-fixtures.mjs",
+    "nemar_cli_commit": "39e2ee3f",
+    "route": "GET /nm099208/metadata.json",
+    "world": {
+      "dataset": {
+        "firstPublishedAt": null
+      },
+      "derivative": {
+        "retention": "catalog"
+      }
+    },
+    "note": "The real dataRoutes over a real migrated database; rows as backend/test/metadata-json-quality.test.ts writes them. `text` is the body as served, byte for byte."
+  },
+  "status": 200,
+  "text": "{\"schema_version\":\"0.6.0\",\"doc_type\":\"dataset\",\"dataset_id\":\"nm099208\",\"name\":\"Quality summary fixture nm099208\",\"description\":null,\"source\":\"nemar\",\"recording_modality\":[\"EEG\"],\"bids_version\":null,\"license\":null,\"authors\":[],\"anonymous\":false,\"keywords\":[],\"related_identifiers\":[],\"contributors\":[],\"dates\":[],\"rights\":[],\"language\":null,\"funding\":[],\"tasks\":[],\"datatypes\":[\"eeg\"],\"sessions\":[],\"sessions_count\":null,\"demographics\":null,\"data_summary\":null,\"signal_defaults\":null,\"provenance\":{\"latest_snapshot\":null,\"publish_date\":null},\"external_links\":{\"dataset_doi\":null,\"github_url\":null},\"extensions\":{\"nemar\":{\"versions\":[],\"bids_index\":null,\"pipeline_stage\":null,\"data_complete\":null,\"bytes_present\":null,\"recordings_measured\":null}}}"
+}

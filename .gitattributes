@@ -12,3 +12,6 @@ test/fixtures/quality-views/vectors/** linguist-generated=true -diff
 # licenses, stays readable.
 src/lib/quality-views/vocabulary/montages/** linguist-generated=true -diff
 src/lib/quality-views/vocabulary/montages/PROVENANCE.json -linguist-generated diff
+# The dataset summary's verdicts are captured from nemar-cli by
+# scripts/capture-quality-summary-fixtures.mjs; one line per case, the longest holds 201 recordings.
+test/fixtures/quality-summary/dataset-quality-verdicts.json linguist-generated=true
