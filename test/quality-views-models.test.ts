@@ -22,6 +22,7 @@ import {
   locateBin,
   snapRow,
 } from "../src/lib/quality-views/model";
+import { localChecks } from "../src/lib/quality-views/kinds";
 import { type Montage, parseMontage } from "../src/lib/quality-views/montages";
 import { nodeFs, repoPath } from "./node";
 import { MONTAGES_DIR, mapOutcome } from "./quality-views-vectors";
@@ -75,6 +76,7 @@ function source(files: Files) {
 
 function options(caps?: Record<string, number>) {
   return {
+    checks: localChecks,
     montage,
     mapOutcome,
     caps: caps

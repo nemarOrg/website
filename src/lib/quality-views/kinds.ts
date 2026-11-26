@@ -12,17 +12,11 @@
  * `neuroschema.views.registry.draw_as` and `meets_role_contract` are the Python reference.
  */
 
-import { GENERIC_DATA, GENERIC_ROLES } from "./guards";
+import { type Drawing, TABLE, type ViewCheck, type ViewChecks } from "./checks";
+import { CONTENT_SCHEMAS, GENERIC_DATA, GENERIC_ROLES, declarationValid } from "./guards";
 import type { ViewDecl } from "./model";
-// Named imports, so the build keeps only these parts of the registry (no descriptions).
-import { caps, kinds } from "./vocabulary/registry.json";
-
-export interface Caps {
-  readonly bytes_per_role: number;
-  readonly entries_per_dim: number;
-  readonly cells_per_role: number;
-}
-export const CAPS: Caps = caps;
+// A named import, so the build keeps only this part of the registry (no descriptions).
+import { kinds } from "./vocabulary/registry.json";
 
 interface KindEntry {
   readonly kind: string;
@@ -42,12 +36,7 @@ const kindEntry = (kind: unknown, version: unknown): KindEntry | undefined =>
     ? KINDS.get(`${kind}@${versionOf(version)}`)
     : undefined;
 
-export interface Drawing {
-  readonly via: "kind" | "base" | "table";
-  readonly kind: string | null;
-  readonly kind_version: number | null;
-}
-export const TABLE: Drawing = { via: "table", kind: null, kind_version: null };
+export { type Drawing, TABLE } from "./checks";
 
 /** Whether a view's stored data meet a generic kind's role contract (docs/views.md). */
 export function meetsRoleContract(view: ViewDecl, kind: string): boolean {
@@ -82,11 +71,20 @@ export function drawAs(view: ViewDecl): Drawing {
   return drawByBase(view);
 }
 
-/** The generic kinds this module builds a model for. */
-export const BUILT_KINDS: readonly string[] = [
-  "nemar.table",
-  "nemar.lines",
-  "nemar.heatmap",
-  "nemar.histogram",
-  "nemar.sensor-field",
-];
+/** A declaration's checks, on this thread: what the worker answers `check` with. */
+export function checkView(view: unknown): ViewCheck {
+  if (!declarationValid(view)) return { valid: false, drawing: TABLE, byBase: TABLE };
+  const decl = view as ViewDecl;
+  return { valid: true, drawing: drawAs(decl), byBase: drawByBase(decl) };
+}
+
+export function checkContent(schema: string, content: unknown): boolean {
+  const guard = CONTENT_SCHEMAS[schema];
+  return guard ? guard(content) : false;
+}
+
+/** The checks run on this thread (the worker, the tests, and the page when the worker cannot). */
+export const localChecks: ViewChecks = {
+  view: async (view) => checkView(view),
+  content: async (schema, content) => checkContent(schema, content),
+};

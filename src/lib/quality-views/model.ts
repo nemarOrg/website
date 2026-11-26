@@ -22,8 +22,7 @@
  * and with `mapOutcome` (the tests) each map's word and notes are computed here too.
  */
 
-import { declarationValid, histogramContentValid } from "./guards";
-import { BUILT_KINDS, CAPS, type Caps, type Drawing, TABLE, drawAs, drawByBase } from "./kinds";
+import { type Drawing, HISTOGRAM_CONTENT, TABLE, type ViewChecks } from "./checks";
 import type { Montage } from "./montages";
 import {
   type CellType,
@@ -37,6 +36,15 @@ import {
   readTsv,
 } from "./read";
 import { MONTAGE_NAMES, clean, finish, typeClass } from "./sensor-names";
+// A named import, so the build keeps only the caps of the registry.
+import { caps as registryCaps } from "./vocabulary/registry.json";
+
+export interface Caps {
+  readonly bytes_per_role: number;
+  readonly entries_per_dim: number;
+  readonly cells_per_role: number;
+}
+export const CAPS: Caps = registryCaps;
 
 // ── Declarations ────────────────────────────────────────────────────────
 
@@ -254,12 +262,21 @@ export const LABELS_PENDING = "labels_pending";
 export type FileSource = (file: FileDecl) => Promise<Uint8Array | null>;
 
 export interface ModelOptions {
+  /** The declaration and content checks: the worker's (`SensorFieldClient.checks()`) on a page,
+   *  `localChecks` from `kinds.ts` in the tests. */
+  readonly checks: ViewChecks;
   readonly caps?: Caps;
   /** The montage `name` (`montage-loader.ts` in the browser). */
   readonly montage: (name: string) => Promise<Montage>;
   /** The SHA-256 of bytes, lowercase hex; SubtleCrypto's by default. */
   readonly sha256?: (bytes: Uint8Array) => Promise<string>;
   readonly placeByNames?: PlaceByNames;
+  /** Called once with a scalp map's drawn places as soon as its layout file is read (`warmInput`),
+   *  before its values may have arrived: the page prepares the geometry with it. */
+  readonly onLayout?: (places: {
+    readonly thetaDeg: Float64Array;
+    readonly radius: Float64Array;
+  }) => void;
   /**
    * Run `nemar.sensor-field.v1` on one map for its word and notes (the tests pass the algorithm,
    * `sensorField`). Without it each map's word and notes are left null and empty for the worker's
@@ -279,7 +296,7 @@ export async function subtleSha256(bytes: Uint8Array): Promise<string> {
 
 class Reader {
   private readonly tsvs = new Map<string, Tsv>();
-  private readonly digests = new Map<string, string>();
+  private readonly digests = new Map<string, Promise<string>>();
   private readonly bytes = new Map<string, Promise<Uint8Array | null>>();
 
   constructor(
@@ -287,7 +304,14 @@ class Reader {
     private readonly source: FileSource,
     readonly caps: Caps,
     private readonly hash: (bytes: Uint8Array) => Promise<string>,
+    readonly checks: ViewChecks,
   ) {}
+
+  /** Start fetching a file the model will read, so it downloads beside the others. */
+  prefetch(entry: FileDecl | null): void {
+    if (!entry || entry.size > this.caps.bytes_per_role || this.bytes.has(entry.location)) return;
+    this.bytes.set(entry.location, this.source(entry));
+  }
 
   entry(role: string): DataDecl | null {
     const found = (this.view.data ?? []).filter((entry) => entry.role === role);
@@ -309,10 +333,10 @@ class Reader {
     if (data.length !== entry.size) throw new ViewRefused("file_size_mismatch", location);
     let digest = this.digests.get(location);
     if (digest === undefined) {
-      digest = await this.hash(data);
+      digest = this.hash(data);
       this.digests.set(location, digest);
     }
-    if (digest !== entry.sha256) throw new ViewRefused("file_digest_mismatch", location);
+    if ((await digest) !== entry.sha256) throw new ViewRefused("file_digest_mismatch", location);
     return data;
   }
 
@@ -405,6 +429,16 @@ async function roleLabels(reader: Reader, dim: DimDecl, count: number): Promise<
   return texts;
 }
 
+/** Start the files of the roles whose columns label this entry's dimensions (a scalp map's
+ *  layout), so the small layout never waits behind the values. */
+function prefetchCoordinateRoles(reader: Reader, entry: DataDecl): void {
+  for (const dim of entry.dims ?? []) {
+    if (!("role" in dim.coords)) continue;
+    const other = reader.entry(dim.coords.role);
+    if (other?.format === "tsv") reader.prefetch(other);
+  }
+}
+
 const axisOf = (dim: DimDecl): Axis => ({ dim: dim.name, type: dim.type, unit: dim.unit ?? null });
 const NO_AXIS: Axis = { dim: null, type: null, unit: null };
 
@@ -442,6 +476,7 @@ async function tableModel(reader: Reader): Promise<TableModel> {
 
 async function linesModel(reader: Reader): Promise<LinesModel> {
   const entry = reader.entry("values")!;
+  prefetchCoordinateRoles(reader, entry);
   const tsv = await reader.tsv(entry);
   const columns = declared(entry, tsv);
   const [xDim, seriesDim] = twoDims(entry);
@@ -478,6 +513,7 @@ async function linesModel(reader: Reader): Promise<LinesModel> {
 
 async function heatmapModel(reader: Reader, own: boolean): Promise<HeatmapModel> {
   const entry = reader.entry("values")!;
+  prefetchCoordinateRoles(reader, entry);
   const tsv = await reader.tsv(entry);
   const columns = declared(entry, tsv);
   const [rowDim, columnDim] = twoDims(entry);
@@ -529,7 +565,9 @@ const sum = (values: number[]): number => values.reduce((a, b) => a + b, 0);
 async function histogramModel(reader: Reader): Promise<HistogramModel> {
   const entry = reader.entry("histogram")!;
   const content = readJson(await reader.verified(entry));
-  if (!histogramContentValid(content)) throw new KindRefused("content_invalid");
+  if (!(await reader.checks.content(HISTOGRAM_CONTENT, content))) {
+    throw new KindRefused("content_invalid");
+  }
   const c = content as {
     counts: number[];
     categories?: string[];
@@ -704,6 +742,8 @@ async function sensorFieldModel(
   options: ModelOptions,
 ): Promise<{ model: SensorFieldModel; layout?: SensorLayoutPlaces }> {
   const entry = reader.entry("values")!;
+  prefetchCoordinateRoles(reader, entry);
+  announceLayout(reader, options);
   const tsv = await reader.tsv(entry);
   const columns = declared(entry, tsv);
   const dimsDeclared = entry.dims ?? [];
@@ -962,6 +1002,70 @@ async function placeSensors(
     : { model };
 }
 
+/**
+ * Hand the layout's drawn rows to `options.onLayout` as soon as the layout file is read and
+ * checked, while the values may still download, so the page can build the geometry ahead of the
+ * maps (`SensorFieldClient.prepare`). A fault is left to the model, which words it.
+ */
+function announceLayout(reader: Reader, options: ModelOptions): void {
+  const onLayout = options.onLayout;
+  const layout = reader.entry("layout");
+  if (!onLayout || !layout || layout.format !== "tsv") return;
+  reader.tsv(layout).then(
+    (tsv) => {
+      const input = warmInput(reader.view, tsv);
+      if (input) onLayout(input);
+    },
+    () => {},
+  );
+}
+
+/**
+ * The places a scalp map placed by a layout draws, from the layout file alone: the same rows, in
+ * the same order, as the draw request (`fieldDrawInput`), so a geometry prepared from it is the
+ * one the maps' draw finds in the worker's cache. Rows typed other than EEG (or untyped, for
+ * measured positions) and rows with an `n/a` place are left out. Null when the view is not placed
+ * by a layout, when no row is drawn, or when the placement refuses every map.
+ */
+export function warmInput(
+  view: ViewDecl,
+  layout: Tsv,
+): { readonly thetaDeg: Float64Array; readonly radius: Float64Array } | null {
+  const entry = (view.data ?? []).find((e) => e.role === "layout");
+  const values = (view.data ?? []).find((e) => e.role === "values");
+  const sensor = values?.dims?.find((d) => d.name === "sensor");
+  if (!entry || !sensor || !("role" in sensor.coords) || sensor.coords.role !== "layout") {
+    return null;
+  }
+  if (entry.coordinate_system !== undefined && NOT_SCALP_FRAMES.has(entry.coordinate_system)) {
+    return null;
+  }
+  if (entry.position_source === "template" && !MONTAGE_NAMES.includes(entry.montage ?? "")) {
+    return null;
+  }
+  const declaredNames = new Set((entry.columns ?? []).map((c) => c.name));
+  const place = (name: string): number[] | null => {
+    if (!declaredNames.has(name) || !layout.header.includes(name)) return null;
+    return cells(layout, name).map((t) => (t === NO_PLACE ? Number.NaN : Number(t)));
+  };
+  const theta = place("theta_deg");
+  const radius = place("radius");
+  if (!theta || !radius) return null;
+  const types =
+    declaredNames.has("sensor_type") && layout.header.includes("sensor_type")
+      ? cells(layout, "sensor_type")
+      : null;
+  const drawn = drawnRows(types, theta.length, entry.position_source === "measured");
+  const rows = drawn.flatMap((d, k) =>
+    d && Number.isFinite(theta[k]) && Number.isFinite(radius[k]) ? [k] : [],
+  );
+  if (rows.length === 0) return null;
+  return {
+    thetaDeg: Float64Array.from(rows, (k) => theta[k]),
+    radius: Float64Array.from(rows, (k) => radius[k]),
+  };
+}
+
 /** Whether every row of template positions names an electrode of its montage, compared as
  *  `nemar.sensor-labels.v1` compares names. */
 async function templateNamesKnown(
@@ -1014,10 +1118,11 @@ export async function buildModel(
   files: FileSource,
   options: ModelOptions,
 ): Promise<BuiltModel> {
-  if (!declarationValid(view)) throw new ViewRefused("declaration_invalid");
+  const check = await options.checks.view(view);
+  if (!check.valid) throw new ViewRefused("declaration_invalid");
   const decl = view as ViewDecl;
   try {
-    return await build(decl, files, options);
+    return await build(decl, check.drawing, check.byBase, files, options);
   } catch (error) {
     if (error instanceof ViewRefused) {
       error.downloads = downloadsOf(decl).filter((d) => d.location !== error.location);
@@ -1026,42 +1131,54 @@ export async function buildModel(
   }
 }
 
+type Builder = (
+  reader: Reader,
+  own: boolean,
+  options: ModelOptions,
+) => Promise<{ model: KindModel; layout?: SensorLayoutPlaces }>;
+
+/** The model builders, by `kind@version`: a registered kind with none (a preset, or a later
+ *  version) draws by its base, or as tables. */
+export const BUILDERS: ReadonlyMap<string, Builder> = new Map<string, Builder>([
+  ["nemar.table@1", async (reader) => ({ model: await tableModel(reader) })],
+  ["nemar.lines@1", async (reader) => ({ model: await linesModel(reader) })],
+  ["nemar.heatmap@1", async (reader, own) => ({ model: await heatmapModel(reader, own) })],
+  ["nemar.histogram@1", async (reader) => ({ model: await histogramModel(reader) })],
+  ["nemar.sensor-field@1", sensorFieldModel],
+]);
+
+const builderOf = (drawing: Drawing): Builder | undefined =>
+  BUILDERS.get(`${drawing.kind}@${drawing.kind_version}`);
+
 async function build(
   view: ViewDecl,
+  chosen: Drawing,
+  byBase: Drawing,
   files: FileSource,
   options: ModelOptions,
 ): Promise<BuiltModel> {
-  let drawing = drawAs(view);
-  if (drawing.via === "kind" && !BUILT_KINDS.includes(drawing.kind!)) {
+  let drawing = chosen;
+  if (drawing.via === "kind" && !builderOf(drawing)) {
     // A preset is drawn by its base here; its own drawing (W6) builds on the base's model.
-    drawing = drawByBase(view);
+    drawing = byBase.via === "base" && builderOf(byBase) ? byBase : TABLE;
   }
-  const reader = new Reader(view, files, options.caps ?? CAPS, options.sha256 ?? subtleSha256);
+  if (drawing.via === "base" && !builderOf(drawing)) drawing = TABLE;
+  const reader = new Reader(
+    view,
+    files,
+    options.caps ?? CAPS,
+    options.sha256 ?? subtleSha256,
+    options.checks,
+  );
   let refused: BuiltModel["refused"] = null;
   let model: Model | null = null;
   let layout: SensorLayoutPlaces | undefined;
-  if (drawing.via !== "table") {
-    const own = drawing.via === "kind";
+  const builder = drawing.via === "table" ? undefined : builderOf(drawing);
+  if (builder) {
     try {
-      switch (drawing.kind) {
-        case "nemar.table":
-          model = await tableModel(reader);
-          break;
-        case "nemar.lines":
-          model = await linesModel(reader);
-          break;
-        case "nemar.heatmap":
-          model = await heatmapModel(reader, own);
-          break;
-        case "nemar.histogram":
-          model = await histogramModel(reader);
-          break;
-        default: {
-          const built = await sensorFieldModel(reader, own, options);
-          model = built.model;
-          layout = built.layout;
-        }
-      }
+      const built = await builder(reader, drawing.via === "kind", options);
+      model = built.model;
+      layout = built.layout;
     } catch (error) {
       if (!(error instanceof KindRefused)) throw error;
       refused = { kind: drawing.kind!, kind_version: drawing.kind_version!, word: error.word };

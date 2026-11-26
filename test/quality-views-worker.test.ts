@@ -604,7 +604,7 @@ describe("warming the worker for the cold first view (website#592)", () => {
 
   it("cancels a warm-up still running when the view's draw comes", async () => {
     const client = new SensorFieldClient(inThreadWorker);
-    const warming = client.warm({ layoutKey: LAYOUT_KEY, thetaDeg: THETA, radius: RADIUS }, 512);
+    const warming = client.warm({ layoutKey: LAYOUT_KEY, thetaDeg: THETA, radius: RADIUS }, { maps: 512 });
     await new Promise((resolve) => setTimeout(resolve, 0));
     const outcome = await client.draw(input(mapsOf(2)));
     const warm = await warming;

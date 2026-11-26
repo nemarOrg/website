@@ -17,6 +17,7 @@
  */
 
 import { contourLines } from "./contours";
+import { checkContent, checkView } from "./kinds";
 import {
   type GeometryResult,
   type SensorFieldGeometry,
@@ -311,6 +312,23 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
     const request = data as WorkerRequest;
     if (request.type === "cancel") {
       cancelled.add(request.id);
+      return;
+    }
+    if (request.type === "check" || request.type === "check-content") {
+      try {
+        post(
+          request.type === "check"
+            ? { type: "checked", id: request.id, ...checkView(request.view) }
+            : {
+                type: "content-checked",
+                id: request.id,
+                valid: checkContent(request.schema, request.content),
+              },
+          [],
+        );
+      } catch (error) {
+        post({ type: "failure", id: request.id, message: describe(error) }, []);
+      }
       return;
     }
     if (request.type === "prepare") {
