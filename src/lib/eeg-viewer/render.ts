@@ -487,8 +487,27 @@ function drawEventLines(
   }
 }
 
-/** Shade each span of `frame.shaded` that the window shows, clipped to the plot, with its label
- *  at the bottom edge. */
+/** The rectangles of the spans of `frame.shaded` the window shows, clipped to the plot: at least
+ *  a pixel wide, so a short bad segment is never left unmarked. */
+export function shadedRects(
+  frame: ViewerFrame,
+  plotLeft: number,
+  plotWidth: number,
+): { x: number; width: number; label: string }[] {
+  const at = (t: number) =>
+    Math.min(
+      plotLeft + plotWidth,
+      Math.max(plotLeft, timeToX(t, frame.windowStartS, frame.windowEndS, plotLeft, plotWidth)),
+    );
+  return (frame.shaded ?? [])
+    .filter((span) => span.endS > frame.windowStartS && span.startS < frame.windowEndS)
+    .map((span) => {
+      const x = at(span.startS);
+      return { x, width: Math.max(at(span.endS), x + 1) - x, label: span.label };
+    });
+}
+
+/** Shade each span `shadedRects` gives, with its label at the bottom edge. */
 export function drawShaded(
   ctx: CanvasRenderingContext2D,
   frame: ViewerFrame,
@@ -497,23 +516,15 @@ export function drawShaded(
   plotWidth: number,
   plotHeight: number,
 ): void {
-  for (const span of frame.shaded ?? []) {
-    if (span.endS <= frame.windowStartS || span.startS >= frame.windowEndS) continue;
-    const at = (t: number) =>
-      Math.min(
-        plotLeft + plotWidth,
-        Math.max(plotLeft, timeToX(t, frame.windowStartS, frame.windowEndS, plotLeft, plotWidth)),
-      );
-    const x0 = at(span.startS);
-    const x1 = Math.max(at(span.endS), x0 + 1);
+  for (const { x, width, label } of shadedRects(frame, plotLeft, plotWidth)) {
     ctx.fillStyle = SHADE_FILL;
-    ctx.fillRect(x0, plotTop, x1 - x0, plotHeight);
+    ctx.fillRect(x, plotTop, width, plotHeight);
     ctx.fillStyle = SHADE_EDGE;
-    ctx.fillRect(x0, plotTop + plotHeight - 2, x1 - x0, 2);
+    ctx.fillRect(x, plotTop + plotHeight - 2, width, 2);
     ctx.textAlign = "left";
     ctx.textBaseline = "bottom";
     ctx.font = "8px ui-monospace, SFMono-Regular, Menlo, monospace";
-    ctx.fillText(span.label.slice(0, 16), x0 + 2, plotTop + plotHeight - 3);
+    ctx.fillText(label.slice(0, 16), x + 2, plotTop + plotHeight - 3);
   }
 }
 
