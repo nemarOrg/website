@@ -14,14 +14,15 @@
 
 import { GENERIC_DATA, GENERIC_ROLES } from "./guards";
 import type { ViewDecl } from "./model";
-import registry from "./vocabulary/registry.json";
+// Named imports, so the build keeps only these parts of the registry (no descriptions).
+import { caps, kinds } from "./vocabulary/registry.json";
 
 export interface Caps {
   readonly bytes_per_role: number;
   readonly entries_per_dim: number;
   readonly cells_per_role: number;
 }
-export const CAPS: Caps = registry.caps;
+export const CAPS: Caps = caps;
 
 interface KindEntry {
   readonly kind: string;
@@ -30,7 +31,7 @@ interface KindEntry {
   readonly base_version: number | null;
 }
 const KINDS: ReadonlyMap<string, KindEntry> = new Map(
-  (registry.kinds as KindEntry[]).map((entry) => [`${entry.kind}@${entry.kind_version}`, entry]),
+  (kinds as KindEntry[]).map((entry) => [`${entry.kind}@${entry.kind_version}`, entry]),
 );
 
 /** A kind or base version as a version: an integer, never a boolean. */

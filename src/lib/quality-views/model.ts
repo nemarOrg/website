@@ -19,7 +19,7 @@
  * Every number in a model is a stored value read from a file (or a rule's arithmetic on them: a
  * histogram's totals and densities, a heatmap's `absmax` limits), and every readout prints the
  * stored text. A scalp map's sensors are placed here (`placement`); its maps are drawn in the worker,
- * and with `mapOutcomes: "compute"` (the tests) each map's word and notes are computed here too.
+ * and with `mapOutcome` (the tests) each map's word and notes are computed here too.
  */
 
 import { declarationValid, histogramContentValid } from "./guards";
@@ -36,8 +36,6 @@ import {
   readJson,
   readTsv,
 } from "./read";
-import { sensorField } from "./sensor-field";
-import { sensorLayout } from "./sensor-layout";
 import { MONTAGE_NAMES, clean, finish, typeClass } from "./sensor-names";
 
 // ── Declarations ────────────────────────────────────────────────────────
@@ -263,10 +261,15 @@ export interface ModelOptions {
   readonly sha256?: (bytes: Uint8Array) => Promise<string>;
   readonly placeByNames?: PlaceByNames;
   /**
-   * `compute` runs `nemar.sensor-field.v1` on each map here for its word and notes (the tests);
-   * `defer` (the default) leaves them null and empty for the worker's answer.
+   * Run `nemar.sensor-field.v1` on one map for its word and notes (the tests pass the algorithm,
+   * `sensorField`). Without it each map's word and notes are left null and empty for the worker's
+   * answer, so the page's main thread never loads the interpolation.
    */
-  readonly mapOutcomes?: "compute" | "defer";
+  readonly mapOutcome?: (
+    thetaDeg: number[],
+    radius: number[],
+    values: number[],
+  ) => { readonly word: string | null; readonly notes: readonly string[] };
 }
 
 export async function subtleSha256(bytes: Uint8Array): Promise<string> {
@@ -807,6 +810,8 @@ async function placeSensors(
       montageName !== null && MONTAGE_NAMES.includes(montageName)
         ? (await options.montage(montageName)).center
         : undefined;
+    // Loaded only for a view placed by positions, so other views never fetch it.
+    const { sensorLayout } = await import("./sensor-layout");
     const result = sensorLayout(
       { x: xyz.map((p) => p[0]), y: xyz.map((p) => p[1]), z: xyz.map((p) => p[2]) },
       frame,
@@ -922,15 +927,15 @@ async function placeSensors(
   const items: SensorFieldMapItem[] = maps.map(([label, values, text]) => {
     let word = placement.word;
     let notes: string[] = [];
-    if (word === null && options.mapOutcomes === "compute") {
+    if (word === null && options.mapOutcome) {
       const [theta, radius] = layout!;
-      const result = sensorField(
+      const outcome = options.mapOutcome(
         rows.map((k) => theta[k]),
         rows.map((k) => radius[k]),
         rows.map((k) => values[k]),
       );
-      if (result.kind === "refused") word = result.word;
-      else notes = [...result.map.notes];
+      word = outcome.word;
+      notes = [...outcome.notes];
     }
     return { label, values, text, word, notes };
   });

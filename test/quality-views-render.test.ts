@@ -44,7 +44,7 @@ import { type Element, textOf, toHtml, walk } from "../src/lib/quality-views/tre
 import { inThreadWorker } from "../src/lib/quality-views/worker";
 import { SensorFieldClient } from "../src/lib/quality-views/worker-client";
 import { nodeFs, repoPath } from "./node";
-import { MONTAGES_DIR } from "./quality-views-vectors";
+import { MONTAGES_DIR, mapOutcome } from "./quality-views-vectors";
 
 type Files = Record<string, { text?: string; base64?: string }>;
 interface ModelCase {
@@ -82,7 +82,7 @@ async function built(c: ModelCase, compute = false): Promise<BuiltModel> {
   return buildModel(c.view, source(c.files), {
     montage,
     caps: caps(c.caps),
-    mapOutcomes: compute ? "compute" : "defer",
+    mapOutcome: compute ? mapOutcome : undefined,
   });
 }
 

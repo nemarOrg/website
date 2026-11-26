@@ -16,8 +16,8 @@
  *    the worker budget. So two lazy panels sharing the client are each measured with their own code
  *    (website#592). The signal viewer imports the client lazily, so the client's own chunk is a
  *    root. `--require-build` makes a missing `dist/` an error.
- * 2. Always: the site's own Vite (Astro's copy) builds `worker-client.ts` and `colormap.ts` as an
- *    entry, in production mode, with the worker emitted by Vite's worker plugin as the site build
+ * 2. Always: the site's own Vite (Astro's copy) builds `worker-client.ts`, `colormap.ts` and the
+ *    renderers with their model (`model.ts`, `kinds.ts`, `render/index.ts`) as an entry, in production mode, with the worker emitted by Vite's worker plugin as the site build
  *    emits it, and the same two budgets are applied to what it writes: a floor that holds even
  *    before a panel imports the client.
  *
@@ -80,7 +80,17 @@ try {
   const entry = join(scratch, "measured.ts");
   writeFileSync(
     entry,
-    `export * from ${JSON.stringify(join(lib, "worker-client.ts"))};\nexport * from ${JSON.stringify(join(lib, "colormap.ts"))};\n`,
+    [
+      "worker-client.ts",
+      "colormap.ts",
+      // The renderers and the model a panel draws views with (phase W4), so the floor holds the
+      // panel's drawing code before a panel imports it.
+      "model.ts",
+      "kinds.ts",
+      "render/index.ts",
+    ]
+      .map((file) => `export * from ${JSON.stringify(join(lib, file))};\n`)
+      .join(""),
   );
   const outDir = join(scratch, "out");
   await vite.build({

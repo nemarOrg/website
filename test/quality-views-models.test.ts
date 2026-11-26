@@ -24,7 +24,7 @@ import {
 } from "../src/lib/quality-views/model";
 import { type Montage, parseMontage } from "../src/lib/quality-views/montages";
 import { nodeFs, repoPath } from "./node";
-import { MONTAGES_DIR } from "./quality-views-vectors";
+import { MONTAGES_DIR, mapOutcome } from "./quality-views-vectors";
 
 type Files = Record<string, { text?: string; base64?: string }>;
 interface ModelCase {
@@ -76,7 +76,7 @@ function source(files: Files) {
 function options(caps?: Record<string, number>) {
   return {
     montage,
-    mapOutcomes: "compute" as const,
+    mapOutcome,
     caps: caps
       ? { bytes_per_role: 4194304, entries_per_dim: 1024, cells_per_role: 262144, ...caps }
       : undefined,
