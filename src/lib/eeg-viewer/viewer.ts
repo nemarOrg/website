@@ -1727,6 +1727,8 @@ export async function mountEegViewer(
   function showTopoRefusal(sentence: string): void {
     const cssSize = topoCanvasSize();
     ui.topoCanvas.getContext("2d")?.clearRect(0, 0, cssSize, cssSize);
+    // No empty square where the map would be: the sentence stands in its place.
+    ui.topoCanvas.hidden = true;
     ui.topoScale.hidden = true;
     ui.topoMin.textContent = "";
     ui.topoMax.textContent = "";
@@ -1833,6 +1835,7 @@ export async function mountEegViewer(
       themeColors(ui.root),
       topoScratch,
     );
+    ui.topoCanvas.hidden = false;
     ui.topoScale.hidden = false;
     ui.topoMin.textContent = formatSi(low, request.unitBase);
     ui.topoMax.textContent = formatSi(high, request.unitBase);

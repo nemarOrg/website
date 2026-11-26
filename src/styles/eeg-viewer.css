@@ -307,6 +307,7 @@
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+.eegv__topo-canvas[hidden],
 .eegv__topo-scale[hidden] {
   display: none;
 }
