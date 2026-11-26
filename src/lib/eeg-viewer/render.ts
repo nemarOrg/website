@@ -35,8 +35,21 @@ export interface FrameEvent {
   color: string;
 }
 
+/** A span the frame shades: a bad segment of the floor's, from the quality panel (website W6). */
+export interface FrameShade {
+  startS: number;
+  endS: number;
+  label: string;
+}
+
+/** The fill of a shaded span: a warm tint that reads on the light and the dark plot. */
+export const SHADE_FILL = "rgba(217, 70, 39, 0.16)";
+export const SHADE_EDGE = "rgba(217, 70, 39, 0.7)";
+
 export interface ViewerFrame {
   channels: FrameChannel[];
+  /** Spans to shade under the event lines (the floor's bad segments); absent or empty: none. */
+  shaded?: FrameShade[];
   /** Horizontal sample columns in this frame (~ plot width in CSS px). */
   nCols: number;
   windowStartS: number;
@@ -434,6 +447,7 @@ function drawEventLines(
   plotWidth: number,
   plotHeight: number,
 ): void {
+  drawShaded(ctx, frame, plotLeft, plotTop, plotWidth, plotHeight);
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   ctx.font = "8px ui-monospace, SFMono-Regular, Menlo, monospace";
@@ -470,6 +484,36 @@ function drawEventLines(
     ctx.textBaseline = "middle";
     ctx.fillText(ev.label.slice(0, 10), 3, 0);
     ctx.restore();
+  }
+}
+
+/** Shade each span of `frame.shaded` that the window shows, clipped to the plot, with its label
+ *  at the bottom edge. */
+export function drawShaded(
+  ctx: CanvasRenderingContext2D,
+  frame: ViewerFrame,
+  plotLeft: number,
+  plotTop: number,
+  plotWidth: number,
+  plotHeight: number,
+): void {
+  for (const span of frame.shaded ?? []) {
+    if (span.endS <= frame.windowStartS || span.startS >= frame.windowEndS) continue;
+    const at = (t: number) =>
+      Math.min(
+        plotLeft + plotWidth,
+        Math.max(plotLeft, timeToX(t, frame.windowStartS, frame.windowEndS, plotLeft, plotWidth)),
+      );
+    const x0 = at(span.startS);
+    const x1 = Math.max(at(span.endS), x0 + 1);
+    ctx.fillStyle = SHADE_FILL;
+    ctx.fillRect(x0, plotTop, x1 - x0, plotHeight);
+    ctx.fillStyle = SHADE_EDGE;
+    ctx.fillRect(x0, plotTop + plotHeight - 2, x1 - x0, 2);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "bottom";
+    ctx.font = "8px ui-monospace, SFMono-Regular, Menlo, monospace";
+    ctx.fillText(span.label.slice(0, 16), x0 + 2, plotTop + plotHeight - 3);
   }
 }
 

@@ -2,6 +2,7 @@ import { isIeegModality, spatialLayout, stackedScopeHeight } from "../ieeg-spati
 // Types only: the panel's code is fetched by `startSpatial` for an iEEG recording, never here.
 import type { GroupInfo, SpatialPanel } from "../ieeg-spatial/panel";
 import { loadMontage } from "../quality-views/montage-loader";
+import type { SignalMarks } from "../quality-views/panel-bridge";
 import type { SensorFieldClient } from "../quality-views/worker-client";
 import { zarrStoreUrl } from "../zarr-base";
 /**
@@ -239,7 +240,18 @@ export interface ViewerOptions {
    * link (ADR 0023).
    */
   spatial?: { datasetId: string; version: string; recording: string };
+  /**
+   * The quality panel's Signal tab (website phase W6): open on the window a `nemar.signal-window`
+   * view names, with the floor's bad channels marked and its bad segments shaded. `prepare` runs
+   * the view's checks against the store once it is open, before anything is drawn; a refusal
+   * shows its sentence in place of the traces and draws nothing.
+   */
+  qualityMarks?: SignalMarks;
 }
+
+/** Said when the store holds no channel group the marks name. */
+export const MARKS_GROUP_MISSING =
+  "The recording has no channel group the view names, so the window is not opened.";
 
 /**
  * Smallest scope `fitHeight` will size to (CSS px). Below this the trace area
@@ -561,6 +573,36 @@ export async function mountEegViewer(
     return undefined;
   }
 
+  // The floor's marks (website W6), checked against the store before anything is drawn.
+  let marked: Extract<Awaited<ReturnType<SignalMarks["prepare"]>>, { ok: true }> | null = null;
+  let markedGroup = 0;
+  if (opts.qualityMarks) {
+    const marks = opts.qualityMarks;
+    markedGroup = marks.group === null ? 0 : store.groups.findIndex((g) => g.name === marks.group);
+    const g = store.groups[markedGroup];
+    const prepared = g
+      ? await marks.prepare({
+          labels: g.channelsByRow.map((c) => c.label),
+          samples: g.nSamples,
+          rate: g.rate,
+        })
+      : { ok: false as const, sentence: MARKS_GROUP_MISSING };
+    if (opts.isStale?.() || abortController.signal.aborted) return undefined;
+    if (!prepared.ok) {
+      const root = document.createElement("div");
+      root.className = "eegv";
+      const message = document.createElement("p");
+      message.className = "eegv__msg";
+      message.dataset.eegvMarksRefused = "";
+      message.textContent = prepared.sentence;
+      root.append(message);
+      slot.replaceChildren(root);
+      return undefined;
+    }
+    marked = prepared;
+  }
+  let shaded: { startS: number; endS: number; label: string }[] = [];
+
   let eventTypes: EventType[] = [];
 
   // --- state ---------------------------------------------------------------
@@ -799,6 +841,34 @@ export async function mountEegViewer(
   filters.notch = usableCutoff(Number(ui.notch.value) || null);
   ui.notch.value = String(filters.notch ?? 0);
   applyTransfer(opts.transfer);
+  if (marked) {
+    groupIndex = markedGroup;
+    if (ui.groupSel) ui.groupSel.value = String(markedGroup);
+    chanCount = store.groups[markedGroup].nChannels;
+    const length =
+      WINDOW_CHOICES.find((choice) => choice >= marked.durationS) ??
+      WINDOW_CHOICES[WINDOW_CHOICES.length - 1];
+    windowLengthS = length;
+    ui.win.value = String(length);
+    windowStartS = marked.startS;
+    for (const label of marked.badChannels) badChannels.add(label);
+    shaded = marked.segments.map((s) => ({
+      startS: s.onset,
+      endS: s.onset + s.duration,
+      label: s.label,
+    }));
+    const said = document.createElement("p");
+    said.className = "eegv__marks";
+    said.dataset.eegvMarks = "";
+    const bad = marked.badChannels.length
+      ? `Marked bad by the floor (dimmed): ${marked.badChannels.join(", ")}.`
+      : "The floor marked no channel bad.";
+    const spans = marked.segments.length
+      ? `${marked.segments.length} bad segments of the floor are shaded.`
+      : "";
+    said.textContent = [bad, spans, marked.note].filter(Boolean).join(" ");
+    ui.root.prepend(said);
+  }
   const maybeCtx = ui.canvas.getContext("2d");
   if (!maybeCtx) {
     renderUnavailable(slot, opts, new Error("canvas 2D unavailable"));
@@ -1543,6 +1613,7 @@ export async function mountEegViewer(
       windowEndS: end,
       events:
         showEvents && store.events ? eventsInWindow(store.events, eventTypes, start, end) : [],
+      shaded: shaded.filter((span) => span.endS > start && span.startS < end),
       physPerDiv: defaultScaling(modality),
       unitBase: ELECTRIC.has(modality) ? "V" : "T",
       timeClock,
