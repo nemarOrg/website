@@ -26,7 +26,9 @@
 import { gzipSync } from "node:zlib";
 
 export const KB = 1024;
-export const BUDGET = { worker: 12 * KB, mainThread: 30 * KB };
+// The worker with the lazy chunks one tab loads: 16 KB (the owner's ruling for W7, website ADR 0035
+// addendum of 2026-11-25); the main thread 30 KB.
+export const BUDGET = { worker: 16 * KB, mainThread: 30 * KB };
 /** Text only the client carries (`UNREADABLE_ANSWER` in worker-client.ts). */
 export const CLIENT_MARKER = "the map worker sent an answer this page cannot read";
 

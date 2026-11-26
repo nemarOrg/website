@@ -235,7 +235,7 @@ jobs:
       - name: Quality-view drawing budget
         if: ${{ !cancelled() }}
         run: bun run test:quality-views-perf
-      # The size budget is checked after a real build: the sensor-field worker at most 12 KB gzipped
+      # The size budget is checked after a real build: the sensor-field worker with its lazy chunks at most 16 KB gzipped
       # and the main-thread code at most 30 KB, measured in dist/ from each lazily imported chunk
       # that reaches the client (the signal viewer imports it), and on the site's own Vite building
       # the client as an entry (scripts/check-quality-views-size.mjs). `astro build` alone takes seconds; the OG images

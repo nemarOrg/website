@@ -159,6 +159,6 @@ describe("the signal viewer's layout", () => {
   });
 
   it("states its budgets", () => {
-    expect(BUDGET).toEqual({ worker: 12 * KB, mainThread: 30 * KB });
+    expect(BUDGET).toEqual({ worker: 16 * KB, mainThread: 30 * KB });
   });
 });

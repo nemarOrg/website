@@ -1,6 +1,6 @@
 /**
  * Size budgets of the quality views' browser code (website ADR 0035 decision 1), checked after the
- * build: the sensor-field worker at most 12 KB gzipped, and the code a page loads on its main
+ * build: the sensor-field worker with the lazy chunks one tab loads at most 16 KB gzipped, and the code a page loads on its main
  * thread to draw views (the lazy chunk and every chunk it imports) at most 30 KB gzipped.
  *
  *   bunx astro build && bun scripts/check-quality-views-size.mjs --require-build   (CI)
@@ -62,9 +62,66 @@ function measure(label, dir) {
   return measured;
 }
 
+/**
+ * The panel's first screens in the real site build (website W6), as the entry build's below: the
+ * panel's chunk, each tab's lazy chunks, and every chunk they import statically, gzipped together.
+ * Chunks are found by the name Vite gives them from their module (`lines.<hash>.js`, ...), the
+ * panel's by a sentence of its own. The
+ * idle preload's chunk is left out (it is parsed in idle time before the panel opens), and so are
+ * the island script and Vite's preload helper, which load with the page itself.
+ */
+function siteUnions(dir) {
+  const files = scripts(dir);
+  // The quality panel's chunk by a sentence only it holds (another component's chunk is also named
+  // `panel`); the others by their unique names.
+  const MARKER = "Loading the recording's quality views";
+  const named = (stem) =>
+    stem === "panel"
+      ? [...files.keys()].find((name) => files.get(name).toString("utf8").includes(MARKER))
+      : [...files.keys()].find((name) => name.startsWith(`${stem}.`));
+  for (const [tab, stems] of [
+    ["Spectrum tab", ["panel", "lines", "sensor-field-view", "spectrum"]],
+    ["Components tab", ["panel", "sensor-field-view", "histogram", "components"]],
+    [
+      "Spectrum tab with no idle preload",
+      ["panel", "lines", "sensor-field-view", "spectrum", "quality-api"],
+    ],
+    [
+      "Components tab with no idle preload",
+      ["panel", "sensor-field-view", "histogram", "components", "quality-api"],
+    ],
+  ]) {
+    const roots = stems.map(named);
+    if (roots.some((name) => !name)) {
+      results.push({
+        label: `site build: first screen, ${tab}: a chunk of ${stems.join(", ")} is missing`,
+        size: 1,
+        raw: 0,
+        budget: 0,
+      });
+      continue;
+    }
+    // The page's own island script (and Vite's preload helper it imports) loads with the page,
+    // before any panel opens, as the idle preload's chunk does: not the panel's first screen.
+    const island = [...files.keys()].find((name) =>
+      name.startsWith("QualityPanel.astro_astro_type_script"),
+    );
+    const page = island ? staticClosure([island], files) : new Set();
+    const set = new Set([...staticClosure(roots, files)].filter((name) => !page.has(name)));
+    const all = [...set].map((name) => files.get(name));
+    results.push({
+      label: `site build: first screen, ${tab}, ${set.size} files gzipped together`,
+      size: gzipped(Buffer.concat(all)),
+      raw: all.reduce((sum, b) => sum + b.length, 0),
+      budget: BUDGET.mainThread,
+    });
+  }
+}
+
 // 1. The site build.
 const astroDir = join(repo, "dist", "_astro");
 if (existsSync(astroDir)) {
+  siteUnions(astroDir);
   const { clients } = measure("site build", astroDir);
   if (clients.length === 0) {
     console.error(
