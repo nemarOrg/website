@@ -123,7 +123,9 @@ function objectRule(rule: ObjectRule, value: Json): boolean {
   const keys = Object.keys(value);
   if (rule.maxProps !== undefined && keys.length > rule.maxProps) return false;
   for (const key of keys) {
-    const guard = rule.props?.[key];
+    // An own member of `props` only: a member named `constructor` or `toString` must not find
+    // Object.prototype's function and pass a closed object.
+    const guard = rule.props && own(rule.props, key) ? rule.props[key] : undefined;
     if (guard ? !guard(value[key]) : rule.closed) return false;
   }
   return (rule.also ?? []).every((guard) => guard(value));
