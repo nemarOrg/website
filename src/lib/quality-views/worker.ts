@@ -16,8 +16,8 @@
  * over a `MessageChannel`.
  */
 
-import { contourLines } from "./contours";
 import type { ViewCheck } from "./checks";
+import { contourLines } from "./contours";
 import { checkContent, checkView } from "./kinds";
 import {
   type GeometryResult,
