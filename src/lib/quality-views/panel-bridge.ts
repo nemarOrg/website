@@ -90,3 +90,19 @@ export function heldRecord(path: string): Promise<unknown> | null {
 
 /** Whether the idle preload has read a record (and so warmed the map worker). */
 export const preloaded = (): boolean => held !== null;
+
+/**
+ * A recording's record for the panel: the idle preload's when it read one that settles the
+ * question (`ok`, or `none`), otherwise `fresh()`. A preload that failed or was cancelled is not
+ * final: it is forgotten, and the record asked for again.
+ */
+export async function recordFor<T extends { readonly kind: string }>(
+  path: string,
+  fresh: () => Promise<T>,
+): Promise<T> {
+  const pending = heldRecord(path) as Promise<T> | null;
+  const kept = pending ? await pending.catch(() => null) : null;
+  if (kept && (kept.kind === "ok" || kept.kind === "none")) return kept;
+  if (pending && held?.outcome === pending) held = null;
+  return fresh();
+}
