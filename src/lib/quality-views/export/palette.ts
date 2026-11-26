@@ -67,3 +67,16 @@ export const hasSvg = (built: { refused: unknown; model: { type: string } } | nu
   built !== null &&
   built.refused === null &&
   (built.model.type === "lines" || built.model.type === "histogram");
+
+/** A part of an exported picture: its height at scale 1 and how it paints at its origin. */
+export interface Part {
+  readonly height: number;
+  paint(ctx: CanvasRenderingContext2D): void;
+}
+
+/** The palette and font a part paints with, handed to the parts' chunks so they import nothing
+ *  the picture's chunk holds. */
+export interface Paint {
+  readonly light: typeof LIGHT;
+  readonly font: string;
+}

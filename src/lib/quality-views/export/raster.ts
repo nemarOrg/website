@@ -7,23 +7,22 @@
  * - A line chart or a histogram is the renderer's own SVG tree, painted element by element
  *   (`paintTree`): the page's Content Security Policy lets no `blob:` image load, and the tree is
  *   what the page drew.
- * - A heatmap is the page's own canvas of its cells, one pixel each, scaled without smoothing, with
- *   its row and column labels and its legend's stored texts (`heatmapScale`).
- * - Scalp maps are painted by the page's own `paintFieldMap`, every drawn map including those never
- *   scrolled into view, with the contour lines `SensorFieldHandle.drawnMaps()` hands over
- *   (`contoursOf`: a map off screen has none from the worker, and gets them traced there).
+ * - A heatmap is the page's own canvas of its cells, with its labels and legend.
+ * - Scalp maps are every drawn map, those never scrolled into view included, with their contour
+ *   lines (`maps-part.ts`).
+ * - A heatmap's part (`heatmap-part.ts`) and the maps' are chunks of their own, loaded as the
+ *   controls of a view that has them open.
  *
  * The renderers' modules are imported on demand: each is the one the page drew the view with,
  * already loaded, so painting makes no request, and the export's chunk does not carry them.
  */
 
-import { type ColorMapName, lookupTable } from "../colormap";
+import type { ColorMapName } from "../colormap";
 import type { BuiltModel, HeatmapModel, SensorFieldModel } from "../model";
 import type { SensorFieldHandle } from "../render/sensor-field-view";
 import type { Child, Element } from "../tree";
-import type { DrawnMap } from "../worker-client";
 import { type ExportMeta, footerLines, wrapText } from "./meta";
-import { FONT, LIGHT, hasSvg, paintOf, viewBoxSize } from "./palette";
+import { FONT, LIGHT, type Part, hasSvg, paintOf, viewBoxSize } from "./palette";
 import { svgDrawing } from "./svg";
 
 /** The scales an export offers. */
@@ -37,45 +36,17 @@ export interface ExportField {
   readonly colorMap: ColorMapName;
 }
 
-/** One drawn map of a field with its contour lines, ready to paint. */
-export interface ExportMap {
-  readonly index: number;
-  readonly label: string;
-  readonly map: DrawnMap;
-  readonly contours: readonly Float32Array[];
-}
-
-/** Every drawn map of a field, in map order, each with its lines: the handle's (`contoursOf`),
- *  set as the map's own, so `paintFieldMap` draws them for a map the worker did not trace. */
-export function fieldMaps(field: ExportField): ExportMap[] {
-  return field.field.drawnMaps().map(({ index, map, contours }) => ({
-    index,
-    label: field.built.model.maps.items[index]?.label ?? String(index),
-    map: { ...map, contourLines: contours },
-    contours,
-  }));
-}
-
-/** A map's square in CSS pixels: `MAP_SIZE` of `sensor-field-view.ts` (the tests hold them equal). */
-export const MAP_PX = 160;
 const PAD = 12;
+const PAINT = { light: LIGHT, font: FONT };
 const TEXT = 14;
-const MAP_GAP = 16;
-const MAP_LABEL = 16;
-/** Maps per row, at most. */
+/** A map's cell and the maps a row holds at most (`maps-part.ts`'s; the tests hold them equal),
+ *  and a heatmap's width with its row labels (`heatmap-part.ts`'s): the picture's width. */
+export const MAP_CELL = 176;
 export const MAPS_PER_ROW = 6;
-const HEATMAP_WIDTH = 560;
-/** Room left of a heatmap's cells for its row labels. */
-const ROW_LABELS = 96;
-const HEATMAP_MAX_HEIGHT = 560;
+export const HEATMAP_PICTURE_WIDTH = 656;
 
-/** A part of the picture: its height at scale 1 and how it paints at the origin. */
-interface Part {
-  readonly height: number;
-  paint(ctx: CanvasRenderingContext2D): void;
-}
-
-function textPart(
+/** A paragraph of text wrapped to `width`. */
+export function textPart(
   ctx: CanvasRenderingContext2D,
   text: string,
   width: number,
@@ -175,153 +146,6 @@ function treePart(drawing: Element): Part {
   };
 }
 
-/** The labels and legend a heatmap's picture prints: every `step`-th row and column label, so as
- *  many fit as the space allows, and the legend's stored texts (`heatmapLegend`: under `absmax`
- *  the sign words and the largest magnitude's cell). */
-export interface HeatmapScale {
-  readonly rows: readonly (readonly [number, string])[];
-  readonly columns: readonly (readonly [number, string])[];
-  readonly low: string;
-  readonly high: string;
-  readonly note: string | null;
-}
-
-/** Which labels to print when `fit` of them fit along each axis, and the legend's words. */
-export function heatmapScale(
-  model: HeatmapModel,
-  legend: { readonly low: string; readonly high: string; readonly note: string | null },
-  fit: { readonly rows: number; readonly columns: number },
-): HeatmapScale {
-  const pick = (labels: readonly string[], room: number) => {
-    const step = Math.max(1, Math.ceil(labels.length / Math.max(1, Math.floor(room))));
-    return labels.flatMap((label, i) => (i % step === 0 ? [[i, label] as const] : []));
-  };
-  return {
-    rows: pick(model.rows.labels, fit.rows),
-    columns: pick(model.columns.labels, fit.columns),
-    low: legend.low,
-    high: legend.high,
-    note: legend.note,
-  };
-}
-
-/** `text` cut to `width`, with an ellipsis when it is cut. */
-function fitted(c: CanvasRenderingContext2D, text: string, width: number): string {
-  if (c.measureText(text).width <= width) return text;
-  let n = text.length;
-  while (n > 1 && c.measureText(`${text.slice(0, n)}…`).width > width) n--;
-  return `${text.slice(0, n)}…`;
-}
-
-/** The page's heatmap cells, one pixel each, scaled without smoothing as the page shows them,
- *  with its row and column labels and its legend: the scale, as the page prints it. */
-function heatmapPart(
-  ctx: CanvasRenderingContext2D,
-  cells: HTMLCanvasElement,
-  model: HeatmapModel,
-  legend: Parameters<typeof heatmapScale>[1],
-): Part {
-  const height = Math.min(HEATMAP_MAX_HEIGHT, Math.max(cells.height * 4, 120));
-  ctx.font = `10px ${FONT}`;
-  const widest = Math.max(1, ...model.columns.labels.map((l) => ctx.measureText(l).width));
-  const scale = heatmapScale(model, legend, {
-    rows: height / 12,
-    columns: HEATMAP_WIDTH / Math.min(widest + 8, HEATMAP_WIDTH),
-  });
-  const rowH = height / Math.max(1, model.rows.labels.length);
-  const colW = HEATMAP_WIDTH / Math.max(1, model.columns.labels.length);
-  const slot = HEATMAP_WIDTH / Math.max(1, scale.columns.length);
-  const table = lookupTable(model.limits.rule === "absmax" ? "diverging" : "sequential");
-  return {
-    height: height + 40,
-    paint(c) {
-      c.imageSmoothingEnabled = false;
-      c.drawImage(cells, ROW_LABELS, 0, HEATMAP_WIDTH, height);
-      c.font = `10px ${FONT}`;
-      c.fillStyle = LIGHT.axis;
-      c.textAlign = "right";
-      c.textBaseline = "middle";
-      for (const [r, label] of scale.rows) {
-        c.fillText(fitted(c, label, ROW_LABELS - 6), ROW_LABELS - 4, (r + 0.5) * rowH);
-      }
-      c.textAlign = "center";
-      c.textBaseline = "top";
-      for (const [k, label] of scale.columns) {
-        c.fillText(fitted(c, label, slot - 4), ROW_LABELS + (k + 0.5) * colW, height + 3);
-      }
-      // The legend: the low end's text, the color bar, the high end's text, then its note.
-      const y = height + 22;
-      c.font = `12px ${FONT}`;
-      c.fillStyle = LIGHT.muted;
-      c.textAlign = "left";
-      c.fillText(scale.low, ROW_LABELS, y);
-      let x = ROW_LABELS + c.measureText(scale.low).width + 6;
-      for (let i = 0; i < 160; i++) {
-        const e = Math.round((i / 159) * 255) * 3;
-        c.fillStyle = `rgb(${table[e]} ${table[e + 1]} ${table[e + 2]})`;
-        c.fillRect(x + i, y + 2, 1, 10);
-      }
-      x += 166;
-      c.fillStyle = LIGHT.muted;
-      c.fillText(scale.high, x, y);
-      x += c.measureText(scale.high).width + 10;
-      if (scale.note) c.fillText(scale.note, x, y);
-    },
-  };
-}
-
-/** Every drawn map of a field in rows of at most `MAPS_PER_ROW`, each with its label, then the
- *  legend's words and where the positions came from. */
-async function mapParts(
-  ctx: CanvasRenderingContext2D,
-  doc: Document,
-  field: ExportField,
-  width: number,
-): Promise<Part[]> {
-  const maps = fieldMaps(field);
-  if (maps.length === 0) return [];
-  const view = await import("../render/sensor-field-view");
-  const draw = view.fieldDrawInput(field.built);
-  if (!draw) return [];
-  const { model } = field.built;
-  const perRow = Math.max(
-    1,
-    Math.min(MAPS_PER_ROW, Math.floor((width + MAP_GAP) / (MAP_PX + MAP_GAP))),
-  );
-  const cell = MAP_PX + MAP_LABEL + MAP_GAP;
-  const scratch = doc.createElement("canvas");
-  const colors = { foreground: LIGHT.head, background: LIGHT.background, contour: LIGHT.contour };
-  const grid: Part = {
-    height: Math.ceil(maps.length / perRow) * cell,
-    paint(c) {
-      maps.forEach((m, i) => {
-        c.save();
-        c.translate((i % perRow) * (MAP_PX + MAP_GAP), Math.floor(i / perRow) * cell);
-        view.paintFieldMap(c, m.map, draw, model.limits, field.colorMap, colors, scratch, null);
-        // paintFieldMap clears its square: the light ground goes back under it.
-        c.globalCompositeOperation = "destination-over";
-        c.fillStyle = LIGHT.background;
-        c.fillRect(0, 0, MAP_PX, MAP_PX);
-        c.globalCompositeOperation = "source-over";
-        c.font = `12px ${FONT}`;
-        c.fillStyle = LIGHT.foreground;
-        c.textAlign = "center";
-        c.textBaseline = "top";
-        c.fillText(m.label, MAP_PX / 2, MAP_PX + 2);
-        c.restore();
-      });
-    },
-  };
-  const [low, middle, high] = view.legendWords(model);
-  const legend = `Colors from ${low}${middle ? ` through ${middle}` : ""} to ${high}, each map on its own range (${field.colorMap}).`;
-  const font = `12px ${FONT}`;
-  return [
-    grid,
-    textPart(ctx, legend, width, font, LIGHT.muted),
-    textPart(ctx, view.placementStatement(model), width, font, LIGHT.muted),
-  ];
-}
-
 /** What a PNG export draws: the view's base drawing and the scalp maps on show with it. */
 export interface PictureInput {
   readonly meta: ExportMeta;
@@ -354,19 +178,32 @@ export async function paintPicture(
   const inner = Math.max(
     480,
     drawing ? viewBoxSize(drawing).width : 0,
-    input.heatmap ? ROW_LABELS + HEATMAP_WIDTH : 0,
-    Math.min(MAPS_PER_ROW, maps) * (MAP_PX + MAP_GAP) - MAP_GAP,
+    input.heatmap ? HEATMAP_PICTURE_WIDTH : 0,
+    Math.min(MAPS_PER_ROW, maps) * MAP_CELL - (MAP_CELL - 160),
   );
   const font = `600 14px ${FONT}`;
   const parts: Part[] = [textPart(ctx, input.meta.caption, inner, font, LIGHT.foreground)];
   if (drawing) parts.push(treePart(drawing));
   if (input.heatmap && input.built?.model.type === "heatmap") {
     const model = input.built.model as HeatmapModel;
-    // The page's own legend words (its renderer, already loaded).
-    const { heatmapLegend } = await import("../render/heatmap");
-    parts.push(heatmapPart(ctx, input.heatmap, model, heatmapLegend(model)));
+    // The page's own legend words (its renderer, already loaded), and the heatmap's part (a
+    // chunk the controls load as they open).
+    const [{ heatmapLegend }, { heatmapPart }] = await Promise.all([
+      import("../render/heatmap"),
+      import("./heatmap-part"),
+    ]);
+    parts.push(heatmapPart(ctx, input.heatmap, model, heatmapLegend(model), PAINT));
   }
-  for (const field of input.fields) parts.push(...(await mapParts(ctx, doc, field, inner)));
+  if (input.fields.length > 0) {
+    const { mapParts } = await import("./maps-part");
+    const font = `12px ${FONT}`;
+    for (const field of input.fields) {
+      const got = await mapParts(doc, field, inner, PAINT);
+      if (!got) continue;
+      parts.push(got.grid, textPart(ctx, got.legend, inner, font, LIGHT.muted));
+      parts.push(textPart(ctx, got.placement, inner, font, LIGHT.muted));
+    }
+  }
   for (const line of footerLines(input.meta)) {
     parts.push(textPart(ctx, line, inner, `10px ${FONT}`, LIGHT.muted));
   }

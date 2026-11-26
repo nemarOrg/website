@@ -172,8 +172,13 @@ export function fillExport(host: HTMLElement, input: ExportInput): void {
   if (picture) {
     // Loaded as the controls open, so a click makes no request.
     const images = import("./picture");
+    // The parts this view's picture paints, each a chunk of its own, loaded now too.
+    const painters = [
+      heatmapOf(input) ? import("./heatmap-part") : null,
+      viewFields(input).length > 0 ? import("./maps-part") : null,
+    ];
     // A failed load is said by the click that needs it.
-    images.catch(() => {});
+    for (const loading of [images, ...painters]) loading?.catch(() => {});
     const group = el("div");
     group.className = "qv-export-images";
     group.setAttribute("role", "group");
