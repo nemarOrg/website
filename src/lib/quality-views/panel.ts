@@ -83,6 +83,8 @@ export interface PanelHandle {
   ready(): Promise<void>;
   /** Show a link's recording, tab and view. */
   route(hash: string): Promise<void>;
+  /** How many scalp-map handles are live (drawing or drawn, not yet destroyed). */
+  liveMaps(): number;
   destroy(): void;
 }
 
@@ -152,8 +154,16 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
     }
   };
 
+  /** Every scalp-map handle not yet destroyed: one per drawn target (the tests read it). */
+  const live = new Set<FieldHandle>();
+  const end = (field: FieldHandle | undefined): void => {
+    if (!field) return;
+    field.destroy();
+    live.delete(field);
+  };
+
   const dropFields = (): void => {
-    for (const { field } of fields.values()) field.destroy();
+    for (const { field } of fields.values()) end(field);
     fields.clear();
   };
 
@@ -187,11 +197,12 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
     signal: AbortSignal,
   ): Promise<HTMLElement | null> => {
     // A redraw into the same element (the spectrum's maps at a picked row) ends the one before.
-    fields.get(target)?.field.destroy();
+    end(fields.get(target)?.field);
     fields.delete(target);
     const mounted = await mountView(target, built, ctx, pageDeps(layoutKey), signal);
+    if (mounted.field) live.add(mounted.field);
     if (signal.aborted) {
-      mounted.field?.destroy();
+      end(mounted.field);
       return null;
     }
     if (mounted.field && built.model.type === "sensor-field") {
@@ -320,11 +331,11 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
     return work;
   }
 
-  /** The tab of a view of the record on show, or the active tab (the default when it is hidden). */
+  /** The tab of a view of the record on show, or the active tab (`activate` falls back to the
+   *  default tab when that one is hidden). */
   const tabOfKey = (key: string | null): TabId => {
     const kind = record?.views.find((v) => v.key === key)?.kind;
-    if (typeof kind === "string") return tabOf(kind);
-    return tabs.get(active)?.hidden ? DEFAULT_TAB : active;
+    return typeof kind === "string" ? tabOf(kind) : active;
   };
 
   function activate(tab: TabId, write = true): Promise<void> {
@@ -467,6 +478,7 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
       await Promise.all([...drawn.values()]);
     },
     route,
+    liveMaps: () => live.size,
     destroy() {
       controller.abort();
       removeEventListener("hashchange", onHash);

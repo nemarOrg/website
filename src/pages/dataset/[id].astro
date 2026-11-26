@@ -560,16 +560,14 @@ Astro.response.headers.set(
    */
   const inlineRowOf = new WeakMap<LiveViewer, { btn: HTMLButtonElement; slot: HTMLElement }>();
 
-  /** Marks the quality panel asked for, used by the next mount of that recording only (W6). */
+  /** Marks the quality panel asked for, for the open it asked for only (W6). */
   let pendingMarks: { path: string; marks: SignalMarks } | null = null;
 
   const session = createViewerSession({
-    mountOptions: ({ path }) => {
-      if (pendingMarks?.path !== path) return {};
-      const { marks } = pendingMarks;
-      pendingMarks = null;
-      return { qualityMarks: marks };
-    },
+    // The mount of the marked recording within that one open is marked; the opener clears the
+    // marks once the open settles, whatever its outcome, so no later open is.
+    mountOptions: ({ path }) =>
+      pendingMarks?.path === path ? { qualityMarks: pendingMarks.marks } : {},
     // Only the dialog is a surface the session's chrome describes: an inline
     // viewer under a tree row is a glance, not a destination (website#326).
     isShowing: () => Boolean(document.querySelector<HTMLDialogElement>("[data-eeg-dialog]")?.open),

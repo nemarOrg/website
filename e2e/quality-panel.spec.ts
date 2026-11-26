@@ -80,8 +80,10 @@ interface MountOptions {
     readonly parameters?: object;
     readonly recording?: string;
   };
-  /** A second recording in the list, which has no quality (`quality_not_found`). */
+  /** A second recording in the list, which has no quality (`quality_not_found`), or, with
+   *  `secondHasRecord`, the first's record without its views of other kinds (no Other tab). */
   readonly second?: string;
+  readonly secondHasRecord?: boolean;
   /** Delay every file's answer by this many milliseconds. */
   readonly slowFiles?: number;
   /** Do not wait for the panel to be ready. */
@@ -139,6 +141,21 @@ async function mount(page: Page, options: MountOptions = {}): Promise<void> {
         );
         headers = { "Content-Type": "application/json", ETag: `"${hex}"` };
       }
+      let secondBody: string | null = null;
+      let secondHeaders: Record<string, string> = {};
+      if (options.second && options.secondHasRecord) {
+        const doc = JSON.parse(body);
+        doc.recording = options.second;
+        const entry = doc.dataQuality.recipes[provenance.recipe];
+        entry.views = entry.views.filter((v: { kind: string }) => v.kind !== "nemar.ic-activity");
+        const { icactivity: _dropped, ...digests } = doc.view_digests;
+        doc.view_digests = digests;
+        secondBody = JSON.stringify(doc);
+        secondHeaders = {
+          "Content-Type": "application/json",
+          ETag: `"${await hexOf(secondBody)}"`,
+        };
+      }
       const requests: string[] = [];
       (window as unknown as { requests: string[] }).requests = requests;
       const fetchAnswer = async (
@@ -148,8 +165,11 @@ async function mount(page: Page, options: MountOptions = {}): Promise<void> {
         const url = String(input);
         requests.push(url);
         if (url.includes("/record/")) {
-          return url.includes(encodeURIComponent(provenance.recording.split("/").pop()!))
-            ? new Response(body, { headers })
+          if (url.includes(encodeURIComponent(provenance.recording.split("/").pop()!))) {
+            return new Response(body, { headers });
+          }
+          return secondBody
+            ? new Response(secondBody, { headers: secondHeaders })
             : new Response(JSON.stringify({ error: "quality_not_found" }), { status: 404 });
         }
         const sha = Object.keys(files).find((s) => url.includes(`/${s}/`));
@@ -403,4 +423,63 @@ test("a fast switch to another recording stops the first recording's work", asyn
   await expect(page.locator("canvas, svg.qv-lines")).toHaveCount(0);
   await expect(page.locator("[data-qp-status]")).toHaveText(/No quality views are published/);
   expect(await page.evaluate(() => location.hash)).toContain("sub-CUCOV077");
+});
+
+test("a recording with no Other views, shown while Other is active, opens on Spectrum", async ({
+  page,
+}) => {
+  const second = "sub-CUCOV077/eeg/sub-CUCOV077_task-COVID_eeg.edf";
+  await mount(page, { second, secondHasRecord: true });
+  await page.locator('[data-qp-tab="other"]').click();
+  await expect(page.locator('[data-qp-tab="other"]')).toHaveAttribute("aria-selected", "true");
+  await page.locator("[data-qp-recording]").selectOption(second);
+  await ready(page);
+  await expect(page.locator('[data-qp-tab="other"]')).toBeHidden();
+  await expect(page.locator('[data-qp-tab="spectrum"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-qp-panel="spectrum"]')).toBeVisible();
+  await expect(page.locator('[data-qp-view="spectrum"] svg.qv-lines')).toHaveCount(1);
+});
+
+test("three rows picked, then Turbo: one live map handle", async ({ page }) => {
+  await mount(page);
+  const chart = page.locator('[data-qp-view="spectrum"] svg.qv-lines');
+  for (const x of [150, 300, 450]) {
+    await chart.click({ position: { x, y: 100 } });
+    await page.waitForTimeout(150);
+  }
+  await page.locator("[data-qp-turbo]").click();
+  await ready(page);
+  expect(
+    await page.evaluate(() =>
+      (window as unknown as { panel: { liveMaps(): number } }).panel.liveMaps(),
+    ),
+  ).toBe(1);
+});
+
+test.describe("on a touch screen", () => {
+  test.use({ hasTouch: true });
+
+  test("a tap picks the row under it, with no pointer move before", async ({ page }) => {
+    await mount(page);
+    const chart = page.locator('[data-qp-view="spectrum"] svg.qv-lines');
+    const box = (await chart.boundingBox())!;
+    // 60% across the chart: plot x 0.6 * 640 - 64 = 320 of 560 on [0.5, 100] Hz.
+    await page.touchscreen.tap(box.x + 0.6 * box.width, box.y + box.height / 2);
+    const rows = read(`files/${shaOf("_spectrum.tsv")}`)
+      .toString("utf8")
+      .trimEnd()
+      .split("\n")
+      .slice(1)
+      .map((line) => line.split("\t")[0]);
+    const x0 = Number(rows[0]);
+    const x1 = Number(rows[rows.length - 1]);
+    const target = x0 + (320 / 560) * (x1 - x0);
+    let best = 0;
+    rows.forEach((text, k) => {
+      if (Math.abs(Number(text) - target) < Math.abs(Number(rows[best]) - target)) best = k;
+    });
+    await expect(
+      page.locator('[data-qp-view="spectrum"] .qp-spectrum-maps figcaption'),
+    ).toContainText(`Scalp maps of the spectrum at ${rows[best]} Hz.`);
+  });
 });
