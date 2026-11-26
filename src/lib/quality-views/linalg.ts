@@ -69,7 +69,23 @@ export function luFactor(a: ArrayLike<number>, n: number): LuFactors {
     }
     const diagonal = lu[k * n + k];
     const pivotRow = k * n;
-    for (let i = k + 1; i < n; i++) {
+    // Two rows per pass over the pivot row; each entry gets the same one operation as row by row,
+    // so the factors are the same to the bit.
+    let i = k + 1;
+    for (; i + 1 < n; i += 2) {
+      const row = i * n;
+      const next = row + n;
+      const factor = lu[row + k] / diagonal;
+      const factor2 = lu[next + k] / diagonal;
+      lu[row + k] = factor;
+      lu[next + k] = factor2;
+      for (let j = k + 1; j < n; j++) {
+        const p = lu[pivotRow + j];
+        lu[row + j] -= factor * p;
+        lu[next + j] -= factor2 * p;
+      }
+    }
+    for (; i < n; i++) {
       const row = i * n;
       const factor = lu[row + k] / diagonal;
       lu[row + k] = factor;
