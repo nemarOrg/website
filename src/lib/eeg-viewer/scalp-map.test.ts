@@ -5,7 +5,7 @@
  * own loader; the maps are drawn by the real worker handler on this thread (`inThreadWorker`).
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { loadMontage } from "../quality-views/montage-loader";
 import type { Montage } from "../quality-views/montages";
 import { sensorField } from "../quality-views/sensor-field";
@@ -23,13 +23,19 @@ import {
   placeScalpSensors,
   refusalSentence,
   rowValues,
+  scalpPlacer,
   templateNote,
   toCanvas,
   viewOfDraw,
   viewOfPlacement,
 } from "./scalp-map";
+import { topoToggleTitle } from "./viewer";
 
 const TEN_TWENTY = "Fp1 Fp2 F7 F3 Fz F4 F8 T7 C3 Cz C4 T8 P7 P3 Pz P4 P8 O1 O2".split(" ");
+
+/** The 10-05 file lists T3, T4, T5 and T6 beside T7, T8, P7 and P8 on the same sites; a recording
+ *  naming both is `duplicate_label` by name, so the recordings below carry the modern names only. */
+const LEGACY = new Set(["T3", "T4", "T5", "T6"]);
 
 /** A recording's input from a montage's own positions, as if its electrodes file held them. */
 async function measured(
@@ -39,14 +45,15 @@ async function measured(
 ): Promise<ScalpInput> {
   const montage = await loadMontage(name);
   const positions: Record<string, [number, number, number]> = {};
-  montage.names.forEach((label, i) => {
-    const [x, y, z] = montage.positions[i];
+  const labels = montage.names.filter((label) => !LEGACY.has(label));
+  for (const label of labels) {
+    const [x, y, z] = montage.positions[montage.names.indexOf(label)];
     positions[label] = [x, y, z];
-  });
+  }
   return {
     positions,
     coordinateSystem: frame,
-    channels: montage.names.map((label) => ({ label, channelType: type(label) })),
+    channels: labels.map((label) => ({ label, channelType: type(label) })),
   };
 }
 
@@ -245,11 +252,30 @@ describe("placement by name", () => {
     expect(p.labels).not.toContain("Nz");
   });
 
-  it("places an EGI net's numbered channels on that net", async () => {
+  it("places an EGI net's numbered channels only on the HydroCel net the cap model names", async () => {
     const labels = [...Array.from({ length: 128 }, (_, i) => `E${i + 1}`), "Cz"];
-    const p = placed(await placeScalpSensors(byName(labels), loadMontage));
-    expect(p.montage).toBe("GSN-HydroCel-129");
-    expect(p.labels).toHaveLength(129);
+    // The store carries no cap model: names alone never decide an EGI net.
+    const p = await placeScalpSensors(byName(labels), loadMontage);
+    expect(p).toMatchObject({ kind: "refused", word: "cap_model_unknown" });
+    expect(viewOfPlacement(p)).toEqual({
+      kind: "undrawn",
+      sentence: SCALP_MAP_SENTENCES.cap_model_unknown,
+    });
+    const named = placed(
+      await placeScalpSensors({ ...byName(labels), capModel: "HydroCel GSN 128 1.0" }, loadMontage),
+    );
+    expect(named.montage).toBe("GSN-HydroCel-129");
+    expect(named.labels).toHaveLength(129);
+  });
+
+  it("needs 8 matched names: three 10-20 names, which drew a map before, draw none", async () => {
+    const three = await placeScalpSensors(byName(["Fz", "Cz", "Pz"]), loadMontage);
+    expect(three).toMatchObject({ kind: "refused", word: "too_few_channels" });
+    expect(viewOfPlacement(three)).toEqual({
+      kind: "undrawn",
+      sentence:
+        "No scalp map: fewer than 8 channels could be EEG electrodes, and placing sensors by their names needs 8.",
+    });
   });
 
   it("reads the store's OTHER as untyped, so channels all OTHER and no positions place by name", async () => {
@@ -271,9 +297,24 @@ describe("placement by name", () => {
     expect(p).toMatchObject({ kind: "refused", word: "no_eeg_sensors" });
   });
 
-  it("says too_few_matched when a recognized net matches one or two names and the 10-05 montage none", async () => {
-    // E300 points to the 257 net, which holds E1 and E2 but not E300; standard_1005 holds none.
-    const p = await placeScalpSensors(byName(["E1", "E2", "E300"]), loadMontage);
+  it("fetches no montage for a recording with too few candidate channels", async () => {
+    const asked: string[] = [];
+    const counting = (name: string): Promise<Montage> => {
+      asked.push(name);
+      return loadMontage(name);
+    };
+    const three = await placeScalpSensors(byName(["Fz", "Cz", "Pz"]), counting);
+    expect(three).toMatchObject({ kind: "refused", word: "too_few_channels" });
+    const excluded = await placeScalpSensors(
+      byName(["EOG1", "ECG", "Status", "Fz", "Cz", "Pz", "Oz", "Fp1", "Fp2"], "n/a"),
+      counting,
+    );
+    expect(excluded).toMatchObject({ kind: "refused", word: "too_few_channels" });
+    expect(asked).toEqual([]);
+  });
+
+  it("says too_few_matched when 7 of 8 names match", async () => {
+    const p = await placeScalpSensors(byName([...TEN_TWENTY.slice(0, 7), "X1"]), loadMontage);
     expect(p).toMatchObject({ kind: "refused", word: "too_few_matched" });
     expect(viewOfPlacement(p)).toEqual({
       kind: "undrawn",
@@ -282,7 +323,10 @@ describe("placement by name", () => {
   });
 
   it("refuses labels no montage names", async () => {
-    const p = await placeScalpSensors(byName(["ch1", "ch2", "ch3"]), loadMontage);
+    const p = await placeScalpSensors(
+      byName(Array.from({ length: 8 }, (_, i) => `ch${i + 1}`)),
+      loadMontage,
+    );
     expect(p).toMatchObject({ kind: "refused", word: "labels_unrecognized" });
   });
 
@@ -296,18 +340,6 @@ describe("placement by name", () => {
     });
   });
 
-  it("catches MontageCenterUnavailable by type and leaves the map undrawn", async () => {
-    // The loader answers with a montage under another name, so the center the layout asks for
-    // is not among those given: the layout throws, and the placement must not.
-    const renamed = async (name: string): Promise<Montage> => ({
-      ...(await loadMontage(name)),
-      name: "not-this-one",
-    });
-    const p = await placeScalpSensors(byName(TEN_TWENTY), renamed);
-    expect(p).toMatchObject({ kind: "refused", word: "montage_unavailable" });
-    if (p.kind === "refused") expect(p.detail).toContain("no center was given");
-  });
-
   it("never rejects, even when the loader throws before it answers", async () => {
     const broken = (): Promise<Montage> => {
       throw new Error("loader bug");
@@ -315,6 +347,97 @@ describe("placement by name", () => {
     await expect(placeScalpSensors(byName(TEN_TWENTY), broken)).resolves.toMatchObject({
       kind: "refused",
     });
+  });
+});
+
+describe("the viewer's placer: positions at once, names when the map is first shown", () => {
+  const counting = () => {
+    const asked: string[] = [];
+    return {
+      asked,
+      load: (name: string): Promise<Montage> => {
+        asked.push(name);
+        return loadMontage(name);
+      },
+    };
+  };
+
+  it("places a recording's own positions at mount, so the toggle's title says so before it opens", async () => {
+    const input = await measured("biosemi64", "CapTrak");
+    const { asked, load } = counting();
+    const seen: Placement[] = [];
+    const placer = scalpPlacer(input, load, (p) => seen.push(p));
+    // Synchronously, before any show(): the placement and its title.
+    expect(seen).toHaveLength(1);
+    expect(placer.placement).toMatchObject({ kind: "placed", source: "positions" });
+    const provenance = {
+      electrodePositionsSource: "subject" as const,
+      electrodePositionsFile: "sub-01/eeg/sub-01_electrodes.tsv",
+    };
+    expect(topoToggleTitle(placer.placement!, provenance)).toContain(
+      "sub-01/eeg/sub-01_electrodes.tsv",
+    );
+    placer.show();
+    await Promise.resolve();
+    expect(seen).toHaveLength(1);
+    expect(asked).toEqual([]);
+  });
+
+  it("says a positions refusal at mount too (frame_not_scalp), with no montage", () => {
+    const input: ScalpInput = {
+      positions: { Cz: [0, 0, 0.09] },
+      coordinateSystem: "ACPC",
+      channels: [{ label: "Cz", channelType: "EEG" }],
+    };
+    const { asked, load } = counting();
+    const placer = scalpPlacer(input, load, () => {});
+    expect(placer.placement).toMatchObject({ kind: "refused", word: "frame_not_scalp" });
+    expect(
+      topoToggleTitle(placer.placement!, {
+        electrodePositionsSource: null,
+        electrodePositionsFile: null,
+      }),
+    ).toContain(SCALP_MAP_SENTENCES.frame_not_scalp);
+    expect(asked).toEqual([]);
+  });
+
+  it("fetches no montage for a names-only recording until the map is first shown, then places once", async () => {
+    const { asked, load } = counting();
+    let placed: (p: Placement) => void = () => {};
+    const done = new Promise<Placement>((resolve) => {
+      placed = resolve;
+    });
+    const calls: Placement[] = [];
+    const placer = scalpPlacer(byName(TEN_TWENTY), load, (p) => {
+      calls.push(p);
+      placed(p);
+    });
+    expect(placer.placement).toBeNull();
+    await Promise.resolve();
+    expect(asked).toEqual([]);
+    // The map is shown (a click, or the restored view state): the placement starts, once.
+    placer.show();
+    placer.show();
+    const p = await done;
+    expect(p).toMatchObject({ kind: "placed", source: "names", montage: "standard_1005" });
+    expect(placer.placement).toBe(p);
+    expect(calls).toHaveLength(1);
+    expect(asked.length).toBeGreaterThan(0);
+  });
+
+  it("never rejects: a placement that throws is a refusal handed to onPlaced", async () => {
+    const broken = (): Promise<Montage> => {
+      throw new Error("loader bug");
+    };
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const done = new Promise<Placement>((resolve) => {
+        scalpPlacer(byName(TEN_TWENTY), broken, resolve).show();
+      });
+      await expect(done).resolves.toMatchObject({ kind: "refused" });
+    } finally {
+      error.mockRestore();
+    }
   });
 });
 

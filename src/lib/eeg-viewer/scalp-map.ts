@@ -15,12 +15,15 @@
  *    drawn rows (the positioned rows typed EEG) are placed by name instead, and the reason the
  *    positions were not used is kept (`unused_positions`) and shown. Positioned rows of other
  *    types, and rows naming no channel, are neither placed nor in the way.
- * 3. A recording with no positions is placed by name (`name-placement.ts`, until W2b's
- *    `nemar.sensor-labels.v1`): template positions from one of neuroschema's montages, centered on
- *    that montage's own center from its file. No candidate channel is `too_few_channels`, scalp
- *    channels all typed and none EEG `no_eeg_sensors`. A montage that cannot be loaded leaves the
- *    map undrawn with its reason (`montage_unavailable`, the viewer's word, which is also how a
- *    `MontageCenterUnavailable` from the layout ends).
+ * 3. A recording with no positions is placed by name with `nemar.sensor-labels.v1`
+ *    (`quality-views/sensor-labels.ts`): template positions from the one montage the names
+ *    identify, centered on that montage's own center from its file, or no map with the
+ *    algorithm's refusal (`too_few_channels`, `share_too_low`, `cap_model_unknown`, ...), whose
+ *    sentence is `sensor-labels-copy.ts`'s. Scalp channels all typed and none EEG are
+ *    `no_eeg_sensors`. The store carries no `CapManufacturersModelName` or `EEGReference`, so an
+ *    EGI net is refused (`cap_model_unknown`) and no reference channel is reported. The montages
+ *    names reach load only when a recording is placed by name; one that cannot be loaded leaves
+ *    the map undrawn with its reason (`montage_unavailable`, the viewer's word).
  *
  * The map itself is `nemar.sensor-field.v1`, drawn in the quality views' worker
  * (`worker-client.ts`) and painted here with the sequential color map on the `minmax` color axis.
@@ -30,16 +33,23 @@
  */
 
 import { SEQUENTIAL_STOPS, lookupTable, paintGrid } from "../quality-views/colormap";
-import { type Montage, centersOf } from "../quality-views/montages";
+import type { Montage } from "../quality-views/montages";
 import { mapFrame, markerPoints, toCanvas } from "../quality-views/render/map-frame";
 import {
-  MontageCenterUnavailable,
-  type SensorLayoutWord,
-  sensorLayout,
-} from "../quality-views/sensor-layout";
-import { clean, excludedByName, isFiducial, typeClass } from "../quality-views/sensor-names";
+  type LabelsReason,
+  MIN_CHANNELS,
+  countCandidates,
+  inferPositions,
+  loadNameMontages,
+} from "../quality-views/sensor-labels";
+import {
+  LABELS_SENTENCES,
+  MONTAGE_UNAVAILABLE_SENTENCE,
+  asClause,
+} from "../quality-views/sensor-labels-copy";
+import { type SensorLayoutWord, sensorLayout } from "../quality-views/sensor-layout";
+import { isFiducial, typeClass } from "../quality-views/sensor-names";
 import type { DrawOutcome, DrawnMap } from "../quality-views/worker-client";
-import { MIN_MATCHED, candidateMontages, matchLabels } from "./name-placement";
 
 /** Coordinate systems of intracranial recordings: no scalp map is drawn from them, by place or by
  *  name (the amendment's `frame_not_scalp`). */
@@ -50,8 +60,8 @@ export const STORE_UNTYPED = "OTHER";
 
 /**
  * Why the sensors were not placed. `frame_unknown`, `positions_flat`, `positions_partial`,
- * `frame_not_scalp` and `no_eeg_sensors` are the amendment's words, and `too_few_channels`,
- * `too_few_matched` and `labels_unrecognized` three of `nemar.sensor-labels.v1`'s; the other two are the viewer's own:
+ * `frame_not_scalp` and `no_eeg_sensors` are the amendment's words, and every refusal of
+ * `nemar.sensor-labels.v1` is one too (`LabelsReason`); the other two are the viewer's own:
  * `positions_unmatched`, an electrodes file none of whose rows names a channel of the recording,
  * and `montage_unavailable`, a montage that cannot be loaded. No specification word says either.
  */
@@ -60,9 +70,7 @@ export type PlacementWord =
   | "frame_not_scalp"
   | "no_eeg_sensors"
   | "positions_unmatched"
-  | "too_few_channels"
-  | "labels_unrecognized"
-  | "too_few_matched"
+  | LabelsReason
   | "montage_unavailable";
 
 /** Why a placed map was not drawn: the sensor-field words, or a worker that could not draw. */
@@ -74,20 +82,23 @@ export const SCALP_MAP_SENTENCES: Readonly<Record<PlacementWord | MapWord, strin
     "No scalp map: this recording's electrode positions are in an intracranial coordinate system.",
   no_eeg_sensors: "No scalp map: none of this recording's channels is typed EEG.",
   positions_unmatched: "No scalp map: the electrodes file names none of this recording's channels.",
-  too_few_channels: "No scalp map: this recording has no channel that could be an EEG electrode.",
   frame_unknown:
     "No scalp map: the electrode positions name a coordinate system whose orientation is not known.",
   positions_flat:
     "No scalp map: the electrode positions are too flat, or too few, to locate the head's center.",
   positions_partial:
     "No scalp map: the electrode positions cover too little of the head to locate its center.",
-  labels_unrecognized: "No scalp map: no channel name matches a standard montage.",
-  too_few_matched: "No scalp map: too few channel names match a standard montage.",
-  montage_unavailable: "No scalp map: the standard montage could not be loaded.",
+  montage_unavailable: `No scalp map: ${asClause(MONTAGE_UNAVAILABLE_SENTENCE)}`,
   too_few_sensors: "No scalp map: a map needs at least 8 placed channels with a value.",
   head_outside_grid: "No scalp map: the placed channels leave no part of the head to draw.",
   interpolation_failed: "No scalp map: the interpolation did not give a finite map.",
   worker: "No scalp map: the map could not be drawn on this page.",
+  ...(Object.fromEntries(
+    Object.entries(LABELS_SENTENCES).map(([word, text]) => [
+      word,
+      `No scalp map: ${asClause(text)}`,
+    ]),
+  ) as Record<LabelsReason, string>),
 };
 
 /**
@@ -111,6 +122,11 @@ export interface ScalpInput {
   readonly coordinateSystem: string;
   /** The channels of the recording's scalp groups, in order, with their BIDS type. */
   readonly channels: readonly { readonly label: string; readonly channelType: string }[];
+  /** The sidecar's `CapManufacturersModelName` and `EEGReference`, which `nemar.sensor-labels.v1`
+   *  reads; the recording store carries neither today (nemarOrg/nemar-cli#2407), so the viewer
+   *  leaves them out and an EGI net placed by name is `cap_model_unknown`. */
+  readonly capModel?: string | null;
+  readonly reference?: string | null;
 }
 
 export type Placement =
@@ -219,22 +235,12 @@ export function placeByPositions(input: ScalpInput): Placement | ToNames {
   return { kind: "names", unusedPositions: result.word, labels: drawn };
 }
 
-/** The channels placement by name considers: typed EEG, or untyped and not named as another
- *  signal; never a fiducial. */
-export function nameCandidates(channels: ScalpInput["channels"]): string[] {
-  return channels
-    .filter((c) => {
-      const kind = typeClass(sensorType(c.channelType));
-      if (kind === "other") return false;
-      if (kind === "untyped" && excludedByName(clean(c.label))) return false;
-      return !isFiducial(c.label);
-    })
-    .map((c) => c.label);
-}
-
 /**
- * Step 3: template positions by name, centered on the montage's own center. `load` fetches a
- * montage (`loadMontage` on a page).
+ * Step 3: template positions by name (`nemar.sensor-labels.v1`), centered on the montage's own
+ * center. `load` fetches a montage (`loadMontage` on a page); the fourteen montages names reach are
+ * loaded here, so a recording placed by its own positions never fetches one. `only` is step 1's
+ * drawn rows after a refused projection (each typed EEG); otherwise every scalp channel is given,
+ * with its type, and the algorithm leaves out what is not EEG.
  */
 export async function placeByNames(
   input: ScalpInput,
@@ -242,87 +248,76 @@ export async function placeByNames(
   load: (name: string) => Promise<Montage>,
   only: readonly string[] | null = null,
 ): Promise<Placement> {
-  const labels = only ? [...only] : nameCandidates(input.channels);
-  if (labels.length === 0) {
-    const typed = input.channels.map((c) => typeClass(sensorType(c.channelType)));
-    const allOther = typed.length > 0 && typed.every((kind) => kind === "other");
+  const typeOf = new Map(input.channels.map((c) => [c.label, sensorType(c.channelType)]));
+  const labels = only ? [...only] : input.channels.map((c) => c.label);
+  const kinds = input.channels.map((c) => typeClass(sensorType(c.channelType)));
+  if (only === null && kinds.length > 0 && kinds.every((kind) => kind === "other")) {
     return {
       kind: "refused",
-      word: allOther ? "no_eeg_sensors" : "too_few_channels",
-      detail: allOther
-        ? "every scalp channel is typed, and none EEG"
-        : "no channel is typed EEG or untyped with an electrode's name",
+      word: "no_eeg_sensors",
+      detail: "every scalp channel is typed, and none EEG",
       unusedPositions,
     };
   }
-  // The most names any montage tried matched: none anywhere is `labels_unrecognized`; some, but too
-  // few for any montage to be taken, `too_few_matched`.
-  let bestMatched = 0;
-  for (const name of candidateMontages(labels)) {
-    let montage: Montage;
-    try {
-      montage = await load(name);
-    } catch (error) {
-      return {
-        kind: "refused",
-        word: "montage_unavailable",
-        detail: `${name}: ${error instanceof Error ? error.message : String(error)}`,
-        unusedPositions,
-      };
-    }
-    const matched = matchLabels(labels, montage);
-    bestMatched = Math.max(bestMatched, matched.length);
-    if (matched.length < MIN_MATCHED && name !== "standard_1005") continue;
-    if (matched.length === 0) break;
-    try {
-      const result = sensorLayout(
-        {
-          x: matched.map((m) => m.position[0]),
-          y: matched.map((m) => m.position[1]),
-          z: matched.map((m) => m.position[2]),
-        },
-        "n/a",
-        {
-          montage: name,
-          names: matched.map((m) => m.label),
-          montageCenter: centersOf([montage]),
-        },
-      );
-      if (result.kind === "refused") {
-        return { kind: "refused", word: result.word, detail: result.detail, unusedPositions };
-      }
-      return {
-        kind: "placed",
-        source: "names",
-        montage: name,
-        labels: matched.map((m) => m.label),
-        thetaDeg: result.layout.thetaDeg,
-        radius: result.layout.radius,
-        unusedPositions,
-      };
-    } catch (error) {
-      if (!(error instanceof MontageCenterUnavailable)) throw error;
-      return {
-        kind: "refused",
-        word: "montage_unavailable",
-        detail: error.message,
-        unusedPositions,
-      };
-    }
+  const given = labels.map((label) => [label, typeOf.get(label) ?? null] as const);
+  // Too few candidates is refused before any montage is fetched (countCandidates needs none).
+  if (countCandidates(given) < MIN_CHANNELS) {
+    return {
+      kind: "refused",
+      word: "too_few_channels",
+      detail: `${countCandidates(given)} candidate channel(s), fewer than ${MIN_CHANNELS}`,
+      unusedPositions,
+    };
   }
-  return bestMatched === 0
-    ? {
-        kind: "refused",
-        word: "labels_unrecognized",
-        detail: `${labels.length} candidate channel(s), none named in a standard montage`,
-        unusedPositions,
-      }
-    : {
-        kind: "refused",
-        word: "too_few_matched",
-        detail: `at most ${bestMatched} of ${labels.length} candidate channel(s) named in one montage`,
-        unusedPositions,
-      };
+  let montages: Montage[];
+  try {
+    montages = await loadNameMontages(load);
+  } catch (error) {
+    return {
+      kind: "refused",
+      word: "montage_unavailable",
+      detail: error instanceof Error ? error.message : String(error),
+      unusedPositions,
+    };
+  }
+  const inference = inferPositions(given, montages, {
+    capModel: input.capModel ?? null,
+    reference: input.reference ?? null,
+  });
+  if (inference.outcome === "refused") {
+    return {
+      kind: "refused",
+      word: inference.reason!,
+      detail: `${inference.matched} of ${inference.candidates} candidate channel(s) matched one montage${
+        inference.contenders.length > 0 ? ` (${inference.contenders.join(", ")})` : ""
+      }`,
+      unusedPositions,
+    };
+  }
+  const name = inference.montage!;
+  const montage = montages.find((m) => m.name === name)!;
+  const placed = inference.channels.filter((c) => c.position !== null);
+  const result = sensorLayout(
+    {
+      x: placed.map((c) => c.position![0]),
+      y: placed.map((c) => c.position![1]),
+      z: placed.map((c) => c.position![2]),
+    },
+    "n/a",
+    { montage: name, names: placed.map((c) => c.name), montageCenter: () => montage.center },
+  );
+  if (result.kind === "refused") {
+    return { kind: "refused", word: result.word, detail: result.detail, unusedPositions };
+  }
+  return {
+    kind: "placed",
+    source: "names",
+    montage: name,
+    labels: placed.map((c) => c.name),
+    thetaDeg: result.layout.thetaDeg,
+    radius: result.layout.radius,
+    unusedPositions,
+  };
 }
 
 /** Where a recording's sensors go: steps 1 to 3. Never rejects: every failure is a refusal. */
@@ -344,6 +339,65 @@ export async function placeScalpSensors(
       unusedPositions: null,
     };
   }
+}
+
+/** Where a viewer's sensors go, decided as late as it can be (`scalpPlacer`). */
+export interface ScalpPlacer {
+  /** The placement once known; null while placement by name waits for `show` or is running. */
+  readonly placement: Placement | null;
+  /** The map is shown: start the placement by name, once, if one is waiting. */
+  show(): void;
+}
+
+/**
+ * The viewer's placement, in two steps. Step 1 (the recording's own positions, or the word they
+ * are refused with) needs no montage and runs at once, so the map's toggle can say where the
+ * positions come from, or why there is no map, before it is opened. Placement by name loads the
+ * fourteen montages names reach, so it waits until the map is first shown (`show`). `onPlaced` is
+ * called once with the placement: at once for step 1, after `show` for names. Never rejects.
+ */
+export function scalpPlacer(
+  input: ScalpInput,
+  load: (name: string) => Promise<Montage>,
+  onPlaced: (placement: Placement) => void,
+): ScalpPlacer {
+  let placement: Placement | null = null;
+  let waiting: ToNames | null = null;
+  const failed = (error: unknown): Placement => {
+    // A bug here must not end the viewer: the map is left undrawn and says it could not be drawn.
+    console.error("[eeg-viewer] scalp placement failed:", error);
+    return {
+      kind: "refused",
+      word: "worker",
+      detail: error instanceof Error ? error.message : String(error),
+      unusedPositions: null,
+    };
+  };
+  const settle = (placed: Placement): void => {
+    placement = placed;
+    onPlaced(placed);
+  };
+  let first: Placement | ToNames;
+  try {
+    first = placeByPositions(input);
+  } catch (error) {
+    first = failed(error);
+  }
+  if (first.kind === "names") waiting = first;
+  else settle(first);
+  return {
+    get placement() {
+      return placement;
+    },
+    show() {
+      if (waiting === null) return;
+      const names = waiting;
+      waiting = null;
+      void placeByNames(input, names.unusedPositions, load, names.labels)
+        .catch(failed)
+        .then(settle);
+    },
+  };
 }
 
 /** The sentence in place of a refused placement's map. */

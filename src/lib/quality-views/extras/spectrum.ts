@@ -50,6 +50,11 @@ export async function draw(x: ExtraContext): Promise<void> {
   await maps(x, into, { hz: initial });
   x.figure?.addEventListener("qv-pick", (event) => {
     if (x.signal.aborted) return;
-    void maps(x, into, { rows: [(event as CustomEvent<{ row: number }>).detail.row] });
+    maps(x, into, { rows: [(event as CustomEvent<{ row: number }>).detail.row] }).catch(
+      (error: unknown) => {
+        // A redraw that fails keeps the maps already drawn, and never rejects unhandled.
+        console.error("[quality-views] the spectrum's scalp maps could not be redrawn:", error);
+      },
+    );
   });
 }

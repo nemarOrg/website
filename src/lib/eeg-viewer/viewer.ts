@@ -79,10 +79,11 @@ import {
   type Placement,
   SEQUENTIAL_GRADIENT,
   type ScalpInput,
+  type ScalpPlacer,
   paintScalpMap,
-  placeScalpSensors,
   placementSentence,
   rowValues,
+  scalpPlacer,
   templateNote,
   viewOfDraw,
   viewOfPlacement,
@@ -770,18 +771,23 @@ export async function mountEegViewer(
     typeof document !== "undefined" ? document.createElement("canvas") : undefined;
   const scalpInput = scalpInputOf(store);
   let placement: Placement | null = null;
-  if (scalpInput) {
-    void placeScalpSensors(scalpInput, loadMontage).then((placed) => {
-      if (disposed) return;
-      placement = placed;
-      ui.topoBtn.title = topoToggleTitle(placed, store);
-      if (showTopo) {
-        // The places are known before the first frame's samples: build the map's geometry in the
-        // worker now, so the first map does not wait for it (website#592).
-        if (placed.kind === "placed") void prepareTopo(placed);
-        drawTopo();
-      }
-    });
+  // Its own positions are placed at mount (no montage needed), so the toggle says where they come
+  // from, or why there is no map, before it is opened; placement by name, which loads the montages
+  // names reach, waits until the map is first shown (`placer.show()`, scalp-map.ts).
+  let placer: ScalpPlacer | null = null;
+  function onPlaced(placed: Placement): void {
+    if (disposed) return;
+    placement = placed;
+    ui.topoBtn.title = topoToggleTitle(placed, store);
+    if (showTopo) {
+      // The places are known before the first frame's samples: build the map's geometry in the
+      // worker now, so the first map does not wait for it (website#592).
+      if (placed.kind === "placed") void prepareTopo(placed);
+      drawTopo();
+    }
+  }
+  function startPlacement(): void {
+    placer?.show();
   }
   // The map is drawn in the quality views' worker (worker-client.ts), loaded the first time the
   // panel draws. One draw is in flight at a time; a newer request waits and replaces any older one.
@@ -844,6 +850,7 @@ export async function mountEegViewer(
   // intracranial: otherwise there is nothing to look up and no button to show (IS-V1).
   const spatialWanted = !!opts.spatial && store.groups.some((g) => isIeegModality(g.modality));
   const ui = buildDom(slot, store, eventTypes, preloadEnabled, preloadCapMB, spatialWanted);
+  if (scalpInput) placer = scalpPlacer(scalpInput, loadMontage, onPlaced);
   const cleanups: Array<() => void> = [];
   cleanups.push(() => topoAbort.abort());
   // `fitHeight` hosts get chrome whose height cannot change from one render to
@@ -1198,6 +1205,7 @@ export async function mountEegViewer(
     // A scalp recording whose map is refused reopens it, showing the reason.
     if (t.showTopo && scalpInput && !ui.topoBtn.disabled) {
       showTopo = true;
+      startPlacement();
       ui.topo.style.display = "flex";
       ui.topoBtn.setAttribute("aria-pressed", "true");
       ui.topoBtn.classList.add("eegv__btn--active");
@@ -2023,6 +2031,7 @@ export async function mountEegViewer(
   ui.topoBtn.addEventListener("click", () => {
     if (ui.topoBtn.disabled) return;
     showTopo = !showTopo && !!scalpInput;
+    if (showTopo) startPlacement();
     ui.topo.style.display = showTopo ? "flex" : "none";
     ui.topoBtn.setAttribute("aria-pressed", String(showTopo));
     ui.topoBtn.classList.toggle("eegv__btn--active", showTopo);

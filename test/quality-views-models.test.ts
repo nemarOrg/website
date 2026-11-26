@@ -6,24 +6,25 @@
  * model should have made 0 fails); every refusal is refused with its word and still offers its
  * downloads; every pointer snaps to the vector's row and every value lands in the vector's bin.
  *
- * Scalp maps placed by sensor name need `nemar.sensor-labels.v1`, phase W2b's. Until it lands
- * those cases (listed by count below, so the list cannot grow unnoticed) show the site's word
- * `labels_pending` in every map's place, and everything but the placement is still compared.
+ * Scalp maps placed by sensor name run `nemar.sensor-labels.v1` (`sensor-labels.ts`) on the
+ * montage files, and are compared whole like every other case (counted below, so a vectors update
+ * that drops them is seen).
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { localChecks } from "../src/lib/quality-views/local-checks";
 import {
-  type BuiltModel,
   type FileDecl,
-  LABELS_PENDING,
   type SensorFieldModel,
   ViewRefused,
   buildModel,
   locateBin,
   snapRow,
 } from "../src/lib/quality-views/model";
+import { MONTAGE_NOT_FOUND, loadMontage } from "../src/lib/quality-views/montage-loader";
 import { type Montage, parseMontage } from "../src/lib/quality-views/montages";
+import { MAP_SENTENCES } from "../src/lib/quality-views/render/words";
+import { MONTAGE_UNAVAILABLE } from "../src/lib/quality-views/sensor-labels-copy";
 import { nodeFs, repoPath } from "./node";
 import { MONTAGES_DIR, mapOutcome, same } from "./quality-views-vectors";
 
@@ -95,39 +96,96 @@ describe("model vectors", () => {
     expect(vectors.format).toBe("nemar.kinds-models.v1");
   });
 
-  const pending = vectors.cases.filter(placedByName);
-  it("leave exactly 21 cases placed by name to nemar.sensor-labels.v1 (W2b)", () => {
-    expect(pending.length).toBe(21);
+  it("hold 21 cases placed by name (nemar.sensor-labels.v1)", () => {
+    expect(vectors.cases.filter(placedByName).length).toBe(21);
   });
 
-  it.each(vectors.cases.filter((c) => !placedByName(c)).map((c) => [c.name, c] as const))(
-    "%s",
-    async (_name, c) => {
-      const built = await buildModel(c.view, source(c.files), options(c.caps));
-      const { layout: _layout, ...comparable } = built;
-      expect(same(comparable, c.model), c.covers).toBeNull();
-    },
-  );
+  it.each(vectors.cases.map((c) => [c.name, c] as const))("%s", async (_name, c) => {
+    const built = await buildModel(c.view, source(c.files), options(c.caps));
+    const { layout: _layout, ...comparable } = built;
+    expect(same(comparable, c.model), c.covers).toBeNull();
+  });
 
-  it.each(pending.map((c) => [c.name, c] as const))(
-    "%s (placed by name: pending W2b)",
-    async (_name, c) => {
-      const built: BuiltModel = await buildModel(c.view, source(c.files), options(c.caps));
+  // A montage file or lazy chunk that cannot load (offline, or redeployed) leaves the maps undrawn
+  // with the site's word, never the view: kills the catch in placeSensors removed.
+  it.each([
+    ["sensor_field_names", "biosemi256"],
+    ["sensor_field_positions_template", "standard_1005"],
+    ["sensor_field_positions_flat_names", "GSN-HydroCel-32"],
+  ])("%s with %s unavailable still draws, its maps montage_unavailable", async (name, missing) => {
+    const c = vectors.cases.find((v) => v.name === name)!;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const built = await buildModel(c.view, source(c.files), {
+        ...options(c.caps),
+        montage: (n: string) =>
+          n === missing ? Promise.reject(new TypeError("Failed to fetch")) : montage(n),
+      });
       expect(same(built.drawing, c.model.drawing)).toBeNull();
       expect(same(built.refused, c.model.refused)).toBeNull();
       expect(same(built.downloads, c.model.downloads)).toBeNull();
       const model = built.model as SensorFieldModel;
-      expect(model.placement.word).toBe(LABELS_PENDING);
-      expect(model.maps.items.every((item) => item.word === LABELS_PENDING)).toBe(true);
-      const expected = c.model.model as unknown as SensorFieldModel;
-      expect(
-        same(
-          model.maps.items.map((m) => m.text),
-          expected.maps.items.map((m) => m.text),
-        ),
-      ).toBeNull();
-    },
-  );
+      // The model writes the word as a literal; it is the copy module's, with a sentence.
+      expect(model.placement.word).toBe(MONTAGE_UNAVAILABLE);
+      expect(MAP_SENTENCES[model.placement.word!]).toBeDefined();
+      expect(model.sensors.drawn.every((d) => !d)).toBe(true);
+      expect(model.maps.items.every((item) => item.word === MONTAGE_UNAVAILABLE)).toBe(true);
+      expect(built.layout).toBeUndefined();
+      expect(error).toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  // A file that is not the montage, or a name no file has, is not mended by a reload: it propagates
+  // as itself and is never labeled montage_unavailable (kills: loaded() catching every error).
+  it.each([
+    [
+      "a montage file that is not the montage",
+      "biosemi256",
+      () =>
+        Promise.resolve().then(() => parseMontage({ format: "nemar.montage.v2" }, "biosemi256")),
+      "MontageFileInvalid",
+    ],
+    [
+      "a montage name no file has",
+      "standard_1005",
+      () => loadMontage("Standard_1005"),
+      MONTAGE_NOT_FOUND,
+    ],
+  ] as const)("propagates %s", async (_what, name, broken, kind) => {
+    const c = vectors.cases.find((v) => v.name === "sensor_field_names")!;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const outcome = await buildModel(c.view, source(c.files), {
+        ...options(c.caps),
+        montage: (n: string) => (n === name ? broken() : montage(n)),
+      }).then(
+        (built) => built,
+        (thrown: unknown) => thrown,
+      );
+      expect(outcome).toBeInstanceOf(Error);
+      expect((outcome as Error).name).toBe(kind);
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("refuses too few channels by name without fetching a montage", async () => {
+    const c = vectors.cases.find((v) => v.name === "sensor_field_names_too_few")!;
+    const asked: string[] = [];
+    const built = await buildModel(c.view, source(c.files), {
+      ...options(c.caps),
+      montage: (n: string) => {
+        asked.push(n);
+        return montage(n);
+      },
+    });
+    const { layout: _layout, ...comparable } = built;
+    expect(same(comparable, c.model)).toBeNull();
+    expect(asked).toEqual([]);
+  });
 
   it.each(vectors.refusals.map((c) => [c.name, c] as const))("refusal %s", async (_name, c) => {
     const refusal = await buildModel(c.view, source(c.files), options(c.caps)).then(

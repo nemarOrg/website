@@ -21,8 +21,13 @@ export const LOADABLE_MONTAGES: readonly string[] = Object.keys(FILES)
 
 const loaded = new Map<string, Promise<Montage>>();
 
+/** The name of the error for a montage name no file of `vocabulary/montages/` has (compared
+ *  exactly): a plain `Error` so named, which `model.ts` tells from a failed fetch by its name. */
+export const MONTAGE_NOT_FOUND = "MontageNotFound";
+
 /**
- * The montage `name`, fetched once per page. Rejects for a name with no file, a file that cannot be
+ * The montage `name`, fetched once per page. Rejects for a name with no file (an `Error` named
+ * `MONTAGE_NOT_FOUND`), a file that cannot be
  * fetched (the page is offline, or was deployed again since it loaded) and a file that is not the
  * montage (`MontageFileInvalid`); a rejected load is forgotten, so the next call tries again.
  */
@@ -30,7 +35,11 @@ export function loadMontage(name: string): Promise<Montage> {
   const held = loaded.get(name);
   if (held) return held;
   const load = FILES[`${PREFIX}${name}.json`];
-  if (!load) return Promise.reject(new Error(`no montage is named ${JSON.stringify(name)}`));
+  if (!load) {
+    const error = new Error(`no montage is named ${JSON.stringify(name)}`);
+    error.name = MONTAGE_NOT_FOUND;
+    return Promise.reject(error);
+  }
   const pending = load().then((raw) => parseMontage(raw, name));
   loaded.set(name, pending);
   pending.catch(() => loaded.delete(name));
