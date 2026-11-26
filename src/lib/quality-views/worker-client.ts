@@ -120,7 +120,12 @@ const unavailableReason = (answer: WorkerResponse | Unavailable): string =>
       : UNREADABLE_ANSWER;
 
 export type PrepareOutcome =
-  | { readonly kind: "prepared"; readonly geometryMs: number; readonly cached: boolean }
+  | {
+      readonly kind: "prepared";
+      readonly geometryMs: number;
+      readonly cached: boolean;
+      readonly stored: boolean;
+    }
   | { readonly kind: "cancelled" }
   | { readonly kind: "unavailable"; readonly reason: string };
 
@@ -236,7 +241,12 @@ export class SensorFieldClient {
       radius: Float64Array.from(layout.radius),
     });
     if (answer.type === "prepared") {
-      return { kind: "prepared", geometryMs: answer.geometryMs, cached: answer.cached };
+      return {
+        kind: "prepared",
+        geometryMs: answer.geometryMs,
+        cached: answer.cached,
+        stored: answer.stored,
+      };
     }
     if (answer.type === "cancelled") return { kind: "cancelled" };
     return { kind: "unavailable", reason: unavailableReason(answer) };

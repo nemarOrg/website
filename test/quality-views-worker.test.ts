@@ -361,11 +361,12 @@ describe("the worker handler", () => {
 
   it("stops at the next batch after a cancel and says so", async () => {
     const posted: WorkerResponse[] = [];
-    const handle = createSensorFieldHandler((message) => posted.push(message));
+    // The cancel arrives as soon as the first batch is out, and is read before the next.
+    const handle = createSensorFieldHandler((message) => {
+      posted.push(message);
+      if (posted.length === 1) handle({ type: "cancel", id: 7 });
+    });
     handle(request(7, 4, 1));
-    // The first batch was drawn before the handler returned; the cancel is read before the next.
-    expect(posted.map((m) => m.type)).toEqual(["batch"]);
-    handle({ type: "cancel", id: 7 });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(posted.map((m) => m.type)).toEqual(["batch", "cancelled"]);
   });
@@ -578,7 +579,7 @@ describe("warming the worker for the cold first view (website#592)", () => {
     const drawn = await client.draw(input(mapsOf(2)));
     client.terminate();
     expect(first).toMatchObject({ kind: "prepared", cached: false });
-    expect(second).toEqual({ kind: "prepared", geometryMs: 0, cached: true });
+    expect(second).toEqual({ kind: "prepared", geometryMs: 0, cached: true, stored: false });
     if (drawn.kind !== "done") throw new Error(drawn.kind);
     expect([drawn.stats.cacheMisses, drawn.stats.cacheHits]).toEqual([0, 1]);
   });
@@ -604,7 +605,10 @@ describe("warming the worker for the cold first view (website#592)", () => {
 
   it("cancels a warm-up still running when the view's draw comes", async () => {
     const client = new SensorFieldClient(inThreadWorker);
-    const warming = client.warm({ layoutKey: LAYOUT_KEY, thetaDeg: THETA, radius: RADIUS }, { maps: 512 });
+    const warming = client.warm(
+      { layoutKey: LAYOUT_KEY, thetaDeg: THETA, radius: RADIUS },
+      { maps: 512 },
+    );
     await new Promise((resolve) => setTimeout(resolve, 0));
     const outcome = await client.draw(input(mapsOf(2)));
     const warm = await warming;
@@ -631,7 +635,9 @@ describe("warming the worker for the cold first view (website#592)", () => {
     expect(requestProblem({ ...prepare, radius: new Float64Array(1) })).toBe(
       "thetaDeg and radius differ in length",
     );
-    expect(isWorkerResponse({ type: "prepared", id: 1, geometryMs: 2, cached: false })).toBe(true);
+    expect(
+      isWorkerResponse({ type: "prepared", id: 1, geometryMs: 2, cached: false, stored: false }),
+    ).toBe(true);
     expect(isWorkerResponse({ type: "prepared", id: 1, geometryMs: 2 })).toBe(false);
   });
 

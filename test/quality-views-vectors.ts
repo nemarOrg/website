@@ -11,19 +11,21 @@
  * Not a `.test.ts` file: the parity tests, the performance test and the mutation script share it.
  */
 
+import type { GeometryStore } from "../src/lib/quality-views/geometry-store";
 import { parseMontage } from "../src/lib/quality-views/montages";
 import {
   GRID_SIZE,
   type SensorFieldResult,
   sensorField,
 } from "../src/lib/quality-views/sensor-field";
+import type { SensorFieldGeometry } from "../src/lib/quality-views/sensor-field";
 import {
   type LayoutBounds,
   type SensorLayoutResult,
   type Vec3,
   sensorLayout,
 } from "../src/lib/quality-views/sensor-layout";
-import { nodeFs, repoPath } from "./node";
+import { nodeFs, nodeV8, repoPath } from "./node";
 
 /** A number the vectors write `null` because it is not finite. */
 type Num = number | null;
@@ -504,4 +506,26 @@ export function mapOutcome(thetaDeg: number[], radius: number[], values: number[
   return result.kind === "refused"
     ? { word: result.word, notes: [] }
     : { word: null, notes: [...result.map.notes] };
+}
+
+/**
+ * A geometry store that outlives the clients of a test, keeping each geometry as the bytes of V8's
+ * serializer (the structured-clone format IndexedDB writes) and deserializing it on each read, as
+ * IndexedDB does: Node has no IndexedDB.
+ */
+export async function serializedStore(): Promise<
+  GeometryStore & { readonly bytes: Map<string, Uint8Array> }
+> {
+  const v8 = await nodeV8();
+  const bytes = new Map<string, Uint8Array>();
+  return {
+    bytes,
+    get: async (key) => {
+      const held = bytes.get(key);
+      return held ? (v8.deserialize(held) as SensorFieldGeometry) : undefined;
+    },
+    put: async (key, geometry) => {
+      bytes.set(key, v8.serialize(geometry));
+    },
+  };
 }

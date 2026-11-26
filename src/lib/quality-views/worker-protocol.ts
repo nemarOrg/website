@@ -178,6 +178,8 @@ export interface DrawStats {
   readonly totalMs: number;
   readonly cacheHits: number;
   readonly cacheMisses: number;
+  /** Geometries read back from the page's storage (an earlier visit built them). */
+  readonly storeHits: number;
   readonly batches: number;
 }
 
@@ -196,6 +198,8 @@ export type WorkerResponse =
       /** Milliseconds spent building the geometry, 0 when the cache held it. */
       readonly geometryMs: number;
       readonly cached: boolean;
+      /** Read back from the page's storage, built on an earlier visit. */
+      readonly stored: boolean;
     }
   | ({ readonly type: "checked"; readonly id: number } & ViewCheck)
   | { readonly type: "content-checked"; readonly id: number; readonly valid: boolean }
@@ -350,7 +354,8 @@ export function isWorkerResponse(value: unknown): value is WorkerResponse {
       return (
         Number.isInteger(value.id) &&
         typeof value.geometryMs === "number" &&
-        typeof value.cached === "boolean"
+        typeof value.cached === "boolean" &&
+        typeof value.stored === "boolean"
       );
     case "failure":
       return (value.id === null || Number.isInteger(value.id)) && typeof value.message === "string";
