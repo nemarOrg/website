@@ -161,6 +161,10 @@ jobs:
       # vendors; nemar-cli ADR 0137, website ADR 0035) and the registry beside it: the copies in
       # src/lib/quality-views/vocabulary/ and test/fixtures/quality-views/vectors/ must carry the
       # digests it lists. Same `dev` pairing, strict, and red until nemar-cli epic #2324 reaches `dev`.
+      # test/quality-route-contract-drift.test.ts is a FIFTEENTH, against shared/contract/quality-route.ts
+      # (the public quality route's paths, words and bounds the dataset page's panel reads; website
+      # phase W6), imported as a module with its two imports, compute-naming.ts and compute-stamp.ts.
+      # Same `dev` pairing, strict, and red until nemar-cli epic #2324 reaches `dev`.
       - uses: actions/checkout@v4
         with:
           repository: nemarOrg/nemar-cli
@@ -168,6 +172,7 @@ jobs:
           sparse-checkout: |
             /backend/src/services/mail-links.ts
             /shared/compute-access-state.ts
+            /shared/compute-naming.ts
             /shared/compute-recipes.ts
             /shared/compute-state.ts
             /shared/contract/account-copy.ts
@@ -176,6 +181,7 @@ jobs:
             /shared/contract/compute-progress.ts
             /shared/contract/compute-responses.ts
             /shared/contract/compute-runner.ts
+            /shared/contract/compute-stamp.ts
             /shared/contract/compute-submit.ts
             /shared/contract/compute-terms.ts
             /shared/contract/compute-user.ts
@@ -189,6 +195,7 @@ jobs:
             /shared/contract/oidc-authorize.ts
             /shared/contract/private-site.ts
             /shared/contract/publication-review-copy.ts
+            /shared/contract/quality-route.ts
             /shared/oidc.ts
             /shared/publication-limits.ts
             /validator-version.json
@@ -211,6 +218,7 @@ jobs:
           NEMAR_CLI_MAIL_LINKS: nemar-cli-contract/backend/src/services/mail-links.ts
           NEMAR_CLI_OIDC_AUTHORIZE_CONTRACT: nemar-cli-contract/shared/contract/oidc-authorize.ts
           NEMAR_CLI_PRIVATE_SITE_CONTRACT: nemar-cli-contract/shared/contract/private-site.ts
+          NEMAR_CLI_QUALITY_ROUTE: nemar-cli-contract/shared/contract/quality-route.ts
           NEMAR_CLI_QUALITY_VIEWS: nemar-cli-contract/shared/contract/neuroschema/views/SHA256SUMS.json
           NEMAR_CLI_REVIEW_COPY: nemar-cli-contract/shared/contract/publication-review-copy.ts
           NEMAR_CLI_VALIDATOR_PIN: nemar-cli-contract/validator-version.json
