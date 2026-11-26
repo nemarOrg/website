@@ -47,7 +47,7 @@ Array of `{ path, size, checksum_algorithm, checksum, url }` entries. Presigned 
 > **Historical.** nemar-cli#511 is closed and the site reads no `/qa/*` route: the Phase 3 client (`parseLinenoiseDb`, `QaAggregates`) was removed in website#609, and the dataset page's Data quality tab reads `extensions.dataQuality` from `metadata.json`.
 > The section below is kept as the record of the planned layout.
 
-Source on hallu: `/data/qumulo/openneuro/processed/<id>/`. 269 dataset directories. Target S3 prefix: `s3://nemar/<id>/qa/`. Worker route: `data.nemar.org/<id>/qa/*`.
+Source: the QA output directory on the processing host, one directory per dataset. 269 dataset directories. Target S3 prefix: `s3://nemar/<id>/qa/`. Worker route: `data.nemar.org/<id>/qa/*`.
 
 Per-file shape:
 
