@@ -235,11 +235,12 @@ jobs:
       - name: Quality-view drawing budget
         if: ${{ !cancelled() }}
         run: bun run test:quality-views-perf
-      # The size budget is checked after a real build: the sensor-field worker with its lazy chunks at most 16 KB gzipped
-      # and the main-thread code at most 30 KB, measured in dist/ from each lazily imported chunk
-      # that reaches the client (the signal viewer imports it), and on the site's own Vite building
-      # the client as an entry (scripts/check-quality-views-size.mjs). `astro build` alone takes seconds; the OG images
-      # of `bun run build` are not needed for it.
+      # The size budget is checked after a real build, and the real site build is the gate (website
+      # ADR 0035 decision 1 and its W6 addendum): each panel tab's first-screen union and every lazy
+      # root at 30 KB on the main thread, the sensor-field worker with its lazy chunks at 16 KB. The
+      # site's own Vite building the modules as an entry is printed, not gated
+      # (scripts/check-quality-views-size.mjs). `astro build` alone takes seconds; the OG images of
+      # `bun run build` are not needed for it.
       - name: Site build
         if: ${{ !cancelled() }}
         run: bunx astro build
