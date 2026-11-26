@@ -294,7 +294,8 @@ export async function subtleSha256(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-class Reader {
+/** Reads a view's files, each checked before it is parsed (the presets read through it too). */
+export class Reader {
   private readonly tsvs = new Map<string, Tsv>();
   private readonly digests = new Map<string, Promise<string>>();
   private readonly bytes = new Map<string, Promise<Uint8Array | null>>();
@@ -662,7 +663,7 @@ export function drawnRows(
   return classes.map((c) => c === "eeg");
 }
 
-interface Sensors {
+export interface Sensors {
   readonly labels: string[];
   readonly role: "layout" | "positions" | null;
   readonly entry: DataDecl | null;
@@ -670,7 +671,7 @@ interface Sensors {
   readonly types: string[] | null;
 }
 
-async function sensorRole(
+export async function sensorRole(
   reader: Reader,
   dim: DimDecl,
   count: number,
@@ -738,7 +739,7 @@ function labelColumn(dims: readonly DimDecl[], columns: readonly ColumnDecl[]): 
   return column;
 }
 
-type MapSpec = [label: string, values: number[], text: string[]];
+export type MapSpec = [label: string, values: number[], text: string[]];
 
 async function sensorFieldModel(
   reader: Reader,
@@ -809,7 +810,7 @@ const nanOf = (values: readonly (number | null)[]): number[] =>
   values.map((v) => (v === null ? Number.NaN : v));
 
 /** A scalp map's placement and maps (sensor-field.md, The model). */
-async function placeSensors(
+export async function placeSensors(
   sensors: Sensors,
   maps: MapSpec[],
   limits: "absmax" | "minmax",
