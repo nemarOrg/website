@@ -277,4 +277,25 @@ describe("the layout before the values", () => {
     }
     expect(checked).toBeGreaterThan(10);
   });
+
+  it("fetches the layout beside the values even when the page asks for no layout", async () => {
+    const requested: string[] = [];
+    let releaseValues: () => void = () => {};
+    const valuesHeld = new Promise<void>((resolve) => {
+      releaseValues = resolve;
+    });
+    const building = buildModel(
+      view,
+      async (file) => {
+        requested.push(file.location);
+        if (file.location === VALUES) await valuesHeld;
+        return source(files)(file);
+      },
+      { checks: localChecks, montage },
+    );
+    for (let i = 0; i < 5 && requested.length < 2; i++) await new Promise((r) => setTimeout(r, 1));
+    expect(new Set(requested)).toEqual(new Set([VALUES, LAYOUT]));
+    releaseValues();
+    expect((await building).model.type).toBe("sensor-field");
+  });
 });
