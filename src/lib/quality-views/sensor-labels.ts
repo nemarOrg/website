@@ -339,6 +339,18 @@ function classify(
   });
 }
 
+/**
+ * The number of candidates (status `candidate` or `bipolar`), which needs no montage: the montages
+ * only tell a bipolar name from a candidate, and both count, and a fiducial's key never holds a
+ * hyphen, so no name a montage would make bipolar is a fiducial without one. Below `MIN_CHANNELS`,
+ * `inferPositions` refuses with `too_few_channels` whatever the montages, so a caller can refuse
+ * before loading any.
+ */
+export function countCandidates(channels: readonly (readonly [string, string | null])[]): number {
+  return classify(channels, []).filter((c) => c.status === "candidate" || c.status === "bipolar")
+    .length;
+}
+
 /** Candidate index to the montage key it matches. */
 function hitsOf(montage: Keyed, channels: readonly Classified[]): Map<number, string> {
   const hits = new Map<number, string>();

@@ -14,16 +14,19 @@ import { describe, expect, it } from "vitest";
 import { type Montage, MontageFileInvalid, parseMontage } from "../src/lib/quality-views/montages";
 import {
   ALGORITHM,
+  CAP_MODELS,
   NAME_MONTAGES,
   REASONS,
   TEMPLATE_ONLY_MONTAGES,
   capModelNets,
+  countCandidates,
   foldCapModel,
   inferPositions,
   inferenceJson,
   loadNameMontages,
   sidecarInputs,
 } from "../src/lib/quality-views/sensor-labels";
+import type { Vec3 } from "../src/lib/quality-views/sensor-layout";
 import { MONTAGE_NAMES } from "../src/lib/quality-views/sensor-names";
 import { nodeFs, repoPath, sha256Hex } from "./node";
 import { MONTAGES_DIR } from "./quality-views-vectors";
@@ -38,6 +41,7 @@ interface LabelsCase {
     readonly outcome: string;
     readonly reason: string | null;
     readonly montage: string | null;
+    readonly candidates: number;
   };
 }
 
@@ -109,8 +113,8 @@ describe("every vector case", () => {
   });
 });
 
-// The cases below pin rules whose break the vectors might not show alone; each names the mutation
-// it kills.
+// The cases below pin rules whose break the vectors might not show alone, each named for the rule
+// it pins; the mutation each one kills is in its title, after "kills:".
 
 const typed = (names: readonly string[], type: string | null = "EEG") =>
   names.map((name) => [name, type] as const);
@@ -133,7 +137,7 @@ const TEN_TWENTY = [
 ];
 
 describe("the rules", () => {
-  it("applies the 10-05 aliases on 10-05 only (T3 is T7 there, nothing on a BioSemi cap)", () => {
+  it("applies the 10-05 aliases on 10-05 only, VREF never there (kills: the HydroCel alias on every family)", () => {
     const placed = inferPositions(typed([...TEN_TWENTY, "T3", "T4"]), montages);
     expect(placed.montage).toBe("standard_1005");
     expect(placed.channels.at(-2)?.electrode).toBe("T7");
@@ -149,7 +153,7 @@ describe("the rules", () => {
     expect(biosemi.channels.at(-1)?.electrode).toBeNull();
   });
 
-  it("applies the 10-05 aliases on no other family, even a montage with 10-20 names", () => {
+  it("applies the 10-05 aliases on no other family, even a montage with 10-20 names (kills: the 10-05 aliases on every family)", () => {
     // MNE-Python's biosemi64 names its electrodes by the 10-20 system (PROVENANCE.json's
     // bank_labels give each bank label its 10-20 name): the same positions under those names, still
     // family BioSemi. On it T7 is an electrode, and T3 must not be read as T7.
@@ -173,7 +177,7 @@ describe("the rules", () => {
     expect(legacy.channels.slice(-4).map((c) => c.electrode)).toEqual([null, null, null, null]);
   });
 
-  it("needs 8 matched names: 8 place, 7 refuse", () => {
+  it("needs 8 matched names: 8 place, 7 refuse (kills: MIN_MATCHED off by one)", () => {
     const eight = inferPositions(typed(TEN_TWENTY.slice(0, 8)), montages);
     expect(eight.outcome).toBe("placed");
     expect(eight.matched).toBe(8);
@@ -184,7 +188,7 @@ describe("the rules", () => {
     expect(sevenOfSeven.reason).toBe("too_few_channels");
   });
 
-  it("refuses a share under 80% though 8 match, and places at exactly 80%", () => {
+  it("refuses a share under 80% though 8 match, and places at exactly 80% (kills: the share check dropped or off by one)", () => {
     const unknown = (n: number) => Array.from({ length: n }, (_, i) => `X${i + 1}`);
     const atShare = inferPositions(typed([...TEN_TWENTY.slice(0, 12), ...unknown(3)]), montages);
     expect(atShare.outcome).toBe("placed");
@@ -193,20 +197,23 @@ describe("the rules", () => {
     expect(below.matched).toBe(12);
   });
 
-  it("refuses a tie between montages that place the names apart", () => {
+  it("refuses a tie between montages that place the names apart (kills: montage_ambiguous dropped)", () => {
     // C1..C6 and A1, A2 are 10-05 names and BioSemi bank labels on unrelated positions.
     const tie = inferPositions(
       typed(["A1", "A2", "C1", "C2", "C3", "C4", "C5", "C6", "A3"]),
       montages,
     );
-    expect(tie.outcome).toBe("refused");
-    expect(["montage_ambiguous", "net_coverage_low", "share_too_low"]).toContain(tie.reason);
+    // With A3, only BioSemi caps hold all nine; the smallest that does is the 128 cap, of which
+    // nine names cover too little.
+    expect([tie.reason, tie.contenders]).toEqual(["net_coverage_low", ["biosemi128"]]);
     const pure = inferPositions(typed(["A1", "A2", "C1", "C2", "C3", "C4", "C5", "C6"]), montages);
-    expect(pure.reason).toBe("montage_ambiguous");
-    expect(pure.contenders).toContain("standard_1005");
+    expect([pure.reason, pure.contenders]).toEqual([
+      "montage_ambiguous",
+      ["standard_1005", "biosemi128"],
+    ]);
   });
 
-  it("strips a reference suffix and keeps a bipolar pair unplaced", () => {
+  it("strips a reference suffix and keeps a bipolar pair unplaced (kills: a reference suffix kept)", () => {
     const ref = inferPositions(typed(TEN_TWENTY.map((n) => `EEG ${n}-REF`)), montages);
     expect(ref.montage).toBe("standard_1005");
     expect(ref.channels[0].key).toBe("fp1");
@@ -222,7 +229,7 @@ describe("the rules", () => {
     expect(pairs.channels.every((c) => c.status === "bipolar")).toBe(true);
   });
 
-  it("never matches or chooses a template-only montage, even when given one", () => {
+  it("never matches or chooses a template-only montage, even when given one (kills: template-only montages matched)", () => {
     const egi = Array.from({ length: 128 }, (_, i) => `E${i + 1}`);
     const older = TEMPLATE_ONLY_MONTAGES.map((name) => all.get(name)!);
     const result = inferPositions(typed([...egi, "Cz"]), [...older], {
@@ -232,7 +239,7 @@ describe("the rules", () => {
     expect(result.matched).toBe(0);
   });
 
-  it("places an EGI net only when the cap model names it", () => {
+  it("places an EGI net only when the cap model names it (kills: the cap model check dropped)", () => {
     const egi = typed([...Array.from({ length: 128 }, (_, i) => `E${i + 1}`), "Cz"]);
     expect(inferPositions(egi, montages).reason).toBe("cap_model_unknown");
     const named = inferPositions(egi, montages, { capModel: "HydroCel GSN 128 1.0" });
@@ -242,13 +249,115 @@ describe("the rules", () => {
     );
   });
 
-  it("refuses a montage file whose labels share a key", () => {
+  it("refuses a montage file whose labels share a key (kills: the key uniqueness check dropped)", () => {
     const standard = all.get("standard_1005")!;
     const broken: Montage = {
       ...standard,
       names: ["Cz", "CZ", ...standard.names.slice(2)],
     };
     expect(() => inferPositions(typed(TEN_TWENTY), [broken])).toThrow(MontageFileInvalid);
+  });
+});
+
+describe("the cap model and the coincidence tolerance (neuroschema's own tests, ported)", () => {
+  const HYDROCEL = NAME_MONTAGES.filter((n) => n.startsWith("GSN-HydroCel-"));
+  const SIZED: Record<string, string[]> = {
+    "32": ["GSN-HydroCel-32"],
+    "64": ["GSN-HydroCel-64_1.0", "GSN-HydroCel-65_1.0"],
+    "128": ["GSN-HydroCel-128", "GSN-HydroCel-129"],
+    "256": ["GSN-HydroCel-256", "GSN-HydroCel-257"],
+  };
+  // The spec's table (docs/views/sensor-labels.md, The cap model), written out here, not read
+  // from the module.
+  const SPEC_CAP_MODELS: Record<string, string[]> = {
+    "hydrocel geodesic sensor net": HYDROCEL,
+    "hydrocel geodisic sensor net": HYDROCEL,
+    "hydrocel gsn": HYDROCEL,
+    ...Object.fromEntries(
+      Object.entries(SIZED).flatMap(([size, nets]) => [
+        [`hydrocel geodesic sensor net ${size}`, nets],
+        [`hydrocel gsn ${size}`, nets],
+        [`hydrocel gsn ${size} 1.0`, nets],
+      ]),
+    ),
+    "gsn-hydrocel-32": SIZED["32"],
+    "gsn-hydrocel-64_1.0": SIZED["64"],
+    "gsn-hydrocel-65_1.0": SIZED["64"],
+    "gsn-hydrocel-128": SIZED["128"],
+    "gsn-hydrocel-129": SIZED["128"],
+    "gsn-hydrocel-256": SIZED["256"],
+    "gsn-hydrocel-257": SIZED["256"],
+  };
+  /** Every channel name of a whole EGI net, its vertex reference as Cz. */
+  const fullNet = (net: string): string[] => {
+    const montage = all.get(net)!;
+    const names = montage.names.map((_, i) => `E${i + 1}`);
+    if (montage.names.includes("Cz")) names[names.length - 1] = "Cz";
+    return names;
+  };
+
+  it("lists exactly the spec's cap models, each naming the spec's nets", () => {
+    expect([...CAP_MODELS.keys()].sort()).toEqual(Object.keys(SPEC_CAP_MODELS).sort());
+    for (const [model, nets] of Object.entries(SPEC_CAP_MODELS)) {
+      expect([...(CAP_MODELS.get(model) ?? [])].sort(), model).toEqual([...nets].sort());
+    }
+  });
+
+  it.each(Object.keys(SPEC_CAP_MODELS).sort())(
+    "%s places a full net of each size it names (kills: a cap model dropped or misnamed)",
+    (model) => {
+      for (const net of HYDROCEL) {
+        if (net === "GSN-HydroCel-32") continue; // never placed: its names are also BioSemi 160's E bank
+        const result = inferPositions(typed(fullNet(net)), montages, { capModel: model });
+        if (SPEC_CAP_MODELS[model].includes(net)) {
+          expect([result.outcome, result.montage], `${model} ${net}`).toEqual(["placed", net]);
+        } else if (result.outcome === "placed") {
+          // The same names are a whole net the model does name.
+          expect(SPEC_CAP_MODELS[model], `${model} ${net}`).toContain(result.montage);
+        } else {
+          expect(["cap_model_unknown", "net_coverage_low"], `${model} ${net}`).toContain(
+            result.reason,
+          );
+        }
+      }
+    },
+  );
+
+  /** The real montages, with one electrode of `name` moved `dx` meters along x. */
+  const moved = (name: string, label: string, dx: number): Montage[] =>
+    montages.map((m) => {
+      if (m.name !== name) return m;
+      const at = m.names.indexOf(label);
+      const positions = m.positions.map((p, i): Vec3 => (i === at ? [p[0] + dx, p[1], p[2]] : p));
+      return { ...m, positions };
+    });
+
+  it.each([
+    [0.5e-9, "placed"],
+    [2e-9, "refused"],
+  ] as const)(
+    "E1 to E128 and Cz with E7 of the 128 net moved %s m is %s (kills: the 1e-9 m tolerance changed)",
+    (dx, outcome) => {
+      const names = [...Array.from({ length: 128 }, (_, i) => `E${i + 1}`), "Cz"];
+      const result = inferPositions(typed(names), moved("GSN-HydroCel-128", "E7", dx), {
+        capModel: "HydroCel GSN",
+      });
+      expect(result.outcome).toBe(outcome);
+      if (outcome === "refused") {
+        expect([result.reason, result.contenders]).toEqual([
+          "montage_ambiguous",
+          ["GSN-HydroCel-128", "GSN-HydroCel-129"],
+        ]);
+      }
+    },
+  );
+});
+
+describe("countCandidates", () => {
+  it("counts candidates and bipolar names with no montage, as the algorithm does", () => {
+    for (const c of vectors.cases) {
+      expect(countCandidates(c.channels), c.name).toBe(c.result.candidates);
+    }
   });
 });
 
