@@ -764,18 +764,19 @@ async function expectSurfaceDrawn(page: Page, dataset: string): Promise<void> {
 
 /**
  * A native frame whose subject has an entry in the dataset's geometry index opens on the subject's
- * own surface (ADR 0034): wait until that default has loaded (a late index answer would otherwise
- * switch the anatomy after the test chose the frame), check what it says, then choose `frame`
- * itself, where no surface is drawn. The template is never involved in either.
+ * own surface (ADR 0034): wait until that default is actually shown, with its option labels, so the
+ * test confirms it rather than racing past it, check what it says, then choose `frame` itself,
+ * where no surface is drawn. The template is never involved in either.
  */
 async function leaveSubjectAnatomy(
   page: Page,
   subjectOption: string,
   frame: string,
 ): Promise<void> {
-  await expect(page.locator(PANEL)).toHaveAttribute("data-template-state", "ready", {
-    timeout: 60_000,
-  });
+  await expect(
+    page.locator(PANEL),
+    "the subject surface from the live geometry index did not load (the index may have been regenerated, removed or regraded)",
+  ).toHaveAttribute("data-template-state", "ready", { timeout: 60_000 });
   await expect(page.locator("[data-spatial-frame] option:checked")).toHaveText(subjectOption);
   await expect(page.locator(TEMPLATE_LABEL)).toHaveText(SUBJECT_LABEL);
   await expect(page.locator(NOTES)).toContainText("Subject surfaces: ");
@@ -1046,7 +1047,8 @@ test("native frames ACPC and ScanRAS: on004473 keeps exponent notation, joins na
   // sub-1's ACPC contacts have its own surfaces in the geometry index; its ScanRAS ones do not.
   await leaveSubjectAnatomy(page, "ACPC: Subject anatomy", "ACPC");
 
-  // Two frames offered, none preferred by the panel's own taste: the first that can be shown.
+  // Two frames, ACPC with the subject's own surface beside it; the panel opened on the first
+  // frame's subject anatomy (checked in leaveSubjectAnatomy).
   expect(await texts(page, "[data-spatial-frame] option")).toEqual([
     "ACPC",
     "ACPC: Subject anatomy",
@@ -1942,10 +1944,10 @@ async function installDrawProbe(page: Page): Promise<void> {
 
 async function timeOpen(
   page: Page,
-  withSurface: boolean,
+  timeTemplateSurface: boolean,
 ): Promise<{ contactsMs: number; surfaceMs: number | null; readyMs: number }> {
   await openBrain(page);
-  if (withSurface) await waitTemplate(page);
+  if (timeTemplateSurface) await waitTemplate(page);
   await expect
     .poll(
       () =>
@@ -1953,7 +1955,7 @@ async function timeOpen(
       { timeout: 30_000 },
     )
     .toBeGreaterThan(0);
-  if (withSurface) {
+  if (timeTemplateSurface) {
     await expect
       .poll(
         () =>
@@ -1974,15 +1976,18 @@ async function timeOpen(
   expect((await canvasColors(page)).saturated).toBeGreaterThan(20);
   return {
     contactsMs: q.contacts - q.t0,
-    surfaceMs: withSurface ? q.surface - q.t0 : null,
+    surfaceMs: timeTemplateSurface ? q.surface - q.t0 : null,
     readyMs: q.ready,
   };
 }
 
+// `timeTemplateSurface`: also wait for and time the vendored template surface. on005415 sits in a
+// native frame, so it draws the subject's own surface from the live geometry index (ADR 0034),
+// never the template; only its first contacts are timed.
 const FIRST_CONTACT_CASES = [
-  { dataset: "on005522", surface: true, warmRuns: 3 },
-  { dataset: "nm000485", surface: true, warmRuns: 1 },
-  { dataset: "on005415", surface: false, warmRuns: 1 },
+  { dataset: "on005522", timeTemplateSurface: true, warmRuns: 3 },
+  { dataset: "nm000485", timeTemplateSurface: true, warmRuns: 1 },
+  { dataset: "on005415", timeTemplateSurface: false, warmRuns: 1 },
 ] as const;
 
 for (const c of FIRST_CONTACT_CASES) {
@@ -1992,7 +1997,7 @@ for (const c of FIRST_CONTACT_CASES) {
     await installDrawProbe(page);
     // Cold: the first open in a fresh browser context (the surface is not in the HTTP cache).
     await openViewer(page, c.dataset);
-    const cold = await timeOpen(page, c.surface);
+    const cold = await timeOpen(page, c.timeTemplateSurface);
     // Warm: reloaded in the same context. The dev server sends an ETag and `no-cache`, so every
     // file is revalidated (a conditional request each) and the surface is fetched and decoded again;
     // the HTTP cache saves bytes, not round trips or decoding.
@@ -2003,7 +2008,7 @@ for (const c of FIRST_CONTACT_CASES) {
       await page.reload();
       await expect(page.locator(TOGGLE)).toBeAttached({ timeout: 90_000 });
       await settled(page);
-      const t = await timeOpen(page, c.surface);
+      const t = await timeOpen(page, c.timeTemplateSurface);
       warm.push(t.contactsMs);
       warmReady.push(t.readyMs);
       if (t.surfaceMs !== null) warmSurface.push(t.surfaceMs);
