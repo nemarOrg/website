@@ -6,16 +6,21 @@
  *
  * 1. A recording whose electrodes file gives positions has them laid out by
  *    `nemar.sensor-layout.v1`. Positions in an intracranial frame (`Pixels`, `ACPC`, `ScanRAS`)
- *    draw no scalp map at all (`frame_not_scalp`), and positions none of whose rows is typed EEG
- *    draw none (`no_eeg_sensors`).
+ *    draw no scalp map at all (`frame_not_scalp`); an electrodes file naming none of the
+ *    recording's channels draws none (`positions_unmatched`, the viewer's word); and positions
+ *    none of whose rows is typed EEG draw none (`no_eeg_sensors`). The store's `OTHER` (a channels
+ *    file type of `n/a`) is untyped, so such rows are not EEG: the strict rule of ADR 0137's
+ *    amendment, which the viewer keeps until neuroschema 0.6.1 rules on untyped rows.
  * 2. When the layout refuses them (`frame_unknown`, `positions_flat`, `positions_partial`), the
- *    channels are placed by name instead, but only when every row of the positions is typed EEG,
- *    and the reason the positions were not used is kept (`unused_positions`) and shown.
+ *    drawn rows (the positioned rows typed EEG) are placed by name instead, and the reason the
+ *    positions were not used is kept (`unused_positions`) and shown. Positioned rows of other
+ *    types, and rows naming no channel, are neither placed nor in the way.
  * 3. A recording with no positions is placed by name (`name-placement.ts`, until W2b's
  *    `nemar.sensor-labels.v1`): template positions from one of neuroschema's montages, centered on
- *    that montage's own center from its file. A montage that cannot be loaded leaves the map
- *    undrawn with its reason (`montage_unavailable`, which is also how a `MontageCenterUnavailable`
- *    from the layout ends).
+ *    that montage's own center from its file. No candidate channel is `too_few_channels`, scalp
+ *    channels all typed and none EEG `no_eeg_sensors`. A montage that cannot be loaded leaves the
+ *    map undrawn with its reason (`montage_unavailable`, the viewer's word, which is also how a
+ *    `MontageCenterUnavailable` from the layout ends).
  *
  * The map itself is `nemar.sensor-field.v1`, drawn in the quality views' worker
  * (`worker-client.ts`) and painted here with the sequential color map on the `minmax` color axis.
@@ -42,12 +47,19 @@ export const INTRACRANIAL_FRAMES: ReadonlySet<string> = new Set(["Pixels", "ACPC
 /** The store's word for a channel whose type it was not given (`parseChannels`): untyped here. */
 export const STORE_UNTYPED = "OTHER";
 
-/** Why the sensors were not placed. The first five are the specification's words; the others the
- *  viewer's own. */
+/**
+ * Why the sensors were not placed. `frame_unknown`, `positions_flat`, `positions_partial`,
+ * `frame_not_scalp` and `no_eeg_sensors` are the amendment's words, and `too_few_channels` and
+ * `labels_unrecognized` two of `nemar.sensor-labels.v1`'s; the other two are the viewer's own:
+ * `positions_unmatched`, an electrodes file none of whose rows names a channel of the recording,
+ * and `montage_unavailable`, a montage that cannot be loaded. No specification word says either.
+ */
 export type PlacementWord =
   | SensorLayoutWord
   | "frame_not_scalp"
   | "no_eeg_sensors"
+  | "positions_unmatched"
+  | "too_few_channels"
   | "labels_unrecognized"
   | "montage_unavailable";
 
@@ -58,7 +70,9 @@ export type MapWord = "too_few_sensors" | "head_outside_grid" | "interpolation_f
 export const SCALP_MAP_SENTENCES: Readonly<Record<PlacementWord | MapWord, string>> = {
   frame_not_scalp:
     "No scalp map: this recording's electrode positions are in an intracranial coordinate system.",
-  no_eeg_sensors: "No scalp map: none of this recording's positioned channels is typed EEG.",
+  no_eeg_sensors: "No scalp map: none of this recording's channels is typed EEG.",
+  positions_unmatched: "No scalp map: the electrodes file names none of this recording's channels.",
+  too_few_channels: "No scalp map: this recording has no channel that could be an EEG electrode.",
   frame_unknown:
     "No scalp map: the electrode positions name a coordinate system whose orientation is not known.",
   positions_flat:
@@ -116,12 +130,27 @@ export type Placement =
 const sensorType = (channelType: string | undefined): string | null =>
   channelType === undefined || channelType === STORE_UNTYPED ? null : channelType;
 
-/** Step 1: the recording's own positions, or the word they were refused with. */
-export function placeByPositions(
-  input: ScalpInput,
-): Placement | { readonly kind: "names"; readonly unusedPositions: SensorLayoutWord | null } {
+/** Where step 1 sends the placement on: names, with the labels to place (all scalp channels,
+ *  or, after a refused projection, the positioned rows typed EEG) and why positions were not used. */
+export interface ToNames {
+  readonly kind: "names";
+  readonly unusedPositions: SensorLayoutWord | null;
+  /** The labels to place by name; null for every candidate channel of the recording. */
+  readonly labels: readonly string[] | null;
+}
+
+/**
+ * Step 1: the recording's own positions, or the word they were refused with.
+ *
+ * The drawn rows are the positioned rows typed EEG (neuroschema's `drawn_rows` for measured
+ * positions; never a fiducial). When the projection refuses them, every drawn row is EEG by
+ * definition, so the channels are placed by name, from the drawn rows' labels only: a positioned
+ * EOG, ECG or MISC row, and a row that names no channel (GND, REF), neither blocks the fallback
+ * nor is placed.
+ */
+export function placeByPositions(input: ScalpInput): Placement | ToNames {
   const labels = Object.keys(input.positions);
-  if (labels.length === 0) return { kind: "names", unusedPositions: null };
+  if (labels.length === 0) return { kind: "names", unusedPositions: null, labels: null };
   const frame = input.coordinateSystem;
   if (INTRACRANIAL_FRAMES.has(frame)) {
     return {
@@ -132,9 +161,19 @@ export function placeByPositions(
     };
   }
   const typeOf = new Map(input.channels.map((c) => [c.label, c.channelType]));
+  if (!labels.some((label) => typeOf.has(label))) {
+    return {
+      kind: "refused",
+      word: "positions_unmatched",
+      detail: `${labels.length} positioned row(s), none named as a channel`,
+      unusedPositions: null,
+    };
+  }
   const sensorTypes = labels.map((label) => sensorType(typeOf.get(label)));
-  const rows = labels.flatMap((label, row) => (isFiducial(label) ? [] : [row]));
-  if (!rows.some((row) => typeClass(sensorTypes[row]) === "eeg")) {
+  const drawn = labels.filter(
+    (label, row) => !isFiducial(label) && typeClass(sensorTypes[row]) === "eeg",
+  );
+  if (drawn.length === 0) {
     return {
       kind: "refused",
       word: "no_eeg_sensors",
@@ -162,10 +201,7 @@ export function placeByPositions(
       unusedPositions: null,
     };
   }
-  if (rows.every((row) => typeClass(sensorTypes[row]) === "eeg")) {
-    return { kind: "names", unusedPositions: result.word };
-  }
-  return { kind: "refused", word: result.word, detail: result.detail, unusedPositions: null };
+  return { kind: "names", unusedPositions: result.word, labels: drawn };
 }
 
 /** The channels placement by name considers: typed EEG, or untyped and not named as another
@@ -189,8 +225,21 @@ export async function placeByNames(
   input: ScalpInput,
   unusedPositions: SensorLayoutWord | null,
   load: (name: string) => Promise<Montage>,
+  only: readonly string[] | null = null,
 ): Promise<Placement> {
-  const labels = nameCandidates(input.channels);
+  const labels = only ? [...only] : nameCandidates(input.channels);
+  if (labels.length === 0) {
+    const typed = input.channels.map((c) => typeClass(sensorType(c.channelType)));
+    const allOther = typed.length > 0 && typed.every((kind) => kind === "other");
+    return {
+      kind: "refused",
+      word: allOther ? "no_eeg_sensors" : "too_few_channels",
+      detail: allOther
+        ? "every scalp channel is typed, and none EEG"
+        : "no channel is typed EEG or untyped with an electrode's name",
+      unusedPositions,
+    };
+  }
   for (const name of candidateMontages(labels)) {
     let montage: Montage;
     try {
@@ -258,7 +307,7 @@ export async function placeScalpSensors(
   try {
     const first = placeByPositions(input);
     if (first.kind !== "names") return first;
-    return await placeByNames(input, first.unusedPositions, load);
+    return await placeByNames(input, first.unusedPositions, load, first.labels);
   } catch (error) {
     // A bug here must not end the viewer: the map is left undrawn and says it could not be drawn.
     console.error("[eeg-viewer] scalp placement failed:", error);

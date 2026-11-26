@@ -1,0 +1,689 @@
+{
+ "dataset": "on003039",
+ "store": "sub-001/eeg/sub-001_task-neurCorrYoung_eeg.zarr",
+ "updated_utc": "2026-09-07T02:35:32.579163+00:00",
+ "captured_from": "<public Zarr host>/on003039/zarr/sub-001/eeg/sub-001_task-neurCorrYoung_eeg.zarr/zarr.json and each channel group's zarr.json",
+ "root_sha256": "9674d4cbeab2b1533dd37b5e488b089f2c47d9d101e5577c4eca72776ef39c16",
+ "groups": [
+  {
+   "group": "eeg_250hz",
+   "sha256": "365314389a09484aeed24528836e59470e231d669bb9b88cafefef72c3a102c4"
+  }
+ ],
+ "electrode_coordinate_system": "Other",
+ "electrode_coordinate_units": "mm",
+ "electrode_positions": {
+  "Fp1": [
+   0.95,
+   0.31,
+   0.0
+  ],
+  "Fz": [
+   0.71,
+   -0.0,
+   0.71
+  ],
+  "F3": [
+   0.67,
+   0.55,
+   0.5
+  ],
+  "F7": [
+   0.59,
+   0.81,
+   0.0
+  ],
+  "F9": [
+   0.54,
+   0.74,
+   -0.39
+  ],
+  "FT9": [
+   0.28,
+   0.88,
+   -0.39
+  ],
+  "FC1": [
+   0.37,
+   0.36,
+   0.86
+  ],
+  "C3": [
+   0.0,
+   0.71,
+   0.71
+  ],
+  "T7": [
+   0.0,
+   1.0,
+   0.0
+  ],
+  "TP9": [
+   -0.28,
+   0.88,
+   -0.39
+  ],
+  "CP5": [
+   -0.33,
+   0.87,
+   0.36
+  ],
+  "CP1": [
+   -0.37,
+   0.36,
+   0.86
+  ],
+  "Pz": [
+   -0.71,
+   -0.0,
+   0.71
+  ],
+  "P3": [
+   -0.67,
+   0.55,
+   0.5
+  ],
+  "P7": [
+   -0.59,
+   0.81,
+   0.0
+  ],
+  "O1": [
+   -0.95,
+   0.31,
+   0.0
+  ],
+  "Oz": [
+   -1.0,
+   -0.0,
+   0.0
+  ],
+  "O2": [
+   -0.95,
+   -0.31,
+   0.0
+  ],
+  "P4": [
+   -0.67,
+   -0.55,
+   0.5
+  ],
+  "P8": [
+   -0.59,
+   -0.81,
+   0.0
+  ],
+  "TP10": [
+   -0.28,
+   -0.88,
+   -0.39
+  ],
+  "CP6": [
+   -0.33,
+   -0.87,
+   0.36
+  ],
+  "CP2": [
+   -0.37,
+   -0.36,
+   0.86
+  ],
+  "Cz": [
+   0.0,
+   -0.0,
+   1.0
+  ],
+  "C4": [
+   0.0,
+   -0.71,
+   0.71
+  ],
+  "T8": [
+   0.0,
+   -1.0,
+   0.0
+  ],
+  "FT10": [
+   0.28,
+   -0.88,
+   -0.39
+  ],
+  "FC2": [
+   0.37,
+   -0.36,
+   0.86
+  ],
+  "F4": [
+   0.67,
+   -0.55,
+   0.5
+  ],
+  "F8": [
+   0.59,
+   -0.81,
+   0.0
+  ],
+  "F10": [
+   0.54,
+   -0.74,
+   -0.39
+  ],
+  "Fp2": [
+   0.95,
+   -0.31,
+   0.0
+  ],
+  "Fpz": [
+   1.0,
+   -0.0,
+   0.0
+  ],
+  "AF3": [
+   0.89,
+   0.36,
+   0.28
+  ],
+  "AF7": [
+   0.81,
+   0.59,
+   0.0
+  ],
+  "F5": [
+   0.63,
+   0.73,
+   0.28
+  ],
+  "FT7": [
+   0.31,
+   0.95,
+   0.0
+  ],
+  "FC3": [
+   0.37,
+   0.66,
+   0.66
+  ],
+  "C1": [
+   0.0,
+   0.39,
+   0.92
+  ],
+  "C5": [
+   0.0,
+   0.93,
+   0.37
+  ],
+  "TP7": [
+   -0.31,
+   0.95,
+   0.0
+  ],
+  "CP3": [
+   -0.37,
+   0.66,
+   0.66
+  ],
+  "P5": [
+   -0.63,
+   0.73,
+   0.28
+  ],
+  "P9": [
+   -0.54,
+   0.74,
+   -0.39
+  ],
+  "PO9": [
+   -0.74,
+   0.54,
+   -0.39
+  ],
+  "PO7": [
+   -0.81,
+   0.59,
+   0.0
+  ],
+  "PO3": [
+   -0.89,
+   0.36,
+   0.28
+  ],
+  "I1": [
+   -0.88,
+   0.29,
+   -0.37
+  ],
+  "I2": [
+   -0.88,
+   -0.29,
+   -0.37
+  ],
+  "PO4": [
+   -0.89,
+   -0.36,
+   0.28
+  ],
+  "PO8": [
+   -0.81,
+   -0.59,
+   0.0
+  ],
+  "PO10": [
+   -0.74,
+   -0.54,
+   -0.39
+  ],
+  "P10": [
+   -0.54,
+   -0.74,
+   -0.39
+  ],
+  "P6": [
+   -0.63,
+   -0.73,
+   0.28
+  ],
+  "CPz": [
+   -0.37,
+   -0.0,
+   0.93
+  ],
+  "CP4": [
+   -0.37,
+   -0.66,
+   0.66
+  ],
+  "TP8": [
+   -0.31,
+   -0.95,
+   0.0
+  ],
+  "C6": [
+   0.0,
+   -0.93,
+   0.37
+  ],
+  "C2": [
+   0.0,
+   -0.39,
+   0.92
+  ],
+  "FC4": [
+   0.37,
+   -0.66,
+   0.66
+  ],
+  "FT8": [
+   0.31,
+   -0.95,
+   0.0
+  ],
+  "F6": [
+   0.63,
+   -0.73,
+   0.28
+  ],
+  "AF4": [
+   0.89,
+   -0.36,
+   0.28
+  ],
+  "AF8": [
+   0.81,
+   -0.59,
+   0.0
+  ],
+  "x_dir": [
+   0.0,
+   -0.0,
+   1.0
+  ],
+  "y_dir": [
+   0.0,
+   -0.0,
+   1.0
+  ],
+  "z_dir": [
+   0.0,
+   -0.0,
+   1.0
+  ]
+ },
+ "channels": [
+  {
+   "label": "Fp1",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "Fz",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "F3",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "F7",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "F9",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "FT9",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "FC1",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "C3",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "T7",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "TP9",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "CP5",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "CP1",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "Pz",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "P3",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "P7",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "O1",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "Oz",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "O2",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "P4",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "P8",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "TP10",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "CP6",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "CP2",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "Cz",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "C4",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "T8",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "FT10",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "FC2",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "F4",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "F8",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "F10",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "Fp2",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "Fpz",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "AF3",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "AF7",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "F5",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "FT7",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "FC3",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "C1",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "C5",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "TP7",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "CP3",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "P5",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "P9",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "PO9",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "PO7",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "PO3",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "I1",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "I2",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "PO4",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "PO8",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "PO10",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "P10",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "P6",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "CPz",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "CP4",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "TP8",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "C6",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "C2",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "FC4",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "FT8",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "F6",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "AF4",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "AF8",
+   "channel_type": "EEG",
+   "modality": "EEG"
+  },
+  {
+   "label": "x_dir",
+   "channel_type": "MISC",
+   "modality": "EEG"
+  },
+  {
+   "label": "y_dir",
+   "channel_type": "MISC",
+   "modality": "EEG"
+  },
+  {
+   "label": "z_dir",
+   "channel_type": "MISC",
+   "modality": "EEG"
+  }
+ ]
+}

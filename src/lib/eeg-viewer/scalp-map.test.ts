@@ -110,9 +110,35 @@ describe("placement from a recording's own positions", () => {
     expect(templateNote(p)).toContain("this recording's own positions were not used");
   });
 
-  it("keeps the projection's word when some positioned row is not EEG", async () => {
-    const input = await measured("biosemi64", "Other", (label) => (label === "A1" ? "EOG" : "EEG"));
-    expect(placeByPositions(input)).toMatchObject({ kind: "refused", word: "frame_unknown" });
+  it("falls back to names from the drawn rows only, past positioned EOG, ECG, MISC and unmatched rows", async () => {
+    const input = await measured("standard_1005", "Other", (label) =>
+      label === "Fp1" ? "EOG" : label === "Fp2" ? "ECG" : label === "Fpz" ? "MISC" : "EEG",
+    );
+    const withUnmatched: ScalpInput = {
+      ...input,
+      positions: { ...input.positions, GND: [0, 0.05, 0.08], REF: [0, -0.05, 0.08] },
+    };
+    const step = placeByPositions(withUnmatched);
+    if (step.kind !== "names") throw new Error(`not sent to names: ${JSON.stringify(step)}`);
+    expect(step.unusedPositions).toBe("frame_unknown");
+    expect(step.labels).not.toContain("Fp1");
+    expect(step.labels).not.toContain("GND");
+    expect(step.labels).toContain("Cz");
+    const p = placed(await placeScalpSensors(withUnmatched, loadMontage));
+    expect(p.source).toBe("names");
+    expect(p.labels).not.toContain("Fpz");
+    expect(p.labels).not.toContain("REF");
+  });
+
+  it("names its own word when the electrodes file names no channel of the recording", async () => {
+    const input = await measured("standard_1005", "CapTrak");
+    const renamed: ScalpInput = {
+      ...input,
+      channels: input.channels.map((c) => ({ ...c, label: `X${c.label}` })),
+    };
+    const p = await placeScalpSensors(renamed, loadMontage);
+    expect(p).toMatchObject({ kind: "refused", word: "positions_unmatched" });
+    expect(SCALP_MAP_SENTENCES.positions_unmatched).not.toBe(SCALP_MAP_SENTENCES.no_eeg_sensors);
   });
 
   it("places by name when the positions are flat, keeping positions_flat", async () => {
@@ -126,11 +152,18 @@ describe("placement from a recording's own positions", () => {
         ]),
       ),
     };
-    expect(placeByPositions(flat)).toEqual({ kind: "names", unusedPositions: "positions_flat" });
+    expect(placeByPositions(flat)).toMatchObject({
+      kind: "names",
+      unusedPositions: "positions_flat",
+    });
   });
 
   it("goes to names when the recording has no positions", () => {
-    expect(placeByPositions(byName(TEN_TWENTY))).toEqual({ kind: "names", unusedPositions: null });
+    expect(placeByPositions(byName(TEN_TWENTY))).toEqual({
+      kind: "names",
+      unusedPositions: null,
+      labels: null,
+    });
   });
 });
 
@@ -171,6 +204,25 @@ describe("placement by name", () => {
     const p = placed(await placeScalpSensors(byName(labels), loadMontage));
     expect(p.montage).toBe("GSN-HydroCel-129");
     expect(p.labels).toHaveLength(129);
+  });
+
+  it("reads the store's OTHER as untyped, so channels all OTHER and no positions place by name", async () => {
+    const p = placed(await placeScalpSensors(byName(TEN_TWENTY, "OTHER"), loadMontage));
+    expect(p.source).toBe("names");
+    expect(p.montage).toBe("standard_1005");
+    expect(p.labels).toEqual(TEN_TWENTY);
+  });
+
+  it("says too_few_channels when no channel could be an electrode", async () => {
+    for (const input of [byName([]), byName(["EOG1", "ECG", "Status"], "n/a")]) {
+      const p = await placeScalpSensors(input, loadMontage);
+      expect(p).toMatchObject({ kind: "refused", word: "too_few_channels" });
+    }
+  });
+
+  it("says no_eeg_sensors when every scalp channel is typed, and none EEG", async () => {
+    const p = await placeScalpSensors(byName(TEN_TWENTY, "MISC"), loadMontage);
+    expect(p).toMatchObject({ kind: "refused", word: "no_eeg_sensors" });
   });
 
   it("refuses labels no montage names", async () => {
@@ -226,6 +278,8 @@ describe("what the panel shows", () => {
       "positions_flat",
       "positions_partial",
       "labels_unrecognized",
+      "positions_unmatched",
+      "too_few_channels",
       "montage_unavailable",
       "worker",
     ] as const) {
@@ -322,5 +376,46 @@ describe("the canvas frame", () => {
     const fz = markers[view.map.geometry.plotted.indexOf(TEN_TWENTY.indexOf("Fz"))];
     const pz = markers[view.map.geometry.plotted.indexOf(TEN_TWENTY.indexOf("Pz"))];
     expect(toCanvas(frame, ...fz)[1]).toBeLessThan(toCanvas(frame, ...pz)[1]);
+  });
+});
+
+/**
+ * Regression fixtures captured from the real stores (test/fixtures/scalp-placement/): each has an
+ * electrodes file in the frame `Other`, which the projection refuses, and positioned non-EEG rows
+ * (EOG, ECG, VEOG, HEOG, MISC). Their EEG rows are placed by name on standard_1005.
+ */
+describe("recordings in an unknown frame with positioned non-EEG rows", () => {
+  interface Fixture {
+    readonly electrode_coordinate_system: string;
+    readonly electrode_positions: Record<string, [number, number, number]>;
+    readonly channels: readonly { label: string; channel_type: string; modality: string }[];
+  }
+  const fixture = async (dataset: string): Promise<ScalpInput> => {
+    const { readFileSync } = await import("node:fs");
+    const raw = JSON.parse(
+      readFileSync(
+        new URL(`../../../test/fixtures/scalp-placement/${dataset}.json`, import.meta.url),
+        "utf8",
+      ),
+    ) as Fixture;
+    return {
+      positions: raw.electrode_positions,
+      coordinateSystem: raw.electrode_coordinate_system,
+      channels: raw.channels
+        .filter((c) => c.modality === "EEG")
+        .map((c) => ({ label: c.label, channelType: c.channel_type })),
+    };
+  };
+
+  it.each(["nm000254", "on003690", "on003039"])("%s places on standard_1005", async (dataset) => {
+    const input = await fixture(dataset);
+    expect(input.coordinateSystem).toBe("Other");
+    const p = placed(await placeScalpSensors(input, loadMontage));
+    expect(p.source).toBe("names");
+    expect(p.montage).toBe("standard_1005");
+    expect(p.unusedPositions).toBe("frame_unknown");
+    expect(p.labels.length).toBeGreaterThanOrEqual(8);
+    const typeOf = new Map(input.channels.map((c) => [c.label, c.channelType]));
+    for (const label of p.labels) expect(typeOf.get(label), label).toBe("EEG");
   });
 });
