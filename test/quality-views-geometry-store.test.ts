@@ -15,8 +15,10 @@ import {
   evictions,
   geometryKey,
 } from "../src/lib/quality-views/geometry-store";
+import { luFactor } from "../src/lib/quality-views/linalg";
 import {
   type SensorFieldGeometry,
+  green,
   prepareSensorField,
   usableMask,
 } from "../src/lib/quality-views/sensor-field";
@@ -171,4 +173,31 @@ describe("storage that fails or misleads", () => {
     expect(evictions(keys, used, 16)).toEqual(["k17", "k16"]);
     expect(evictions(keys.slice(0, 16), used.slice(0, 16), 16)).toEqual([]);
   });
+});
+
+describe("the interpolation matrix", () => {
+  it.each(drawn.map((c) => [c.name, c] as const))(
+    "%s: is G[a][b] = g(|p_a - p_b|) with a zero diagonal, to the bit, before factorizing",
+    (_n, c) => {
+      const theta = numbers(c.sensors.theta_deg!);
+      const radius = numbers(c.sensors.radius!);
+      const built = prepareSensorField(
+        theta,
+        radius,
+        usableMask(theta, radius, numbers(c.sensors.value)),
+      );
+      if (built.kind !== "geometry") throw new Error(built.kind);
+      const { px, py } = built.geometry;
+      const k = px.length;
+      const g = new Float64Array(k * k);
+      for (let a = 0; a < k; a++) {
+        for (let b = 0; b < k; b++) {
+          const dx = px[a] - px[b];
+          const dy = py[a] - py[b];
+          g[a * k + b] = a === b ? 0 : green(dx * dx + dy * dy);
+        }
+      }
+      expect(identical(built.geometry.factors.lu, luFactor(g, k).lu)).toBeNull();
+    },
+  );
 });
