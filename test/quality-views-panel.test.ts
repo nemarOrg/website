@@ -22,7 +22,7 @@ import {
   viewsByTab,
   writeTurbo,
 } from "../src/lib/quality-views/panel-model";
-import { preloadPlan, startIdlePreload } from "../src/lib/quality-views/preload";
+import { preloadInput, preloadPlan, startIdlePreload } from "../src/lib/quality-views/preload";
 import { forgetPreloads, preloadedSource } from "../src/lib/quality-views/prepare-ahead";
 import { fileUrl } from "../src/lib/quality-views/quality-api";
 import { type QualityRecord, readRecordAnswer } from "../src/lib/quality-views/record";
@@ -151,6 +151,36 @@ describe("the idle preload's scope", () => {
     );
     expect(plan.maxBytes).toBe(plan.files.reduce((sum, f) => sum + f.size, plan.layout!.file.size));
     for (const f of plan.files) expect(f.url).toBe(url(f));
+    // prepareAhead is asked for exactly this: the cap follows the scope.
+    const signal = new AbortController().signal;
+    expect(preloadInput(plan, signal)).toEqual({
+      warm: true,
+      layout: plan.layout,
+      files: plan.files,
+      maxBytes: plan.maxBytes,
+      signal,
+    });
+  });
+
+  it("leaves out the Signal and Other tabs' data files", () => {
+    const table = {
+      key: "extra",
+      kind: "nemar.table",
+      kind_version: 1,
+      caption: "A table under Other.",
+      source: { recipe: { name: "nemar-ica", version: "1" } },
+      data: [
+        {
+          role: "table",
+          location: "x/y_desc-nemarica_extra.tsv",
+          format: "tsv",
+          size: 9,
+          sha256: "f".repeat(64),
+        },
+      ],
+    };
+    const plan = preloadPlan({ ...record, views: [...record.views, table] }, url);
+    expect(plan.files.some((f) => f.sha256 === "f".repeat(64))).toBe(false);
   });
 });
 
@@ -277,6 +307,27 @@ describe("the idle preload", () => {
     for (const sha of Object.keys(files)) {
       expect(await preloadedSource(none)({ location: "x", size: 1, sha256: sha })).toBeNull();
     }
+  });
+
+  it("forgets what it fetched when the visitor leaves after it finished", async () => {
+    let leave: () => void = () => {};
+    const run = startIdlePreload(TARGET, {
+      ...ready,
+      recordings,
+      fetch: route([]),
+      client: new SensorFieldClient(inThreadWorker),
+      onLeave: (go) => {
+        leave = go;
+      },
+    });
+    const result = await run.done;
+    if (result.kind !== "ran" || !result.outcome) throw new Error("no preload");
+    const plan = preloadPlan(record, (f) => fileUrl(BASE, record, f));
+    const none = async () => null;
+    expect(await preloadedSource(none)(plan.files[0])).not.toBeNull();
+    leave();
+    expect(heldRecord(RECORDING)).toBeNull();
+    for (const f of plan.files) expect(await preloadedSource(none)(f)).toBeNull();
   });
 
   it("leaves nothing behind when the route has no quality or fails", async () => {

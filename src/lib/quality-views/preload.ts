@@ -24,6 +24,7 @@ import { holdRecord } from "./panel-bridge";
 import { type TabId, qualityRecordings, tabOf } from "./panel-model";
 import {
   type PreloadFile,
+  type PrepareAheadInput,
   type PrepareAheadOptions,
   type PrepareAheadOutcome,
   forgetPreloads,
@@ -125,6 +126,18 @@ const pageLoaded = (): Promise<void> =>
     ? Promise.resolve()
     : new Promise((resolve) => addEventListener("load", () => resolve(), { once: true }));
 
+/** What `prepareAhead` is asked for: warm the worker, prepare the plan's layout, fetch its files,
+ *  under a cap of exactly their bytes. */
+export function preloadInput(plan: PreloadPlan, signal?: AbortSignal): PrepareAheadInput {
+  return {
+    warm: true,
+    layout: plan.layout ?? undefined,
+    files: plan.files,
+    maxBytes: plan.maxBytes,
+    signal,
+  };
+}
+
 function preloadOptions(deps: PreloadDeps): PrepareAheadOptions {
   const own = deps.fetch;
   return {
@@ -171,16 +184,7 @@ export function startIdlePreload(
       return { kind: "ran", recording: first.path, outcome: null };
     }
     const plan = preloadPlan(read.record, (file) => fileUrl(target.base, read.record, file));
-    const prepared = await prepareAhead(
-      {
-        warm: true,
-        layout: plan.layout ?? undefined,
-        files: plan.files,
-        maxBytes: plan.maxBytes,
-        signal,
-      },
-      preloadOptions(deps),
-    );
+    const prepared = await prepareAhead(preloadInput(plan, signal), preloadOptions(deps));
     return { kind: "ran", recording: first.path, outcome: prepared };
   })().catch((): PreloadRun => {
     // An abort or any fault: nothing is shown and nothing is kept; the panel does the work.
