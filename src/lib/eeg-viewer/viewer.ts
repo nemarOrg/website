@@ -770,7 +770,12 @@ export async function mountEegViewer(
     typeof document !== "undefined" ? document.createElement("canvas") : undefined;
   const scalpInput = scalpInputOf(store);
   let placement: Placement | null = null;
-  if (scalpInput) {
+  // Placed the first time the map is shown, so a recording whose map is never opened fetches no
+  // montage (a placement by name loads the fourteen montages names reach).
+  let placementStarted = false;
+  function startPlacement(): void {
+    if (placementStarted || !scalpInput) return;
+    placementStarted = true;
     void placeScalpSensors(scalpInput, loadMontage).then((placed) => {
       if (disposed) return;
       placement = placed;
@@ -1198,6 +1203,7 @@ export async function mountEegViewer(
     // A scalp recording whose map is refused reopens it, showing the reason.
     if (t.showTopo && scalpInput && !ui.topoBtn.disabled) {
       showTopo = true;
+      startPlacement();
       ui.topo.style.display = "flex";
       ui.topoBtn.setAttribute("aria-pressed", "true");
       ui.topoBtn.classList.add("eegv__btn--active");
@@ -2023,6 +2029,7 @@ export async function mountEegViewer(
   ui.topoBtn.addEventListener("click", () => {
     if (ui.topoBtn.disabled) return;
     showTopo = !showTopo && !!scalpInput;
+    if (showTopo) startPlacement();
     ui.topo.style.display = showTopo ? "flex" : "none";
     ui.topoBtn.setAttribute("aria-pressed", String(showTopo));
     ui.topoBtn.classList.toggle("eegv__btn--active", showTopo);

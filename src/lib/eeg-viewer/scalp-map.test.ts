@@ -295,6 +295,22 @@ describe("placement by name", () => {
     expect(p).toMatchObject({ kind: "refused", word: "no_eeg_sensors" });
   });
 
+  it("fetches no montage for a recording with too few candidate channels", async () => {
+    const asked: string[] = [];
+    const counting = (name: string): Promise<Montage> => {
+      asked.push(name);
+      return loadMontage(name);
+    };
+    const three = await placeScalpSensors(byName(["Fz", "Cz", "Pz"]), counting);
+    expect(three).toMatchObject({ kind: "refused", word: "too_few_channels" });
+    const excluded = await placeScalpSensors(
+      byName(["EOG1", "ECG", "Status", "Fz", "Cz", "Pz", "Oz", "Fp1", "Fp2"], "n/a"),
+      counting,
+    );
+    expect(excluded).toMatchObject({ kind: "refused", word: "too_few_channels" });
+    expect(asked).toEqual([]);
+  });
+
   it("says too_few_matched when 7 of 8 names match", async () => {
     const p = await placeScalpSensors(byName([...TEN_TWENTY.slice(0, 7), "X1"]), loadMontage);
     expect(p).toMatchObject({ kind: "refused", word: "too_few_matched" });

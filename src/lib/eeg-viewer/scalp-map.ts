@@ -37,10 +37,16 @@ import type { Montage } from "../quality-views/montages";
 import { mapFrame, markerPoints, toCanvas } from "../quality-views/render/map-frame";
 import {
   type LabelsReason,
+  MIN_CHANNELS,
+  countCandidates,
   inferPositions,
   loadNameMontages,
 } from "../quality-views/sensor-labels";
-import { LABELS_SENTENCES, asClause } from "../quality-views/sensor-labels-copy";
+import {
+  LABELS_SENTENCES,
+  MONTAGE_UNAVAILABLE_SENTENCE,
+  asClause,
+} from "../quality-views/sensor-labels-copy";
 import { type SensorLayoutWord, sensorLayout } from "../quality-views/sensor-layout";
 import { isFiducial, typeClass } from "../quality-views/sensor-names";
 import type { DrawOutcome, DrawnMap } from "../quality-views/worker-client";
@@ -82,7 +88,7 @@ export const SCALP_MAP_SENTENCES: Readonly<Record<PlacementWord | MapWord, strin
     "No scalp map: the electrode positions are too flat, or too few, to locate the head's center.",
   positions_partial:
     "No scalp map: the electrode positions cover too little of the head to locate its center.",
-  montage_unavailable: "No scalp map: the standard montage could not be loaded.",
+  montage_unavailable: `No scalp map: ${asClause(MONTAGE_UNAVAILABLE_SENTENCE)}`,
   too_few_sensors: "No scalp map: a map needs at least 8 placed channels with a value.",
   head_outside_grid: "No scalp map: the placed channels leave no part of the head to draw.",
   interpolation_failed: "No scalp map: the interpolation did not give a finite map.",
@@ -117,7 +123,8 @@ export interface ScalpInput {
   /** The channels of the recording's scalp groups, in order, with their BIDS type. */
   readonly channels: readonly { readonly label: string; readonly channelType: string }[];
   /** The sidecar's `CapManufacturersModelName` and `EEGReference`, which `nemar.sensor-labels.v1`
-   *  reads; the recording store carries neither today, so the viewer leaves them out. */
+   *  reads; the recording store carries neither today (nemarOrg/nemar-cli#2407), so the viewer
+   *  leaves them out and an EGI net placed by name is `cap_model_unknown`. */
   readonly capModel?: string | null;
   readonly reference?: string | null;
 }
@@ -252,6 +259,16 @@ export async function placeByNames(
       unusedPositions,
     };
   }
+  const given = labels.map((label) => [label, typeOf.get(label) ?? null] as const);
+  // Too few candidates is refused before any montage is fetched (countCandidates needs none).
+  if (countCandidates(given) < MIN_CHANNELS) {
+    return {
+      kind: "refused",
+      word: "too_few_channels",
+      detail: `${countCandidates(given)} candidate channel(s), fewer than ${MIN_CHANNELS}`,
+      unusedPositions,
+    };
+  }
   let montages: Montage[];
   try {
     montages = await loadNameMontages(load);
@@ -263,11 +280,10 @@ export async function placeByNames(
       unusedPositions,
     };
   }
-  const inference = inferPositions(
-    labels.map((label) => [label, typeOf.get(label) ?? null] as const),
-    montages,
-    { capModel: input.capModel ?? null, reference: input.reference ?? null },
-  );
+  const inference = inferPositions(given, montages, {
+    capModel: input.capModel ?? null,
+    reference: input.reference ?? null,
+  });
   if (inference.outcome === "refused") {
     return {
       kind: "refused",
