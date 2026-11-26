@@ -49,8 +49,8 @@ export const STORE_UNTYPED = "OTHER";
 
 /**
  * Why the sensors were not placed. `frame_unknown`, `positions_flat`, `positions_partial`,
- * `frame_not_scalp` and `no_eeg_sensors` are the amendment's words, and `too_few_channels` and
- * `labels_unrecognized` two of `nemar.sensor-labels.v1`'s; the other two are the viewer's own:
+ * `frame_not_scalp` and `no_eeg_sensors` are the amendment's words, and `too_few_channels`,
+ * `too_few_matched` and `labels_unrecognized` three of `nemar.sensor-labels.v1`'s; the other two are the viewer's own:
  * `positions_unmatched`, an electrodes file none of whose rows names a channel of the recording,
  * and `montage_unavailable`, a montage that cannot be loaded. No specification word says either.
  */
@@ -61,6 +61,7 @@ export type PlacementWord =
   | "positions_unmatched"
   | "too_few_channels"
   | "labels_unrecognized"
+  | "too_few_matched"
   | "montage_unavailable";
 
 /** Why a placed map was not drawn: the sensor-field words, or a worker that could not draw. */
@@ -80,12 +81,20 @@ export const SCALP_MAP_SENTENCES: Readonly<Record<PlacementWord | MapWord, strin
   positions_partial:
     "No scalp map: the electrode positions cover too little of the head to locate its center.",
   labels_unrecognized: "No scalp map: no channel name matches a standard montage.",
+  too_few_matched: "No scalp map: too few channel names match a standard montage.",
   montage_unavailable: "No scalp map: the standard montage could not be loaded.",
   too_few_sensors: "No scalp map: a map needs at least 8 placed channels with a value.",
   head_outside_grid: "No scalp map: the placed channels leave no part of the head to draw.",
   interpolation_failed: "No scalp map: the interpolation did not give a finite map.",
   worker: "No scalp map: the map could not be drawn on this page.",
 };
+
+/**
+ * `no_eeg_sensors` on the positions path when some channel of the recording is typed EEG, but none
+ * the electrodes file positions: the general sentence would be false there.
+ */
+export const NO_EEG_POSITIONED_SENTENCE =
+  "No scalp map: none of the channels the electrodes file positions is typed EEG.";
 
 /** Why a recording's own positions were not used, when its channels were placed by name. */
 export const UNUSED_POSITIONS_SENTENCES: Readonly<Record<SensorLayoutWord, string>> = {
@@ -123,6 +132,8 @@ export type Placement =
       /** A placement word, or `worker` when placing failed in a way no word names. */
       readonly word: PlacementWord | "worker";
       readonly detail: string;
+      /** The sentence in place of the map, when it is not the word's own (`placementSentence`). */
+      readonly sentence?: string;
       readonly unusedPositions: SensorLayoutWord | null;
     };
 
@@ -178,6 +189,9 @@ export function placeByPositions(input: ScalpInput): Placement | ToNames {
       kind: "refused",
       word: "no_eeg_sensors",
       detail: "no positioned row is typed EEG",
+      ...(input.channels.some((c) => typeClass(sensorType(c.channelType)) === "eeg")
+        ? { sentence: NO_EEG_POSITIONED_SENTENCE }
+        : {}),
       unusedPositions: null,
     };
   }
@@ -240,6 +254,9 @@ export async function placeByNames(
       unusedPositions,
     };
   }
+  // The most names any montage tried matched: none anywhere is `labels_unrecognized`; some, but too
+  // few for any montage to be taken, `too_few_matched`.
+  let bestMatched = 0;
   for (const name of candidateMontages(labels)) {
     let montage: Montage;
     try {
@@ -253,6 +270,7 @@ export async function placeByNames(
       };
     }
     const matched = matchLabels(labels, montage);
+    bestMatched = Math.max(bestMatched, matched.length);
     if (matched.length < MIN_MATCHED && name !== "standard_1005") continue;
     if (matched.length === 0) break;
     try {
@@ -291,12 +309,19 @@ export async function placeByNames(
       };
     }
   }
-  return {
-    kind: "refused",
-    word: "labels_unrecognized",
-    detail: `${labels.length} candidate channel(s), none named in a standard montage`,
-    unusedPositions,
-  };
+  return bestMatched === 0
+    ? {
+        kind: "refused",
+        word: "labels_unrecognized",
+        detail: `${labels.length} candidate channel(s), none named in a standard montage`,
+        unusedPositions,
+      }
+    : {
+        kind: "refused",
+        word: "too_few_matched",
+        detail: `at most ${bestMatched} of ${labels.length} candidate channel(s) named in one montage`,
+        unusedPositions,
+      };
 }
 
 /** Where a recording's sensors go: steps 1 to 3. Never rejects: every failure is a refusal. */
@@ -320,6 +345,11 @@ export async function placeScalpSensors(
   }
 }
 
+/** The sentence in place of a refused placement's map. */
+export function placementSentence(placement: Placement & { kind: "refused" }): string {
+  return placement.sentence ?? refusalSentence(placement.word);
+}
+
 /** The sentence shown in place of a map refused with `word`. */
 export function refusalSentence(word: PlacementWord | MapWord): string {
   return SCALP_MAP_SENTENCES[word];
@@ -337,7 +367,7 @@ export function viewOfPlacement(placement: Placement | null): TopoView | null {
     return { kind: "undrawn", sentence: "Placing the channels on the scalp map..." };
   }
   if (placement.kind === "refused") {
-    return { kind: "undrawn", sentence: refusalSentence(placement.word) };
+    return { kind: "undrawn", sentence: placementSentence(placement) };
   }
   return null;
 }

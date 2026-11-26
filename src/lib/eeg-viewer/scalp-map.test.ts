@@ -13,6 +13,7 @@ import { sensorLayout } from "../quality-views/sensor-layout";
 import { inThreadWorker } from "../quality-views/worker";
 import { SensorFieldClient } from "../quality-views/worker-client";
 import {
+  NO_EEG_POSITIONED_SENTENCE,
   type Placement,
   SCALP_MAP_SENTENCES,
   type ScalpInput,
@@ -130,6 +131,51 @@ describe("placement from a recording's own positions", () => {
     expect(p.labels).not.toContain("REF");
   });
 
+  it("says the positioned channels are not EEG when unpositioned ones are (the review's case)", async () => {
+    const montage = await loadMontage("standard_1005");
+    const at = (label: string) => {
+      const [x, y, z] = montage.positions[montage.names.indexOf(label)];
+      return [x, y, z] as [number, number, number];
+    };
+    const input: ScalpInput = {
+      positions: { HEOG: [0.07, 0.07, -0.02], VEOG: [0.03, 0.09, -0.03], FP1: at("Fp1") },
+      coordinateSystem: "CapTrak",
+      channels: [
+        ...TEN_TWENTY.map((label) => ({ label, channelType: "EEG" })),
+        { label: "HEOG", channelType: "EOG" },
+        { label: "VEOG", channelType: "EOG" },
+      ],
+    };
+    const p = await placeScalpSensors(input, loadMontage);
+    expect(p).toMatchObject({ kind: "refused", word: "no_eeg_sensors" });
+    expect(viewOfPlacement(p)).toEqual({ kind: "undrawn", sentence: NO_EEG_POSITIONED_SENTENCE });
+    // With no channel typed EEG at all, the general sentence holds.
+    const none = await placeScalpSensors(
+      { ...input, channels: input.channels.map((c) => ({ ...c, channelType: "EOG" })) },
+      loadMontage,
+    );
+    expect(viewOfPlacement(none)).toEqual({
+      kind: "undrawn",
+      sentence: SCALP_MAP_SENTENCES.no_eeg_sensors,
+    });
+  });
+
+  it("places only the drawn rows: no unpositioned EEG channel, no OTHER channel with an electrode's name", async () => {
+    const input = await measured("standard_1005", "Other", (label) =>
+      label === "Cz" ? "OTHER" : "EEG",
+    );
+    const withUnpositioned: ScalpInput = {
+      ...input,
+      positions: Object.fromEntries(Object.entries(input.positions).filter(([l]) => l !== "Oz")),
+    };
+    const p = placed(await placeScalpSensors(withUnpositioned, loadMontage));
+    expect(p.source).toBe("names");
+    expect(p.unusedPositions).toBe("frame_unknown");
+    expect(p.labels).toContain("Pz");
+    expect(p.labels).not.toContain("Oz");
+    expect(p.labels).not.toContain("Cz");
+  });
+
   it("names its own word when the electrodes file names no channel of the recording", async () => {
     const input = await measured("standard_1005", "CapTrak");
     const renamed: ScalpInput = {
@@ -225,6 +271,16 @@ describe("placement by name", () => {
     expect(p).toMatchObject({ kind: "refused", word: "no_eeg_sensors" });
   });
 
+  it("says too_few_matched when a recognized net matches one or two names and the 10-05 montage none", async () => {
+    // E300 points to the 257 net, which holds E1 and E2 but not E300; standard_1005 holds none.
+    const p = await placeScalpSensors(byName(["E1", "E2", "E300"]), loadMontage);
+    expect(p).toMatchObject({ kind: "refused", word: "too_few_matched" });
+    expect(viewOfPlacement(p)).toEqual({
+      kind: "undrawn",
+      sentence: SCALP_MAP_SENTENCES.too_few_matched,
+    });
+  });
+
   it("refuses labels no montage names", async () => {
     const p = await placeScalpSensors(byName(["ch1", "ch2", "ch3"]), loadMontage);
     expect(p).toMatchObject({ kind: "refused", word: "labels_unrecognized" });
@@ -278,6 +334,7 @@ describe("what the panel shows", () => {
       "positions_flat",
       "positions_partial",
       "labels_unrecognized",
+      "too_few_matched",
       "positions_unmatched",
       "too_few_channels",
       "montage_unavailable",

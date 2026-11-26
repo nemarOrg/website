@@ -80,7 +80,7 @@ import {
   type ScalpInput,
   paintScalpMap,
   placeScalpSensors,
-  refusalSentence,
+  placementSentence,
   rowValues,
   templateNote,
   viewOfDraw,
@@ -3015,7 +3015,7 @@ export function topoToggleTitle(
   placement: Placement,
   provenance: Pick<RecordingStore, "electrodePositionsSource" | "electrodePositionsFile">,
 ): string {
-  if (placement.kind === "refused") return `Scalp topomap - ${refusalSentence(placement.word)}`;
+  if (placement.kind === "refused") return `Scalp topomap - ${placementSentence(placement)}`;
   if (placement.source === "names") return `Scalp topomap - ${templateNote(placement)}`;
   const source = provenance.electrodePositionsSource;
   if (source === null) return TOPO_TITLE_BASE;
