@@ -1,0 +1,270 @@
+/**
+ * The per-recording quality panel in a real browser (website phase W6, #588): the real panel
+ * module (`src/lib/quality-views/panel.ts`), its lazy chunks and the real module worker, through
+ * Vite, on the record and files captured from the real nemar-cli route
+ * (`test/fixtures/quality-views/route/`, `scripts/capture-quality-fixtures.mjs`). The answers reach
+ * the panel through its `fetch` dependency as the route's own bytes (HTTP fixtures); nothing the
+ * panel decides is stood in for.
+ *
+ * It pins: a digest mismatch (a file's, and a declaration's) shows its sentence and draws nothing
+ * of that view; the deep link's round trip; one text row per component, each cell its stored text;
+ * the class counts as stored; the Turbo toggle; and the Signal tab's marks, checked against the
+ * store before the viewer would draw.
+ *
+ * The page is the dev server's `robots.txt`, a same-origin document that needs no API, into which
+ * the panel's server markup (`QualityPanel.astro`'s) is written. Run with
+ * `bun run test:e2e e2e/quality-panel.spec.ts`.
+ */
+
+import { readFileSync } from "node:fs";
+import { type Page, expect, test } from "@playwright/test";
+
+const ROUTE = new URL("../test/fixtures/quality-views/route/", import.meta.url);
+const read = (name: string) => readFileSync(new URL(name, ROUTE));
+const record = JSON.parse(read("record.json").toString("utf8")) as {
+  body: string;
+  headers: Record<string, string>;
+};
+const files = JSON.parse(read("files.json").toString("utf8")) as Record<
+  string,
+  { location: string }
+>;
+const provenance = JSON.parse(read("provenance.json").toString("utf8")) as {
+  dataset_id: string;
+  recipe: string;
+  recording: string;
+};
+const bytes = Object.fromEntries(
+  Object.keys(files).map((sha) => [sha, read(`files/${sha}`).toString("base64")]),
+);
+const shaOf = (suffix: string) =>
+  Object.keys(files).find((sha) => files[sha].location.endsWith(suffix))!;
+
+const SHELL = `
+<section class="qp" data-quality-panel>
+  <div class="qp__bar">
+    <label><span>Recording</span><select data-qp-recording disabled><option>Loading</option></select></label>
+    <button type="button" data-qp-turbo aria-pressed="false">Turbo colors</button>
+  </div>
+  <div role="tablist">
+    <button role="tab" data-qp-tab="spectrum" aria-selected="true" tabindex="0">Spectrum</button>
+    <button role="tab" data-qp-tab="components" aria-selected="false" tabindex="-1">Components</button>
+    <button role="tab" data-qp-tab="signal" aria-selected="false" tabindex="-1">Signal</button>
+    <button role="tab" data-qp-tab="other" aria-selected="false" tabindex="-1" hidden>Other views</button>
+  </div>
+  <div role="tabpanel" data-qp-panel="spectrum"></div>
+  <div role="tabpanel" data-qp-panel="components" hidden></div>
+  <div role="tabpanel" data-qp-panel="signal" hidden></div>
+  <div role="tabpanel" data-qp-panel="other" hidden></div>
+  <p data-qp-status role="status"></p>
+</section>`;
+
+interface MountOptions {
+  readonly hash?: string;
+  /** A change to one file's bytes, by the file's name suffix. */
+  readonly flip?: string;
+  /** A change to one view's caption in the record's text (its declaration no longer its digest). */
+  readonly recaption?: string;
+}
+
+/** Open the page, write the shell, and mount the panel on the captured answers. */
+async function mount(page: Page, options: MountOptions = {}): Promise<void> {
+  await page.goto("/robots.txt");
+  await page.evaluate(
+    async ({ shell, record, bytes, provenance, options, flipSha }) => {
+      document.body.innerHTML = shell;
+      if (options.hash) history.replaceState(null, "", options.hash);
+      const files = Object.fromEntries(
+        Object.entries(bytes).map(([sha, b64]) => [
+          sha,
+          Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)),
+        ]),
+      );
+      if (flipSha) files[flipSha][10] ^= 1;
+      let body = record.body;
+      let headers: Record<string, string> = record.headers;
+      if (options.recaption) {
+        const doc = JSON.parse(body);
+        for (const view of doc.dataQuality.recipes[provenance.recipe].views) {
+          if (view.key === options.recaption) view.caption = `${view.caption} (edited)`;
+        }
+        body = JSON.stringify(doc);
+        headers = { "Content-Type": "application/json" };
+      }
+      const fetchAnswer = async (input: RequestInfo | URL): Promise<Response> => {
+        const url = String(input);
+        if (url.includes("/record/")) return new Response(body, { headers });
+        const sha = Object.keys(files).find((s) => url.includes(`/${s}/`));
+        return sha
+          ? new Response(files[sha])
+          : new Response(JSON.stringify({ error: "view_not_declared" }), { status: 404 });
+      };
+      const bridge = await import(/* @vite-ignore */ "/src/lib/quality-views/panel-bridge.ts");
+      bridge.publishRecordings([
+        { path: provenance.recording, name: provenance.recording.split("/").pop() },
+      ]);
+      const { mountQualityPanel } = await import(
+        /* @vite-ignore */ "/src/lib/quality-views/panel.ts"
+      );
+      const root = document.querySelector<HTMLElement>("[data-quality-panel]")!;
+      const handle = mountQualityPanel(
+        {
+          root,
+          datasetId: provenance.dataset_id,
+          version: "v1.0.0",
+          recipe: provenance.recipe,
+          base: "https://data.example.invalid",
+        },
+        { fetch: fetchAnswer as typeof fetch },
+      );
+      (window as unknown as { panel: unknown }).panel = handle;
+      await handle.ready();
+    },
+    {
+      shell: SHELL,
+      record,
+      bytes,
+      provenance,
+      options,
+      flipSha: options.flip ? shaOf(options.flip) : null,
+    },
+  );
+}
+
+const ready = (page: Page) =>
+  page.evaluate(() => (window as unknown as { panel: { ready(): Promise<void> } }).panel.ready());
+
+test.describe.configure({ timeout: 60_000 });
+
+test("the Spectrum tab draws the lines and the maps at the initial frequencies", async ({
+  page,
+}) => {
+  await mount(page);
+  const view = page.locator('[data-qp-view="spectrum"]');
+  await expect(view.locator("svg.qv-lines")).toHaveCount(1);
+  await expect(view.locator(".qp-parameters")).toContainText("hamming windows of 2 s");
+  // initial_maps_hz is [6, 10, 22, 60]: four maps of the sensors' stored values.
+  await expect(view.locator(".qp-spectrum-maps canvas.qv-map-canvas")).toHaveCount(4);
+  // A click on the chart picks a row: one map at that frequency.
+  await view.locator("svg.qv-lines").click({ position: { x: 200, y: 100 } });
+  await expect(view.locator(".qp-spectrum-maps canvas.qv-map-canvas")).toHaveCount(1);
+});
+
+test("one text row per component, each cell its stored text; the classes as stored", async ({
+  page,
+}) => {
+  await mount(page);
+  await page.locator('[data-qp-tab="components"]').click();
+  await ready(page);
+  const table = read(`files/${shaOf("_components.tsv")}`)
+    .toString("utf8")
+    .trimEnd()
+    .split("\n");
+  const header = table[0].split("\t");
+  const units: Record<string, string> = { variance_pct: "%" };
+  const expected = table.slice(1).map((line) => {
+    const cells = line.split("\t");
+    return `${cells[0]}: ${header
+      .slice(1)
+      .map((name, i) => `${name} ${cells[i + 1]}${units[name] ? ` ${units[name]}` : ""}`)
+      .join(", ")}`;
+  });
+  await expect(page.locator(".qp-components li")).toHaveText(expected);
+  await expect(page.locator('[data-qp-view="icmaps"] canvas.qv-map-canvas')).toHaveCount(18);
+  const classes = JSON.parse(read(`files/${shaOf("_icclasses.json")}`).toString("utf8"));
+  await expect(page.locator(".qp-classes li").first()).toHaveText(
+    `Brain: ${classes.counts[0]} components; summed variance of components classed Brain: ${String(classes.summed_variance_pct[0])}%`,
+  );
+});
+
+test("a file that does not match its digest shows the sentence and draws nothing of its view", async ({
+  page,
+}) => {
+  await mount(page, { flip: "_mixing.tsv", hash: `#quality/${provenance.recording}/icmaps` });
+  const view = page.locator('[data-qp-view="icmaps"]');
+  await expect(view.locator('[data-word="file_digest_mismatch"]')).toHaveCount(1);
+  await expect(view.locator(".qv-drawing, canvas, svg")).toHaveCount(0);
+  // The other view of the tab still draws.
+  await expect(page.locator('[data-qp-view="icclasses"] svg')).not.toHaveCount(0);
+});
+
+test("a declaration that does not match its digest is not drawn", async ({ page }) => {
+  await mount(page, { recaption: "spectrum" });
+  const view = page.locator('[data-qp-view="spectrum"]');
+  await expect(view.locator('[data-word="view_digest_mismatch"]')).toHaveCount(1);
+  await expect(view.locator(".qv-drawing, canvas, svg")).toHaveCount(0);
+});
+
+test("the deep link round-trips: a link opens its tab and view, a tab writes its link", async ({
+  page,
+}) => {
+  const encoded = provenance.recording.split("/").map(encodeURIComponent).join("/");
+  await mount(page, { hash: `#quality/${encoded}/icclasses` });
+  await expect(page.locator('[data-qp-tab="components"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-qp-panel="components"]')).toBeVisible();
+  await page.locator('[data-qp-tab="spectrum"]').click();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe(`#quality/${encoded}/spectrum`);
+  // The written link, followed, opens the same tab.
+  await page.evaluate(() => {
+    history.replaceState(null, "", location.hash.replace(/\/spectrum$/, "/midsegment"));
+    dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+  await expect(page.locator('[data-qp-tab="signal"]')).toHaveAttribute("aria-selected", "true");
+  // Keyboard: the arrow keys move between the tabs.
+  await page.locator('[data-qp-tab="signal"]').focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.locator('[data-qp-tab="components"]')).toHaveAttribute("aria-selected", "true");
+});
+
+test("the Turbo toggle switches every map and is remembered", async ({ page }) => {
+  await mount(page);
+  await page.locator("[data-qp-turbo]").click();
+  await expect(page.locator("[data-qp-turbo]")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".qv-turbo").first()).toHaveAttribute("aria-pressed", "true");
+  expect(await page.evaluate(() => localStorage.getItem("nemar:quality-views:turbo"))).toBe("1");
+});
+
+test("the Signal tab's marks are the floor's, checked against the store first", async ({
+  page,
+}) => {
+  await mount(page);
+  const channels = read(`files/${shaOf("_channels.tsv")}`)
+    .toString("utf8")
+    .trimEnd()
+    .split("\n");
+  const names = channels.slice(1).map((line) => line.split("\t")[0]);
+  const bad = channels
+    .slice(1)
+    .map((line) => line.split("\t"))
+    .filter((cells) => cells[2] === "bad")
+    .map((cells) => cells[0]);
+  const prepared = await page.evaluate(async (labels) => {
+    const bridge = await import(/* @vite-ignore */ "/src/lib/quality-views/panel-bridge.ts");
+    const got: unknown[] = [];
+    bridge.registerSignalOpener(
+      async (_path: string, marks: { prepare: (s: unknown) => Promise<unknown> }) => {
+        got.push(await marks.prepare({ labels, samples: 250 * 600, rate: 250 }));
+        got.push(
+          await marks.prepare({ labels: [...labels, "EXTRA"], samples: 250 * 600, rate: 250 }),
+        );
+        return true;
+      },
+    );
+    document.querySelector<HTMLElement>('[data-qp-tab="signal"]')!.click();
+    await (window as unknown as { panel: { ready(): Promise<void> } }).panel.ready();
+    document.querySelector<HTMLButtonElement>(".qp-open")!.click();
+    for (let i = 0; i < 100 && got.length < 2; i++) await new Promise((r) => setTimeout(r, 50));
+    return got;
+  }, names);
+  const [ok, refused] = prepared as [
+    { ok: true; startS: number; durationS: number; badChannels: string[]; note: string },
+    { ok: false; sentence: string },
+  ];
+  expect(ok.ok).toBe(true);
+  expect(ok.startS).toBe(140);
+  expect(ok.durationS).toBe(2);
+  expect(ok.badChannels).toEqual(bad);
+  expect(ok.note).toContain("not checked against a digest NEMAR recorded");
+  // A store row the floor's table does not name: a decision dropped, so nothing is drawn.
+  expect(refused.ok).toBe(false);
+});
