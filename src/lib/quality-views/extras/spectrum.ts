@@ -16,9 +16,10 @@ async function maps(
   asked: { hz?: readonly number[]; rows?: readonly number[] },
 ): Promise<void> {
   const drawn = await spectrumMaps(x.view, x.source, asked, x.options, x.built ?? undefined);
-  if (!drawn) return;
+  if (!drawn || x.signal.aborted) return;
   if (drawn.refused !== null || !drawn.model) {
-    into.replaceChildren(await noteOf(x, drawn.refused ?? "empty"));
+    const note = await noteOf(x, drawn.refused ?? "empty");
+    if (!x.signal.aborted) into.replaceChildren(note);
     return;
   }
   const labels = drawn.model.maps.items.map((m) => m.label).join(", ");
@@ -48,6 +49,7 @@ export async function draw(x: ExtraContext): Promise<void> {
   const initial = Array.isArray(p.initial_maps_hz) ? (p.initial_maps_hz as number[]) : [];
   await maps(x, into, { hz: initial });
   x.figure?.addEventListener("qv-pick", (event) => {
+    if (x.signal.aborted) return;
     void maps(x, into, { rows: [(event as CustomEvent<{ row: number }>).detail.row] });
   });
 }

@@ -25,6 +25,7 @@ function list(x: ExtraContext, tag: "ol" | "ul", label: string, rows: [string, s
 export async function draw(x: ExtraContext): Promise<void> {
   if (x.view.kind === "nemar.ic-maps") {
     const rows = await icMapsRows(x.view, x.source, x.options);
+    if (x.signal.aborted) return;
     intoFigure(
       x.figure,
       list(
@@ -40,6 +41,7 @@ export async function draw(x: ExtraContext): Promise<void> {
     return;
   }
   const c = await icClassesContent(x.view, x.source, x.options);
+  if (x.signal.aborted) return;
   intoFigure(
     x.figure,
     list(x, "ul", "Classes", [

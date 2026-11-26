@@ -22,7 +22,7 @@ import {
   buildModel,
   downloadsOf,
 } from "./model";
-import { type PanelRecording, heldRecord, panelRecordings, preloaded } from "./panel-bridge";
+import { type PanelRecording, panelRecordings, preloaded, recordFor } from "./panel-bridge";
 import {
   DEFAULT_TAB,
   HASH_PREFIX,
@@ -41,6 +41,8 @@ import type { RecordOutcome } from "./quality-api";
 import { fileUrl, recordFiles } from "./quality-files";
 import type { QualityRecord } from "./record";
 import { type MountedView, mountView, renderRefusal, viewContext } from "./render/index";
+
+type FieldHandle = NonNullable<MountedView["field"]>;
 import { toDom } from "./tree";
 import { viewDigest } from "./verify";
 import { type SensorFieldClient, sharedSensorFieldClient } from "./worker-client";
@@ -121,9 +123,12 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
   let active: TabId = DEFAULT_TAB;
   let wanted: string | null = null;
   let record: QualityRecord | null = null;
+  /** The recording on show's work: aborted when another recording is shown. Each draw keeps the
+   *  signal it started under and stops at its next step once that signal aborts. */
   let controller = new AbortController();
   let drawn = new Map<TabId, Promise<void>>();
-  let fields: { field: NonNullable<MountedView["field"]>; model: SensorFieldModel }[] = [];
+  /** The scalp maps drawn, by the element they were drawn into: one live handle per target. */
+  const fields = new Map<HTMLElement, { field: FieldHandle; model: SensorFieldModel }>();
   let turbo = readTurbo(storage);
   let current: Promise<void> = Promise.resolve();
 
@@ -133,14 +138,23 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
     status.hidden = word === null;
   };
 
+  const colorOf = (model: SensorFieldModel) =>
+    turbo ? "turbo" : model.limits === "absmax" ? "diverging" : "sequential";
+
   const applyTurbo = (): void => {
     turboButton?.setAttribute("aria-pressed", String(turbo));
-    for (const { field, model } of fields) {
-      field.setColorMap(turbo ? "turbo" : model.limits === "absmax" ? "diverging" : "sequential");
+    for (const [target, { field, model }] of fields) {
+      if (!target.isConnected) continue;
+      field.setColorMap(colorOf(model));
     }
     for (const button of root.querySelectorAll(".qv-turbo")) {
       button.setAttribute("aria-pressed", String(turbo));
     }
+  };
+
+  const dropFields = (): void => {
+    for (const { field } of fields.values()) field.destroy();
+    fields.clear();
   };
 
   /** The address bar's hash names the recording and view on show: the deep link to copy. */
@@ -153,8 +167,8 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
     montage: (name) => import("./montage-loader").then((m) => m.loadMontage(name)),
   });
 
-  const source = (r: QualityRecord) =>
-    preloadedSource(recordFiles(base, r, { signal: controller.signal, fetch: deps.fetch }));
+  const source = (r: QualityRecord, signal: AbortSignal) =>
+    preloadedSource(recordFiles(base, r, { signal, fetch: deps.fetch }));
 
   const pageDeps = (layoutKey: string) => ({
     client,
@@ -165,32 +179,44 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
   const layoutKeyOf = (view: ViewDecl): string =>
     view.data?.find((d) => d.role === "layout")?.sha256 ?? `view:${view.key}`;
 
-  const keep = (mounted: MountedView, model: unknown): void => {
-    if (mounted.field && (model as { type?: string }).type === "sensor-field") {
-      fields.push({ field: mounted.field, model: model as SensorFieldModel });
-      if (turbo) applyTurbo();
-    }
-  };
-
   const mountInto = async (
     target: HTMLElement,
     built: BuiltModel,
     ctx: ReturnType<typeof viewContext>,
     layoutKey: string,
+    signal: AbortSignal,
   ): Promise<HTMLElement | null> => {
-    const mounted = await mountView(target, built, ctx, pageDeps(layoutKey), controller.signal);
-    keep(mounted, built.model);
+    // A redraw into the same element (the spectrum's maps at a picked row) ends the one before.
+    fields.get(target)?.field.destroy();
+    fields.delete(target);
+    const mounted = await mountView(target, built, ctx, pageDeps(layoutKey), signal);
+    if (signal.aborted) {
+      mounted.field?.destroy();
+      return null;
+    }
+    if (mounted.field && built.model.type === "sensor-field") {
+      fields.set(target, { field: mounted.field, model: built.model });
+      if (turbo) mounted.field.setColorMap("turbo");
+    }
     return mounted.element;
   };
 
-  async function drawView(view: ViewDecl, r: QualityRecord, container: HTMLElement): Promise<void> {
+  async function drawView(
+    view: ViewDecl,
+    r: QualityRecord,
+    container: HTMLElement,
+    signal: AbortSignal,
+  ): Promise<void> {
     const ctx = viewContext(view, `qp-${view.key}`, (file) => fileUrl(base, r, file));
-    const refuse = (word: string, downloads = downloadsOf(view)): void =>
-      void container.replaceChildren(toDom(renderRefusal(word, downloads, ctx), doc));
+    const refuse = (word: string, downloads = downloadsOf(view)): void => {
+      if (!signal.aborted)
+        container.replaceChildren(toDom(renderRefusal(word, downloads, ctx), doc));
+    };
     const digest = await viewDigest(view);
+    if (signal.aborted) return;
     if (digest === null || digest !== r.digests[view.key]) return refuse("view_digest_mismatch");
     const opts = options();
-    const files = source(r);
+    const files = source(r, signal);
     const layoutKey = layoutKeyOf(view);
     const extras = Object.hasOwn(EXTRAS, view.kind) ? EXTRAS[view.kind] : null;
     const loading = extras?.();
@@ -200,21 +226,27 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
       try {
         built = await buildModel(view, files, {
           ...opts,
-          onLayout: (places) => void client().prepare({ layoutKey, ...places }),
+          onLayout: (places) => {
+            if (!signal.aborted) void client().prepare({ layoutKey, ...places });
+          },
         });
       } catch (error) {
+        if (signal.aborted) return;
         if (!(error instanceof ViewRefused)) throw error;
         return refuse(error.word, error.downloads);
       }
+      if (signal.aborted) return;
       const target = doc.createElement("div");
       container.replaceChildren(target);
-      figure = await mountInto(target, built, ctx, layoutKey);
+      figure = await mountInto(target, built, ctx, layoutKey, signal);
       // A base that refused its files shows the fallback; the preset adds nothing to it.
       if (!figure || built.refused !== null) return;
     }
     if (!loading) return;
     try {
-      await (await loading).draw({
+      const own = await loading;
+      if (signal.aborted) return;
+      await own.draw({
         doc,
         view,
         record: r,
@@ -224,10 +256,12 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
         source: files,
         options: opts,
         ctx,
-        mount: async (target, b, c) => void (await mountInto(target, b, c, layoutKey)),
+        signal,
+        mount: async (target, b, c) => void (await mountInto(target, b, c, layoutKey, signal)),
         sentence,
       });
     } catch (error) {
+      if (signal.aborted) return;
       const word = (error as { word?: unknown }).word;
       if (typeof word !== "string") throw error;
       if (error instanceof ViewRefused) return refuse(word, error.downloads);
@@ -243,21 +277,23 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
     const r = record;
     const panel = panels.get(tab);
     if (!r || !panel) return Promise.resolve();
+    const { signal } = controller;
     const keys = viewsByTab(r.views as unknown as ViewDecl[]).get(tab) ?? [];
     const skipped = r.skipped.filter((s) => tabOf(s.kind) === tab);
     panel.replaceChildren();
-    const said = (word: string, lead = ""): void => {
+    const said = (word: string, text: (sentence: string) => string): void => {
       const p = doc.createElement("p");
       p.className = "qv-note";
       p.dataset.word = word;
       panel.append(p);
-      void sentence(word).then((text) => {
-        p.textContent = `${lead}${text}`;
+      void import("./panel-words").then((m) => {
+        if (!signal.aborted) p.textContent = text(m.sentenceOf(word, "skipped_unknown"));
       });
     };
-    if (keys.length === 0 && skipped.length === 0) said("no_view");
-    for (const s of skipped)
-      said(s.reason, `The view ${s.key} was not written for this recording: `);
+    if (keys.length === 0 && skipped.length === 0) said("no_view", (t) => t);
+    for (const s of skipped) {
+      said(s.reason, (t) => `The view ${s.key} was not written for this recording: ${t}.`);
+    }
     const work = Promise.all(
       keys.map((key) => {
         const view = r.views.find((v) => v.key === key) as unknown as ViewDecl;
@@ -265,13 +301,18 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
         container.className = "qp-view";
         container.dataset.qpView = key;
         panel.append(container);
-        return drawView(view, r, container).catch((error: unknown) => {
-          if (controller.signal.aborted) return;
+        return drawView(view, r, container, signal).catch(async (error: unknown) => {
+          if (signal.aborted) return;
           console.error("[quality-views] a view of the panel could not be drawn:", error);
+          const p = doc.createElement("p");
+          p.className = "qv-note";
+          p.dataset.word = "failed";
+          p.textContent = await sentence("failed");
+          if (!signal.aborted) container.replaceChildren(p);
         });
       }),
     ).then(() => {
-      if (wanted && keys.includes(wanted)) {
+      if (!signal.aborted && wanted && keys.includes(wanted)) {
         panel.querySelector(`[data-qp-view="${wanted}"]`)?.scrollIntoView({ block: "nearest" });
       }
     });
@@ -279,28 +320,41 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
     return work;
   }
 
+  /** The tab of a view of the record on show, or the active tab (the default when it is hidden). */
+  const tabOfKey = (key: string | null): TabId => {
+    const kind = record?.views.find((v) => v.key === key)?.kind;
+    if (typeof kind === "string") return tabOf(kind);
+    return tabs.get(active)?.hidden ? DEFAULT_TAB : active;
+  };
+
   function activate(tab: TabId, write = true): Promise<void> {
-    active = tab;
+    active = tabs.get(tab)?.hidden ? DEFAULT_TAB : tab;
     for (const [id, button] of tabs) {
-      const on = id === tab;
+      const on = id === active;
       button.setAttribute("aria-selected", String(on));
       button.tabIndex = on ? 0 : -1;
       panels.get(id)!.hidden = !on;
     }
     if (write && path) {
-      const keys = record ? (viewsByTab(record.views as never).get(tab) ?? []) : [];
+      const keys = record ? (viewsByTab(record.views as never).get(active) ?? []) : [];
       showLink(wanted && keys.includes(wanted) ? wanted : (keys[0] ?? null));
     }
-    return drawTab(tab);
+    return drawTab(active);
   }
+
+  /** The record of a recording: the idle preload's when it settles the question, else asked now. */
+  const recordOf = (recording: string, signal: AbortSignal): Promise<RecordOutcome> =>
+    recordFor(recording, async () => {
+      const { fetchRecord } = await import("./quality-api");
+      return fetchRecord({ base, datasetId, recipe, recording }, { signal, fetch: deps.fetch });
+    });
 
   async function show(recording: string, key: string | null, write: boolean): Promise<void> {
     controller.abort();
     controller = new AbortController();
     const { signal } = controller;
     drawn = new Map();
-    for (const { field } of fields) field.destroy();
-    fields = [];
+    dropFields();
     path = recording;
     wanted = key;
     record = null;
@@ -308,14 +362,13 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
     for (const panel of panels.values()) panel.replaceChildren();
     status.textContent = "Loading the recording's quality views…";
     status.hidden = false;
-    const ask = { base, datasetId, recipe, recording };
     let outcome: RecordOutcome;
     try {
-      // The idle preload has usually read and checked the record already; otherwise the record's
-      // reader loads now, beside the request.
-      outcome = await ((heldRecord(recording) as Promise<RecordOutcome> | null) ??
-        import("./quality-api").then((m) => m.fetchRecord(ask, { signal, fetch: deps.fetch })));
-    } catch {
+      outcome = await recordOf(recording, signal);
+    } catch (error) {
+      if (signal.aborted) return;
+      console.error("[quality-views] the recording's record could not be read:", error);
+      await say("failed");
       return;
     }
     if (signal.aborted) return;
@@ -329,12 +382,6 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
     tabs.get("other")!.hidden = !viewsByTab(record.views as never).get("other")?.length;
     await activate(tabOfKey(key), write);
   }
-
-  /** The tab of a view of the record on show, or the active tab. */
-  const tabOfKey = (key: string | null): TabId => {
-    const kind = record?.views.find((v) => v.key === key)?.kind;
-    return typeof kind === "string" ? tabOf(kind) : active;
-  };
 
   async function route(hash: string): Promise<void> {
     const link = parseQualityHash(hash);
@@ -423,7 +470,7 @@ export function mountQualityPanel(config: PanelConfig, deps: PanelDeps = {}): Pa
     destroy() {
       controller.abort();
       removeEventListener("hashchange", onHash);
-      for (const { field } of fields) field.destroy();
+      dropFields();
     },
   };
 }

@@ -21,6 +21,8 @@ export interface ExtraContext {
   readonly source: FileSource;
   readonly options: ModelOptions;
   readonly ctx: ViewContext;
+  /** The recording's work: aborted when another recording is shown; check it after each await. */
+  readonly signal: AbortSignal;
   /** Draw a built model into `target` as the panel draws every view (the page's client, Turbo). */
   mount(target: HTMLElement, built: BuiltModel, ctx: ViewContext): Promise<void>;
   /** A word's sentence (`panel-words.ts`). */
