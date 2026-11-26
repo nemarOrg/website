@@ -1,0 +1,90 @@
+{
+  "346942799b8897e62236dbda8d4c702fc3628c2e99a006391c0a888dd25d5293": {
+    "location": "sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_desc-nemarica_mixing.tsv",
+    "status": 200,
+    "headers": {
+      "Content-Type": "text/tab-separated-values; charset=utf-8",
+      "Cache-Control": "public, max-age=300",
+      "ETag": "\"346942799b8897e62236dbda8d4c702fc3628c2e99a006391c0a888dd25d5293\"",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Disposition": "inline; filename*=UTF-8''sub-CUCOV076_task-COVID_desc-nemarica_mixing.tsv"
+    }
+  },
+  "80b91f4cb77048e7834c2442a551d88805869b73210840862ac47785978a5b6c": {
+    "location": "sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_desc-nemarica_chanlocs.tsv",
+    "status": 200,
+    "headers": {
+      "Content-Type": "text/tab-separated-values; charset=utf-8",
+      "Cache-Control": "public, max-age=300",
+      "ETag": "\"80b91f4cb77048e7834c2442a551d88805869b73210840862ac47785978a5b6c\"",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Disposition": "inline; filename*=UTF-8''sub-CUCOV076_task-COVID_desc-nemarica_chanlocs.tsv"
+    }
+  },
+  "471642ab64dce5ab6b81d5cbab65d1ba78ad773b7582c0de1618ad7712d8ba07": {
+    "location": "sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_desc-nemarica_components.tsv",
+    "status": 200,
+    "headers": {
+      "Content-Type": "text/tab-separated-values; charset=utf-8",
+      "Cache-Control": "public, max-age=300",
+      "ETag": "\"471642ab64dce5ab6b81d5cbab65d1ba78ad773b7582c0de1618ad7712d8ba07\"",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Disposition": "inline; filename*=UTF-8''sub-CUCOV076_task-COVID_desc-nemarica_components.tsv"
+    }
+  },
+  "be8f5dc22f6cd3384547c6994905bae27a6705e2a4ba5a40054fcf01f6c45713": {
+    "location": "sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_desc-nemarica_servingunmixing.tsv",
+    "status": 200,
+    "headers": {
+      "Content-Type": "text/tab-separated-values; charset=utf-8",
+      "Cache-Control": "public, max-age=300",
+      "ETag": "\"be8f5dc22f6cd3384547c6994905bae27a6705e2a4ba5a40054fcf01f6c45713\"",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Disposition": "inline; filename*=UTF-8''sub-CUCOV076_task-COVID_desc-nemarica_servingunmixing.tsv"
+    }
+  },
+  "90cefa3eeb9413c3eb8aaae05e05a70444093cfcd8eca3b4a89ab5d1ec54dcb4": {
+    "location": "sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_desc-nemarica_badsegments.tsv",
+    "status": 200,
+    "headers": {
+      "Content-Type": "text/tab-separated-values; charset=utf-8",
+      "Cache-Control": "public, max-age=300",
+      "ETag": "\"90cefa3eeb9413c3eb8aaae05e05a70444093cfcd8eca3b4a89ab5d1ec54dcb4\"",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Disposition": "inline; filename*=UTF-8''sub-CUCOV076_task-COVID_desc-nemarica_badsegments.tsv"
+    }
+  },
+  "b3ab512ffefeb98851ab2c8daada8b06c66052a7dc657ebe7dacabe77078dc2e": {
+    "location": "sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_desc-nemarica_channels.tsv",
+    "status": 200,
+    "headers": {
+      "Content-Type": "text/tab-separated-values; charset=utf-8",
+      "Cache-Control": "public, max-age=300",
+      "ETag": "\"b3ab512ffefeb98851ab2c8daada8b06c66052a7dc657ebe7dacabe77078dc2e\"",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Disposition": "inline; filename*=UTF-8''sub-CUCOV076_task-COVID_desc-nemarica_channels.tsv"
+    }
+  },
+  "9c8faaa4efcfaada74273f11dade28a08135b94de3c3d38ec6bb50f97c4b841f": {
+    "location": "sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_desc-nemarica_icclasses.json",
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "Cache-Control": "public, max-age=300",
+      "ETag": "\"9c8faaa4efcfaada74273f11dade28a08135b94de3c3d38ec6bb50f97c4b841f\"",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Disposition": "inline; filename*=UTF-8''sub-CUCOV076_task-COVID_desc-nemarica_icclasses.json"
+    }
+  },
+  "452b2488efaafbd59af03a3baae54fb2b7f4fa2404894898dbbbc0f3529a2301": {
+    "location": "sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_desc-nemarica_spectrum.tsv",
+    "status": 200,
+    "headers": {
+      "Content-Type": "text/tab-separated-values; charset=utf-8",
+      "Cache-Control": "public, max-age=300",
+      "ETag": "\"452b2488efaafbd59af03a3baae54fb2b7f4fa2404894898dbbbc0f3529a2301\"",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Disposition": "inline; filename*=UTF-8''sub-CUCOV076_task-COVID_desc-nemarica_spectrum.tsv"
+    }
+  }
+}
