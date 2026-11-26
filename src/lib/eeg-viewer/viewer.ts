@@ -653,6 +653,9 @@ export async function mountEegViewer(
   // The floor's bad channels (the quality panel's marks, website W6): dimmed like a channel the
   // visitor marked, but never one of the visitor's marks, so the annotation layer never counts them.
   const floorBad = new Set<string>();
+  /** Whether "Hide bad" hides a channel: the one rule the montage and its readout share, so the
+   *  count said is the channels taken out. */
+  const hidden = (label: string): boolean => hideBad && isDimmed(label, badChannels, floorBad);
 
   // Background preload (website#254): a byte-capped cache of decoded windows
   // ("segments" -- fixed-width slices of the recording, currently the window
@@ -1506,10 +1509,7 @@ export async function mountEegViewer(
     // shrank within every render, and in a `fitHeight` viewer each wrap of
     // the toolbar moved the plot and started another render.
     const visible = g.channelsByRow.slice(chanStart, visEnd);
-    const hiddenInView =
-      hideBad && badChannels.size > 0
-        ? visible.filter((ch) => badChannels.has(ch.label)).length
-        : 0;
+    const hiddenInView = visible.filter((ch) => hidden(ch.label)).length;
     const chanRange =
       visEnd - chanStart >= g.nChannels
         ? `all ${g.nChannels}`
@@ -1614,8 +1614,9 @@ export async function mountEegViewer(
     // the full height) rather than only dimming them in place. Never blank the scope
     // if every visible channel is marked bad. The readout's count was written
     // before the read, from the same rows.
-    if (hideBad && badChannels.size > 0) {
-      const kept = channels.filter((c) => !badChannels.has(c.label));
+    // "Hide bad" hides the floor's marks too, as it hid every bad channel before W6.
+    if (hideBad) {
+      const kept = channels.filter((c) => !hidden(c.label));
       if (kept.length > 0) channels = kept;
     }
 
