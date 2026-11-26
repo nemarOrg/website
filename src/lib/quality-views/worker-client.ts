@@ -288,18 +288,19 @@ export class SensorFieldClient {
   ): Promise<WorkerResponse | Unavailable> {
     const id = this.nextId++;
     const answer = this.ask({ ...request, type: "activity", id } as ActivityRequest, transfer);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        this.asks.get(id)?.({ type: "cancelled", id });
-        this.worker?.then(
-          (worker) => worker.postMessage({ type: "cancel", id }),
-          () => {},
-        );
-      },
-      { once: true },
-    );
-    return answer;
+    // Only a step still waiting for its answer is cancelled: once it settles, a later abort says
+    // nothing to the worker.
+    const onAbort = (): void => {
+      const settle = this.asks.get(id);
+      if (!settle) return;
+      settle({ type: "cancelled", id });
+      this.worker?.then(
+        (worker) => worker.postMessage({ type: "cancel", id }),
+        () => {},
+      );
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    return answer.finally(() => signal?.removeEventListener("abort", onAbort));
   }
 
   /**

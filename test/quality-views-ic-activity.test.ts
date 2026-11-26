@@ -740,3 +740,50 @@ describe("openServingStore on a Zarr store", () => {
     expect(await servingStoreOf(map, "eeg", new AbortController().signal)).toBeNull();
   });
 });
+
+describe("a cancel after the answer", () => {
+  it("is not sent, and the worker holds no cancel", async () => {
+    const { createSensorFieldHandler } = await import("../src/lib/quality-views/worker");
+    const c = (vectors.cases as Case[]).find((x) => x.name === "serving_32")!;
+    const toWorker: { type: string }[] = [];
+    let handler: ReturnType<typeof createSensorFieldHandler> | null = null;
+    // The worker's own handler behind a MessageChannel, its incoming messages recorded.
+    const client = new SensorFieldClient(() => {
+      const channel = new MessageChannel();
+      handler = createSensorFieldHandler((message, transfer) =>
+        channel.port2.postMessage(message, transfer),
+      );
+      channel.port2.onmessage = (event) => {
+        toWorker.push(event.data);
+        handler!(event.data);
+      };
+      const port = {
+        postMessage: (message: unknown, transfer: Transferable[] = []) =>
+          channel.port1.postMessage(message, transfer),
+        onmessage: null as ((event: MessageEvent) => void) | null,
+        terminate: () => {
+          channel.port1.close();
+          channel.port2.close();
+        },
+      };
+      channel.port1.onmessage = (event) => port.onmessage?.(event);
+      return port;
+    });
+    const controller = new AbortController();
+    const got = await run(c, workerTransform(client), controller.signal);
+    expectParity(c, got!);
+    // Every step answered; the visitor leaves afterwards.
+    controller.abort();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(toWorker.filter((m) => m.type === "cancel")).toEqual([]);
+    expect(handler!.heldCancels()).toBe(0);
+    client.terminate();
+  });
+
+  it("for a finished id is not kept by the worker", async () => {
+    const { createSensorFieldHandler } = await import("../src/lib/quality-views/worker");
+    const handler = createSensorFieldHandler(() => {});
+    handler({ type: "cancel", id: 7 });
+    expect(handler.heldCancels()).toBe(0);
+  });
+});

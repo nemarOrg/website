@@ -158,9 +158,21 @@ async function checkHere(view: unknown): Promise<ViewCheck> {
  * The worker's message handler, with its own cache. `post` sends an answer; each answer's buffers
  * are listed for transfer.
  */
-export function createSensorFieldHandler(post: Post): (data: unknown) => void {
+export function createSensorFieldHandler(
+  post: Post,
+): ((data: unknown) => void) & { readonly heldCancels: () => number } {
   const cache = new Map<string, CacheEntry>();
   const cancelled = new Set<number>();
+  /** The draws and activity steps still running: only these take a `cancel`, so a cancel that
+   *  arrives after its request ended is not kept. */
+  const running = new Set<number>();
+  const track = (id: number, work: Promise<void>): void => {
+    running.add(id);
+    void work.finally(() => {
+      running.delete(id);
+      cancelled.delete(id);
+    });
+  };
 
   function geometryFor(
     request: DrawRequest | PrepareRequest,
@@ -350,7 +362,7 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
     ]);
   }
 
-  return (data: unknown) => {
+  const handle = (data: unknown): void => {
     const problem = requestProblem(data);
     const id = (data as { id?: unknown } | null)?.id;
     if (problem !== null) {
@@ -362,7 +374,7 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
     }
     const request = data as WorkerRequest;
     if (request.type === "cancel") {
-      cancelled.add(request.id);
+      if (running.has(request.id)) cancelled.add(request.id);
       return;
     }
     if (request.type === "check") {
@@ -388,8 +400,11 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
       return;
     }
     if (request.type === "activity") {
-      activity(request).catch((error: unknown) =>
-        post({ type: "failure", id: request.id, message: describe(error) }, []),
+      track(
+        request.id,
+        activity(request).catch((error: unknown) =>
+          post({ type: "failure", id: request.id, message: describe(error) }, []),
+        ),
       );
       return;
     }
@@ -417,10 +432,15 @@ export function createSensorFieldHandler(post: Post): (data: unknown) => void {
       }
       return;
     }
-    draw(request).catch((error: unknown) => {
-      post({ type: "failure", id: request.id, message: describe(error) }, []);
-    });
+    track(
+      request.id,
+      draw(request).catch((error: unknown) => {
+        post({ type: "failure", id: request.id, message: describe(error) }, []);
+      }),
+    );
   };
+  /** How many cancels the handler holds: those of requests still running (the tests read it). */
+  return Object.assign(handle, { heldCancels: () => cancelled.size });
 }
 
 /**
