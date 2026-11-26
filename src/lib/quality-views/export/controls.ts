@@ -15,6 +15,7 @@
  * line read aloud.
  */
 
+import { MARKETING_BASE_URL } from "../../host";
 import type { ColorMapName } from "../colormap";
 import {
   type BuiltModel,
@@ -53,8 +54,24 @@ export interface ExportInput {
   /** The color map the page paints a scalp map with now (the Turbo toggle). */
   readonly colorOf: (model: SensorFieldModel) => ColorMapName;
   readonly version: string | null;
-  /** The site's origin, for the permalink. */
+  /** The page's origin: the permalink names the canonical site instead, except in local
+   *  development (`permalinkOrigin`). */
   readonly origin: string;
+}
+
+/** The site a permalink names: the canonical one (`MARKETING_BASE_URL`, the site's configured
+ *  public address; C14 of the live-views plan), whatever host the page is served from, except in
+ *  local development, where the page's own origin is the only one that opens. */
+export function permalinkOrigin(pageOrigin: string): string {
+  let host = "";
+  try {
+    host = new URL(pageOrigin).hostname;
+  } catch {
+    // Not an address: the canonical site.
+  }
+  const local =
+    host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".localhost");
+  return local ? pageOrigin : MARKETING_BASE_URL;
 }
 
 /** The view's scalp maps on show now, each with the color map the page paints it with. */
@@ -86,7 +103,7 @@ export function exportMeta(input: ExportInput): ExportMeta {
     kindVersion: view.kind_version,
     // Compared with the declaration's own digest before the view was drawn (`panel.ts`).
     digest: record.digests[view.key],
-    permalink: qualityPermalink(input.origin, record.datasetId, input.version, {
+    permalink: qualityPermalink(permalinkOrigin(input.origin), record.datasetId, input.version, {
       recording: record.recording,
       key: view.key,
     }),
@@ -110,19 +127,25 @@ export function fillExport(host: HTMLElement, input: ExportInput): void {
   const say = (text: string): void => {
     status.textContent = text;
   };
-  /** A button that runs `act` once at a time and says what failed. */
+  /** A button that runs `act` once at a time and says what failed. While it runs it is
+   *  `aria-disabled` and ignores a second click, but never `disabled`: a disabled button drops
+   *  the keyboard's focus to the page. */
   const button = (label: string, act: () => Promise<string>): HTMLButtonElement => {
     const b = el("button", label);
     b.type = "button";
+    let busy = false;
     b.addEventListener("click", async () => {
-      b.disabled = true;
+      if (busy) return;
+      busy = true;
+      b.setAttribute("aria-disabled", "true");
       try {
         say(await act());
       } catch (error) {
         console.error("[quality-views] an export failed:", error);
         say(`${label}: this browser could not make it.`);
       } finally {
-        b.disabled = false;
+        busy = false;
+        b.removeAttribute("aria-disabled");
       }
     });
     return b;
