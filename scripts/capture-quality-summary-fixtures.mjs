@@ -269,6 +269,7 @@ const CASES = [
     "entry_counts_missing",
     "No counts.",
     change((e) => {
+      // biome-ignore lint/performance/noDelete: the case is a member that is absent, which Ajv must see as absent
       delete e.counts;
     }),
   ],
@@ -276,6 +277,7 @@ const CASES = [
     "entry_not_processed_missing",
     "No not_processed.",
     change((e) => {
+      // biome-ignore lint/performance/noDelete: the case is a member that is absent, which Ajv must see as absent
       delete e.not_processed;
     }),
   ],
@@ -377,6 +379,7 @@ const CASES = [
     "unit_missing",
     "A distribution with no unit.",
     icaRank((d) => {
+      // biome-ignore lint/performance/noDelete: the case is a member that is absent, which Ajv must see as absent
       delete d.unit;
     }),
   ],
@@ -391,6 +394,7 @@ const CASES = [
     "description_missing",
     "A distribution with no description, which is optional.",
     icaRank((d) => {
+      // biome-ignore lint/performance/noDelete: the case is a member that is absent, which Ajv must see as absent
       delete d.description;
     }),
   ],
@@ -440,6 +444,7 @@ const CASES = [
     "histogram_missing_overflow",
     "A histogram with no overflow.",
     icaRank((d) => {
+      // biome-ignore lint/performance/noDelete: the case is a member that is absent, which Ajv must see as absent
       delete d.histogram.overflow;
     }),
   ],
@@ -447,6 +452,7 @@ const CASES = [
     "histogram_missing_missing",
     "A histogram with no missing count, which is optional.",
     icaRank((d) => {
+      // biome-ignore lint/performance/noDelete: the case is a member that is absent, which Ajv must see as absent
       delete d.histogram.missing;
     }),
   ],
@@ -600,6 +606,7 @@ const CASES = [
     "writer_range_missing",
     "A distribution with no observed range.",
     change((e) => {
+      // biome-ignore lint/performance/noDelete: the case is a member that is absent, which Ajv must see as absent
       delete e.observed_range.icaRank;
     }),
   ],
