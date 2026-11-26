@@ -173,7 +173,7 @@ describe("the signal viewer's layout", () => {
 // choice, so a first match measured the admin's chunk on macOS and the panel on Linux (website#608).
 describe("the chunk a first screen is measured from", () => {
   const LOADING = "Loading the recording's quality views";
-  const chunks = {
+  const chunks: Record<string, string> = {
     "admin-drill.Cd-pzLlA.js": `const s="${LOADING}…";export{s};`,
     "panel.WHQJUugx.js": "const other=1;export{other};",
     "panel.D2DfCQhV.js": `const s="${LOADING}…";export{s};`,
