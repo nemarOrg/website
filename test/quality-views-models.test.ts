@@ -11,7 +11,7 @@
  * that drops them is seen).
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { localChecks } from "../src/lib/quality-views/local-checks";
 import {
   type FileDecl,
@@ -101,6 +101,50 @@ describe("model vectors", () => {
     const built = await buildModel(c.view, source(c.files), options(c.caps));
     const { layout: _layout, ...comparable } = built;
     expect(same(comparable, c.model), c.covers).toBeNull();
+  });
+
+  // A montage file or lazy chunk that cannot load (offline, or redeployed) leaves the maps undrawn
+  // with the site's word, never the view: kills the catch in placeSensors removed.
+  it.each([
+    ["sensor_field_names", "biosemi256"],
+    ["sensor_field_positions_template", "standard_1005"],
+    ["sensor_field_positions_flat_names", "GSN-HydroCel-32"],
+  ])("%s with %s unavailable still draws, its maps montage_unavailable", async (name, missing) => {
+    const c = vectors.cases.find((v) => v.name === name)!;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const built = await buildModel(c.view, source(c.files), {
+        ...options(c.caps),
+        montage: (n: string) =>
+          n === missing ? Promise.reject(new TypeError("Failed to fetch")) : montage(n),
+      });
+      expect(same(built.drawing, c.model.drawing)).toBeNull();
+      expect(same(built.refused, c.model.refused)).toBeNull();
+      expect(same(built.downloads, c.model.downloads)).toBeNull();
+      const model = built.model as SensorFieldModel;
+      expect(model.placement.word).toBe("montage_unavailable");
+      expect(model.sensors.drawn.every((d) => !d)).toBe(true);
+      expect(model.maps.items.every((item) => item.word === "montage_unavailable")).toBe(true);
+      expect(built.layout).toBeUndefined();
+      expect(error).toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("refuses too few channels by name without fetching a montage", async () => {
+    const c = vectors.cases.find((v) => v.name === "sensor_field_names_too_few")!;
+    const asked: string[] = [];
+    const built = await buildModel(c.view, source(c.files), {
+      ...options(c.caps),
+      montage: (n: string) => {
+        asked.push(n);
+        return montage(n);
+      },
+    });
+    const { layout: _layout, ...comparable } = built;
+    expect(same(comparable, c.model)).toBeNull();
+    expect(asked).toEqual([]);
   });
 
   it.each(vectors.refusals.map((c) => [c.name, c] as const))("refusal %s", async (_name, c) => {

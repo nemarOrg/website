@@ -26,6 +26,15 @@ export const LABELS_SENTENCES: Readonly<Record<LabelsReason, string>> = {
     "The channel names match fewer than 90% of the electrodes of the net they point to, so they may come from another cap with the same numbering.",
 };
 
+/**
+ * A montage file that could not be loaded (the page is offline, or was deployed again since it
+ * loaded): the sensors are not placed, and no map is drawn. The site's word, `montage_unavailable`;
+ * no specification word says it.
+ */
+export const MONTAGE_UNAVAILABLE = "montage_unavailable";
+export const MONTAGE_UNAVAILABLE_SENTENCE =
+  "The montage these sensors are placed on could not be loaded; reload the page to try again.";
+
 /** A sentence to follow a colon: its first letter lowered, and its final period kept. */
 export const asClause = (sentence: string): string =>
   sentence.charAt(0).toLowerCase() + sentence.slice(1);

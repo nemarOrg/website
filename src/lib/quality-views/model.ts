@@ -35,6 +35,7 @@ import {
   readJson,
   readTsv,
 } from "./read";
+import { MONTAGE_UNAVAILABLE } from "./sensor-labels-copy";
 import { MONTAGE_NAMES, clean, finish, typeClass } from "./sensor-names";
 import { type ColumnDecl, declaredColumns, typedColumn } from "./tsv";
 import { subtleSha256 } from "./verify";
@@ -225,6 +226,26 @@ export class ViewRefused extends Error {
   ) {
     super(location ? `${word}: ${location}` : word);
     this.name = "ViewRefused";
+  }
+}
+
+/** A montage or a lazy chunk a scalp map's placement needs could not be loaded. */
+class MontageUnavailable extends Error {
+  constructor(
+    what: string,
+    readonly failure: unknown,
+  ) {
+    super(`${what} could not be loaded`);
+    this.name = "MontageUnavailable";
+  }
+}
+
+/** `load()`, or `MontageUnavailable` when it rejects. */
+async function loaded<T>(what: string, load: () => Promise<T>): Promise<T> {
+  try {
+    return await load();
+  } catch (error) {
+    throw new MontageUnavailable(what, error);
   }
 }
 
@@ -822,10 +843,10 @@ export async function placeSensors(
     // before any center is needed, so only a montage it holds is loaded.
     const center =
       montageName !== null && MONTAGE_NAMES.includes(montageName)
-        ? (await options.montage(montageName)).center
+        ? (await loaded(montageName, () => options.montage(montageName))).center
         : undefined;
     // Loaded only for a view placed by positions, so other views never fetch it.
-    const { sensorLayout } = await import("./sensor-layout");
+    const { sensorLayout } = await loaded("sensor-layout", () => import("./sensor-layout"));
     const result = sensorLayout(
       { x: xyz.map((p) => p[0]), y: xyz.map((p) => p[1]), z: xyz.map((p) => p[2]) },
       frame,
@@ -846,88 +867,112 @@ export async function placeSensors(
     return [theta, radius];
   };
 
-  if (entry.coordinate_system !== undefined && NOT_SCALP_FRAMES.has(entry.coordinate_system)) {
-    placement.word = "frame_not_scalp";
-  } else if (rows.length === 0) {
-    placement.word = "no_eeg_sensors";
-  } else if (
-    sensors.role === "layout" &&
-    entry.position_source === "template" &&
-    !MONTAGE_NAMES.includes(montage ?? "")
-  ) {
-    placement.word = "montage_unknown";
-  } else if (
-    entry.position_source === "template" &&
-    montage !== null &&
-    MONTAGE_NAMES.includes(montage) &&
-    !(await templateNamesKnown(sensors.labels, montage, options))
-  ) {
-    placement.word = "template_name_unknown";
-  } else if (sensors.role === "layout") {
-    places.theta_deg = [...sensors.places!.theta_deg];
-    places.radius = [...sensors.places!.radius];
-    layout = [nanOf(places.theta_deg), nanOf(places.radius)];
-  } else if (sensors.role === "positions") {
-    const p = sensors.places!;
-    const xyz = rows.map((k) => nanOf([p.x[k], p.y[k], p.z[k]]));
-    const projected = await project(xyz, entry.coordinate_system!, montage, rows);
-    if ("word" in projected) {
-      placement.unused_positions = projected.word;
-      if (!namedEeg) placement.word = projected.word;
-    } else {
-      layout = projected;
-      places.x = [...p.x];
-      places.y = [...p.y];
-      places.z = [...p.z];
-    }
-  }
-  if (placement.word === null && layout === null) {
-    const types = sensors.types ?? new Array<string | null>(count).fill(null);
-    placement.source = "names";
-    placement.coordinate_system = "n/a";
-    placement.position_source = "template";
-    // nemar.sensor-labels.v1 and the montages names reach load only for a map placed by name.
-    const { inferPositions, loadNameMontages } = await import("./sensor-labels");
-    const inference = inferPositions(
-      rows.map((k) => [sensors.labels[k], types[k]] as const),
-      await loadNameMontages(options.montage),
-      { capModel: inputs.cap_model, reference: inputs.reference },
-    );
-    placement.montage = inference.montage;
-    if (inference.outcome !== "placed") {
-      placement.word = inference.reason;
-    } else {
-      const electrodes = new Array<string | null>(count).fill(null);
-      const xyz = new Array<readonly [number, number, number] | null>(count).fill(null);
-      let reference: number | null = null;
-      rows.forEach((k, i) => {
-        const channel = inference.channels[i];
-        if (channel.electrode !== null && channel.position !== null) {
-          electrodes[k] = channel.electrode;
-          xyz[k] = [channel.position[0] + 0, channel.position[1] + 0, channel.position[2] + 0];
-          if (channel.name === inference.reference) reference = k;
-        }
-      });
-      drawn = electrodes.map((e) => e !== null);
-      if (reference !== null) {
-        const ref: number = reference;
-        placement.reference = sensors.labels[ref];
-        if (maps.every(([, values]) => values[ref] === 0)) drawn[ref] = false;
+  // Every montage and lazy chunk the placement loads goes through `loaded`: one that cannot be
+  // loaded (the page is offline, or was deployed again) leaves this view's maps undrawn with
+  // `montage_unavailable`, and the rest of the view still draws.
+  const place = async (): Promise<void> => {
+    if (entry.coordinate_system !== undefined && NOT_SCALP_FRAMES.has(entry.coordinate_system)) {
+      placement.word = "frame_not_scalp";
+    } else if (rows.length === 0) {
+      placement.word = "no_eeg_sensors";
+    } else if (
+      sensors.role === "layout" &&
+      entry.position_source === "template" &&
+      !MONTAGE_NAMES.includes(montage ?? "")
+    ) {
+      placement.word = "montage_unknown";
+    } else if (
+      entry.position_source === "template" &&
+      montage !== null &&
+      MONTAGE_NAMES.includes(montage) &&
+      !(await templateNamesKnown(sensors.labels, montage, (name) =>
+        loaded(name, () => options.montage(name)),
+      ))
+    ) {
+      placement.word = "template_name_unknown";
+    } else if (sensors.role === "layout") {
+      places.theta_deg = [...sensors.places!.theta_deg];
+      places.radius = [...sensors.places!.radius];
+      layout = [nanOf(places.theta_deg), nanOf(places.radius)];
+    } else if (sensors.role === "positions") {
+      const p = sensors.places!;
+      const xyz = rows.map((k) => nanOf([p.x[k], p.y[k], p.z[k]]));
+      const projected = await project(xyz, entry.coordinate_system!, montage, rows);
+      if ("word" in projected) {
+        placement.unused_positions = projected.word;
+        if (!namedEeg) placement.word = projected.word;
+      } else {
+        layout = projected;
+        places.x = [...p.x];
+        places.y = [...p.y];
+        places.z = [...p.z];
       }
-      rows = drawn.flatMap((d, k) => (d ? [k] : []));
-      places.electrodes = electrodes;
-      places.x = xyz.map((p) => (p ? p[0] : null));
-      places.y = xyz.map((p) => (p ? p[1] : null));
-      places.z = xyz.map((p) => (p ? p[2] : null));
-      const projected = await project(
-        rows.map((k) => xyz[k]!),
-        "n/a",
-        inference.montage,
-        rows,
-      );
-      if ("word" in projected) placement.word = projected.word;
-      else layout = projected;
     }
+    if (placement.word === null && layout === null) {
+      const types = sensors.types ?? new Array<string | null>(count).fill(null);
+      placement.source = "names";
+      placement.coordinate_system = "n/a";
+      placement.position_source = "template";
+      // nemar.sensor-labels.v1 and the montages names reach load only for a map placed by name.
+      const { MIN_CHANNELS, countCandidates, inferPositions, loadNameMontages } = await loaded(
+        "sensor-labels",
+        () => import("./sensor-labels"),
+      );
+      const given = rows.map((k) => [sensors.labels[k], types[k]] as const);
+      const sidecar = { capModel: inputs.cap_model, reference: inputs.reference };
+      // Too few candidates is refused before any montage is fetched (the algorithm's own answer).
+      const inference =
+        countCandidates(given) < MIN_CHANNELS
+          ? inferPositions(given, [], sidecar)
+          : inferPositions(
+              given,
+              await loaded("the montages names reach", () => loadNameMontages(options.montage)),
+              { capModel: inputs.cap_model, reference: inputs.reference },
+            );
+      placement.montage = inference.montage;
+      if (inference.outcome !== "placed") {
+        placement.word = inference.reason;
+      } else {
+        const electrodes = new Array<string | null>(count).fill(null);
+        const xyz = new Array<readonly [number, number, number] | null>(count).fill(null);
+        let reference: number | null = null;
+        rows.forEach((k, i) => {
+          const channel = inference.channels[i];
+          if (channel.electrode !== null && channel.position !== null) {
+            electrodes[k] = channel.electrode;
+            xyz[k] = [channel.position[0] + 0, channel.position[1] + 0, channel.position[2] + 0];
+            if (channel.name === inference.reference) reference = k;
+          }
+        });
+        drawn = electrodes.map((e) => e !== null);
+        if (reference !== null) {
+          const ref: number = reference;
+          placement.reference = sensors.labels[ref];
+          if (maps.every(([, values]) => values[ref] === 0)) drawn[ref] = false;
+        }
+        rows = drawn.flatMap((d, k) => (d ? [k] : []));
+        places.electrodes = electrodes;
+        places.x = xyz.map((p) => (p ? p[0] : null));
+        places.y = xyz.map((p) => (p ? p[1] : null));
+        places.z = xyz.map((p) => (p ? p[2] : null));
+        const projected = await project(
+          rows.map((k) => xyz[k]!),
+          "n/a",
+          inference.montage,
+          rows,
+        );
+        if ("word" in projected) placement.word = projected.word;
+        else layout = projected;
+      }
+    }
+  };
+  try {
+    await place();
+  } catch (error) {
+    if (!(error instanceof MontageUnavailable)) throw error;
+    console.error(`[quality-views] ${error.message}:`, error.failure);
+    placement.word = MONTAGE_UNAVAILABLE;
+    layout = null;
   }
   if (placement.word !== null) {
     drawn = drawn.map(() => false);
@@ -1053,9 +1098,9 @@ export function warmInput(
 async function templateNamesKnown(
   labels: readonly string[],
   montageName: string,
-  options: ModelOptions,
+  load: (name: string) => Promise<Montage>,
 ): Promise<boolean> {
-  const montage = await options.montage(montageName);
+  const montage = await load(montageName);
   const keys = new Set(montage.names.map((name) => finish(clean(name))));
   return labels.every((label) => keys.has(finish(clean(label))));
 }

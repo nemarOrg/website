@@ -7,7 +7,11 @@
  * the same backend serves the files and their digests (nemar-cli ADR 0137 decision 6).
  */
 
-import { LABELS_SENTENCES } from "../sensor-labels-copy";
+import {
+  LABELS_SENTENCES,
+  MONTAGE_UNAVAILABLE,
+  MONTAGE_UNAVAILABLE_SENTENCE,
+} from "../sensor-labels-copy";
 
 export const VIEW_SENTENCES: Readonly<Record<string, string>> = {
   declaration_invalid: "This view's declaration does not meet the view schema, so it is not drawn.",
@@ -59,6 +63,7 @@ export const MAP_SENTENCES: Readonly<Record<string, string>> = {
   positions_partial: "The measured positions cover too little of the head to locate its center.",
   // nemar.sensor-labels.v1's refusals, when the sensors are placed by name.
   ...LABELS_SENTENCES,
+  [MONTAGE_UNAVAILABLE]: MONTAGE_UNAVAILABLE_SENTENCE,
   worker: "The map could not be drawn on this page.",
 };
 

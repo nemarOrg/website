@@ -391,5 +391,12 @@ describe("the refusal sentences", () => {
       expect(SCALP_MAP_SENTENCES[reason]).toBe(`No scalp map: ${asClause(text)}`);
     }
     expect(Object.keys(MAP_SENTENCES)).not.toContain("labels_pending");
+    const { MONTAGE_UNAVAILABLE, MONTAGE_UNAVAILABLE_SENTENCE } = await import(
+      "../src/lib/quality-views/sensor-labels-copy"
+    );
+    expect(MAP_SENTENCES[MONTAGE_UNAVAILABLE]).toBe(MONTAGE_UNAVAILABLE_SENTENCE);
+    expect(SCALP_MAP_SENTENCES.montage_unavailable).toBe(
+      `No scalp map: ${asClause(MONTAGE_UNAVAILABLE_SENTENCE)}`,
+    );
   });
 });
