@@ -99,7 +99,7 @@ function siteUnions(dir) {
     });
   }
   // The quality panel's chunk by a sentence only it holds (another component's chunk is also named
-  // `panel`), and the export's two chunks (W8) by sentences of their own; the others by their
+  // `panel`), and the export's controls and images (W8) by sentences of their own; the others by their
   // unique names.
   const MARKERS = {
     panel: "Loading the recording's quality views",
@@ -110,11 +110,15 @@ function siteUnions(dir) {
     Object.hasOwn(MARKERS, stem)
       ? [...files.keys()].find((name) => files.get(name).toString("utf8").includes(MARKERS[stem]))
       : [...files.keys()].find((name) => name.startsWith(`${stem}.`));
-  // The export (W8): its controls, and the images chunk (PNG and SVG) they load as they open. Each is a
+  // The export (W8): its controls, and the images chunk (PNG and SVG) and the picture's map and
+  // heatmap parts they load as they open. Each is a
   // lazy root, gated with what it imports statically like every other (`measure` below); none may
   // load with a first screen (checked below); and what a visitor holds once a view's export is open
   // is printed, not gated, since exports are made only on request and no first screen loads them.
-  const exportChunks = ["controls", "picture"].map((stem) => [stem, named(stem)]);
+  const exportChunks = ["controls", "picture", "maps-part", "heatmap-part"].map((stem) => [
+    stem,
+    named(stem),
+  ]);
   for (const [stem, name] of exportChunks) {
     if (name) {
       notes.push(
@@ -169,13 +173,13 @@ function siteUnions(dir) {
       });
     }
     const all = [...set].map((name) => files.get(name));
-    if (exportNames.size === 2) {
+    if (exportNames.size === exportChunks.length) {
       const open = new Set(
         [...staticClosure([...roots, ...exportNames], files)].filter((name) => !page.has(name)),
       );
       const bytes = [...open].map((name) => files.get(name));
       notes.push(
-        `site build: ${tab} with a view's export open (controls and images), not gated: ${open.size} files, ${kb(gzipped(Buffer.concat(bytes)))} gzipped together, ${kb(gzipped(Buffer.concat(bytes)) - gzipped(Buffer.concat(all)))} over the first screen.`,
+        `site build: ${tab} with a view's export open (controls, images, maps and heatmap parts), not gated: ${open.size} files, ${kb(gzipped(Buffer.concat(bytes)))} gzipped together, ${kb(gzipped(Buffer.concat(bytes)) - gzipped(Buffer.concat(all)))} over the first screen.`,
       );
     }
     results.push({

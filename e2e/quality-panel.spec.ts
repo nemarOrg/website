@@ -58,6 +58,7 @@ const MODULES = {
   render: "/src/lib/quality-views/render/index.ts",
   montages: "/src/lib/quality-views/montage-loader.ts",
   raster: "/src/lib/quality-views/export/raster.ts",
+  maps: "/src/lib/quality-views/export/maps-part.ts",
   contours: "/src/lib/quality-views/contours.ts",
   picture: "/src/lib/quality-views/export/picture.ts",
 };
@@ -767,7 +768,8 @@ test.describe("export", () => {
         const { mountView, viewContext } = await import(/* @vite-ignore */ modules.render);
         const { SensorFieldClient } = await import(/* @vite-ignore */ modules.client);
         const { loadMontage } = await import(/* @vite-ignore */ modules.montages);
-        const { fieldMaps, paintPicture } = await import(/* @vite-ignore */ modules.raster);
+        const { paintPicture } = await import(/* @vite-ignore */ modules.raster);
+        const { fieldMaps } = await import(/* @vite-ignore */ modules.maps);
         const { contourLines } = await import(/* @vite-ignore */ modules.contours);
         const doc = JSON.parse(record.body);
         const view = doc.dataQuality.recipes[provenance.recipe].views.find(

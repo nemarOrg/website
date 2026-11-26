@@ -13,11 +13,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import * as controls from "../src/lib/quality-views/export/controls";
 import * as download from "../src/lib/quality-views/export/download";
+import * as heatmapPart from "../src/lib/quality-views/export/heatmap-part";
+import * as mapsPart from "../src/lib/quality-views/export/maps-part";
 import * as exportMetaModule from "../src/lib/quality-views/export/meta";
 import type { ExportMeta } from "../src/lib/quality-views/export/meta";
 import * as palette from "../src/lib/quality-views/export/palette";
 import * as png from "../src/lib/quality-views/export/png";
-import { MAP_PX } from "../src/lib/quality-views/export/raster";
 import * as raster from "../src/lib/quality-views/export/raster";
 import * as svg from "../src/lib/quality-views/export/svg";
 import { localChecks } from "../src/lib/quality-views/local-checks";
@@ -286,7 +287,11 @@ describe("the SVG export", () => {
     expect(palette.hasSvg((await built("icclasses")).model)).toBe(true);
     expect(palette.hasSvg((await built("icmaps")).model)).toBe(false);
     expect(palette.hasSvg(null)).toBe(false);
-    expect(MAP_PX).toBe(MAP_SIZE);
+    expect(mapsPart.MAP_PX).toBe(MAP_SIZE);
+    // The picture's width, sized where the parts are not loaded, is theirs.
+    expect(raster.MAP_CELL).toBe(mapsPart.MAP_PX + mapsPart.MAP_GAP);
+    expect(raster.MAPS_PER_ROW).toBe(mapsPart.MAPS_PER_ROW);
+    expect(raster.HEATMAP_PICTURE_WIDTH).toBe(heatmapPart.ROW_LABELS + heatmapPart.HEATMAP_WIDTH);
   });
 
   it("paints a class by every class it has, later over earlier", () => {
@@ -395,7 +400,7 @@ describe("the review's fixes (#601)", () => {
 
   it("a heatmap's picture prints its legend's stored texts and its labels", () => {
     const model = heatmapOf("heatmap_classes");
-    const scale = raster.heatmapScale(model, heatmapLegend(model), { rows: 40, columns: 40 });
+    const scale = heatmapPart.heatmapScale(model, heatmapLegend(model), { rows: 40, columns: 40 });
     expect(scale.rows).toEqual(model.rows.labels.map((l, i) => [i, l]));
     expect(scale.columns).toEqual(model.columns.labels.map((l, i) => [i, l]));
     // minmax: the smallest and largest cells' stored texts, with the unit.
@@ -408,7 +413,7 @@ describe("the review's fixes (#601)", () => {
 
   it("under absmax the legend prints the sign words and the largest magnitude", () => {
     const model = heatmapOf("heatmap_absmax");
-    const scale = raster.heatmapScale(model, heatmapLegend(model), { rows: 40, columns: 40 });
+    const scale = heatmapPart.heatmapScale(model, heatmapLegend(model), { rows: 40, columns: 40 });
     expect([scale.low, scale.high]).toEqual(["negative", "positive"]);
     expect(scale.note).toMatch(/^centered on 0; largest magnitude /);
   });
@@ -420,11 +425,11 @@ describe("the review's fixes (#601)", () => {
       rows: { ...heatmapOf("heatmap_classes").rows, labels },
     };
     const legend = { low: "a", high: "b", note: null };
-    const ten = raster.heatmapScale(model as HeatmapModel, legend, { rows: 10, columns: 1 });
+    const ten = heatmapPart.heatmapScale(model as HeatmapModel, legend, { rows: 10, columns: 1 });
     expect(ten.rows.map(([i]) => i)).toEqual([0, 10, 20, 30, 40, 50, 60, 70, 80, 90]);
     expect(ten.columns.map(([i]) => i)).toEqual([0]);
     expect(
-      raster.heatmapScale(model as HeatmapModel, legend, { rows: 0, columns: 0 }).rows,
+      heatmapPart.heatmapScale(model as HeatmapModel, legend, { rows: 0, columns: 0 }).rows,
     ).toEqual([[0, "r0"]]);
   });
 
