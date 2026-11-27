@@ -26,6 +26,7 @@ import {
   heatmapLegend,
   heatmapPixels,
   heatmapReadout,
+  heatmapTable,
   renderHeatmap,
 } from "../src/lib/quality-views/render/heatmap";
 import {
@@ -48,6 +49,7 @@ import {
   linesPlot,
   linesReadout,
   linesSvg,
+  linesTable,
   rowAtPointer,
   xTickTexts,
   yTickTexts,
@@ -56,8 +58,10 @@ import { labelText, roundedText, significantDigits } from "../src/lib/quality-vi
 import {
   LEGEND_NOTE,
   fieldDrawInput,
+  fieldTable,
   mapTextRow,
   markerReadout,
+  noteCaption,
   placementStatement,
   sensorReadout,
 } from "../src/lib/quality-views/render/sensor-field-view";
@@ -751,7 +755,7 @@ describe("numbers on a drawing are rounded to the drawing's precision", () => {
     };
   };
 
-  it("lines: the y ticks are rounded, the readout and the table keep the stored text", async () => {
+  it("lines: the ticks are rounded, the readout and the data table keep the stored text", async () => {
     const model = await longLines();
     expect(yTickTexts(model)).toEqual({ min: "-29.8", max: "18.8" });
     for (const t of xTickTexts(model, [0, model.x.values.length - 1])) {
@@ -761,6 +765,9 @@ describe("numbers on a drawing are rounded to the drawing's precision", () => {
     expect(html).toContain(">-29.8<");
     expect(html).not.toContain("29.811042743271745");
     expect(linesReadout(model, 0, 0)).toContain("-29.811042743271745");
+    const table = textOf(linesTable(model, "caption"));
+    expect(table).toContain("-29.811042743271745");
+    expect(table).toContain(model.x.text[0]);
   });
 
   it("scalp maps: the text row is rounded, the data table keeps the stored text", async () => {
@@ -776,5 +783,59 @@ describe("numbers on a drawing are rounded to the drawing's precision", () => {
     const row = mapTextRow(model, 0);
     expect(row).not.toMatch(/\d{6,}/);
     expect(row).toContain("-3.47");
+    const table = textOf(fieldTable(model, "caption"));
+    expect(table).toContain("-3.4706225147472876");
+    for (const text of model.maps.items[0].text) expect(table).toContain(text);
+  });
+
+  it("scalp maps: a near-flat note prints its range rounded", () => {
+    expect(noteCaption("near_flat", 0.0123456789, "µV")).toBe(
+      "all sensors are within 0.0123 µV of each other",
+    );
+  });
+
+  it("heatmap: the legend is rounded, the readout and the table keep the stored text", () => {
+    // The stored texts, longer than the values' shortest forms.
+    const text = [
+      ["-2.0123456789012345", "15.5"],
+      ["4.25", "87.98765432101234"],
+    ];
+    const values = text.map((row) => row.map(Number));
+    const model = {
+      type: "heatmap",
+      rows: { dim: "component", type: "string", unit: null, labels: ["IC1", "IC2"] },
+      columns: {
+        dim: "class",
+        type: "string",
+        unit: null,
+        labels: ["brain", "eye"],
+        names: ["brain", "eye"],
+      },
+      unit: "%",
+      values,
+      text,
+      limits: { rule: "minmax", min: values[0][0], max: values[1][1] },
+    } as import("../src/lib/quality-views/model").HeatmapModel;
+    expect(heatmapLegend(model)).toEqual({ low: "-2.0 %", high: "88.0 %", note: null });
+    const absmax = heatmapLegend({
+      ...model,
+      limits: { rule: "absmax", min: -values[1][1], max: values[1][1] },
+    });
+    expect(absmax.note).toBe("centered on 0; largest magnitude 88 %");
+    expect(heatmapReadout(model, 0, 0)).toBe("IC1, brain: -2.0123456789012345 %");
+    const table = textOf(heatmapTable(model, "caption"));
+    expect(table).toContain("-2.0123456789012345");
+    expect(table).toContain("87.98765432101234");
+  });
+
+  it("histogram: a density axis prints its top tick rounded", async () => {
+    const c = vectors.cases.find(
+      (x) => x.view.kind === "nemar.histogram" && x.name.startsWith("histogram"),
+    )!;
+    const base = (await built(c)).model as HistogramModel;
+    const model: HistogramModel = { ...base, heights: "density", max_density: 0.0123456789 };
+    const html = toHtml(histogramSvg(model));
+    expect(html).toContain(">0.0123<");
+    expect(html).not.toContain("0.0123456789");
   });
 });
