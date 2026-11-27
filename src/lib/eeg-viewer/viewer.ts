@@ -1,6 +1,9 @@
 import { isIeegModality, spatialLayout, stackedScopeHeight } from "../ieeg-spatial/layout";
 // Types only: the panel's code is fetched by `startSpatial` for an iEEG recording, never here.
 import type { GroupInfo, SpatialPanel } from "../ieeg-spatial/panel";
+import { loadMontage } from "../quality-views/montage-loader";
+import type { SignalMarks } from "../quality-views/panel-bridge";
+import type { SensorFieldClient } from "../quality-views/worker-client";
 import { zarrStoreUrl } from "../zarr-base";
 /**
  * Signal-viewer orchestration (website#99). `mountEegViewer` builds a compact
@@ -72,7 +75,19 @@ import {
   traceLayout,
 } from "./render";
 import { RETRY_CLASS } from "./retry";
-import { standardMontageFor } from "./standard-montage";
+import {
+  type Placement,
+  SEQUENTIAL_GRADIENT,
+  type ScalpInput,
+  type ScalpPlacer,
+  paintScalpMap,
+  placementSentence,
+  rowValues,
+  scalpPlacer,
+  templateNote,
+  viewOfDraw,
+  viewOfPlacement,
+} from "./scalp-map";
 import {
   type ChannelWindow,
   type GroupHandle,
@@ -87,7 +102,6 @@ import {
   readWindow,
   windowDataBytes,
 } from "./store";
-import { type TopoChannel, VIRIDIS_CSS, type Vec3, projectPositions, renderTopomap } from "./topo";
 
 export interface ViewerOptions {
   datasetId: string;
@@ -227,7 +241,28 @@ export interface ViewerOptions {
    * link (ADR 0023).
    */
   spatial?: { datasetId: string; version: string; recording: string };
+  /**
+   * The quality panel's Signal tab (website phase W6): open on the window a `nemar.signal-window`
+   * view names, with the floor's bad channels marked and its bad segments shaded. `prepare` runs
+   * the view's checks against the store once it is open, before anything is drawn; a refusal
+   * shows its sentence in place of the traces and draws nothing.
+   */
+  qualityMarks?: SignalMarks;
 }
+
+/** Whether a channel is drawn dimmed: marked bad by the visitor, or by the floor (website W6). The
+ *  annotation layer reads the visitor's marks alone (`getSelectedChannels`). */
+export function isDimmed(
+  label: string,
+  visitor: ReadonlySet<string>,
+  floor: ReadonlySet<string>,
+): boolean {
+  return visitor.has(label) || floor.has(label);
+}
+
+/** Said when the store holds no channel group the marks name. */
+export const MARKS_GROUP_MISSING =
+  "The recording has no channel group the view names, so the window is not opened.";
 
 /**
  * Smallest scope `fitHeight` will size to (CSS px). Below this the trace area
@@ -549,6 +584,36 @@ export async function mountEegViewer(
     return undefined;
   }
 
+  // The floor's marks (website W6), checked against the store before anything is drawn.
+  let marked: Extract<Awaited<ReturnType<SignalMarks["prepare"]>>, { ok: true }> | null = null;
+  let markedGroup = 0;
+  if (opts.qualityMarks) {
+    const marks = opts.qualityMarks;
+    markedGroup = marks.group === null ? 0 : store.groups.findIndex((g) => g.name === marks.group);
+    const g = store.groups[markedGroup];
+    const prepared = g
+      ? await marks.prepare({
+          labels: g.channelsByRow.map((c) => c.label),
+          samples: g.nSamples,
+          rate: g.rate,
+        })
+      : { ok: false as const, sentence: MARKS_GROUP_MISSING };
+    if (opts.isStale?.() || abortController.signal.aborted) return undefined;
+    if (!prepared.ok) {
+      const root = document.createElement("div");
+      root.className = "eegv";
+      const message = document.createElement("p");
+      message.className = "eegv__msg";
+      message.dataset.eegvMarksRefused = "";
+      message.textContent = prepared.sentence;
+      root.append(message);
+      slot.replaceChildren(root);
+      return undefined;
+    }
+    marked = prepared;
+  }
+  let shaded: { startS: number; endS: number; label: string }[] = [];
+
   let eventTypes: EventType[] = [];
 
   // --- state ---------------------------------------------------------------
@@ -586,6 +651,12 @@ export async function mountEegViewer(
   let butterfly = false;
   let hideBad = false;
   const badChannels = new Set<string>();
+  // The floor's bad channels (the quality panel's marks, website W6): dimmed like a channel the
+  // visitor marked, but never one of the visitor's marks, so the annotation layer never counts them.
+  const floorBad = new Set<string>();
+  /** Whether "Hide bad" hides a channel: the one rule the montage and its readout share, so the
+   *  count said is the channels taken out. */
+  const hidden = (label: string): boolean => hideBad && isDimmed(label, badChannels, floorBad);
 
   // Background preload (website#254): a byte-capped cache of decoded windows
   // ("segments" -- fixed-width slices of the recording, currently the window
@@ -691,23 +762,70 @@ export async function mountEegViewer(
   let topoTime: number | null = null;
   // The Brain panel's cursor: a mouse resting over the traces (see cursor-source.ts).
   const cursorSource = createCursorSource((t) => spatial?.setCursor(t));
-  // Only build the scalp layout for EEG/MEG; non-scalp modalities (iEEG/EMG/fNIRS/
-  // unknown) get no topomap so we don't render a wrong head map. Real electrodes.tsv
-  // positions win; datasets that ship none but name standard 10-20 labels fall back to
-  // a standard montage (resolveScalpPositions). A bad-geometry projection is caught here
-  // so it just disables the topo, not the viewer.
+  // The scalp map (website ADR 0035 decision 5): built only for EEG/MEG, so non-scalp modalities
+  // (iEEG/EMG/fNIRS/unknown) never get a head map. Where the sensors go is decided once per
+  // recording by scalp-map.ts, with no frame assumed: the recording's own positions, else
+  // template positions by channel name, else no map and the reason. The placement never rejects.
   // topoScratch is this viewer's private offscreen grid buffer (never shared).
   const topoScratch =
     typeof document !== "undefined" ? document.createElement("canvas") : undefined;
-  let topoLayout: ReturnType<typeof projectPositions> | null = null;
-  const scalpPositions = resolveScalpPositions(store);
-  try {
-    if (scalpPositions) {
-      topoLayout = projectPositions(scalpPositions.positions, scalpPositions.system);
+  const scalpInput = scalpInputOf(store);
+  let placement: Placement | null = null;
+  // Its own positions are placed at mount (no montage needed), so the toggle says where they come
+  // from, or why there is no map, before it is opened; placement by name, which loads the montages
+  // names reach, waits until the map is first shown (`placer.show()`, scalp-map.ts).
+  let placer: ScalpPlacer | null = null;
+  function onPlaced(placed: Placement): void {
+    if (disposed) return;
+    placement = placed;
+    ui.topoBtn.title = topoToggleTitle(placed, store);
+    if (showTopo) {
+      // The places are known before the first frame's samples: build the map's geometry in the
+      // worker now, so the first map does not wait for it (website#592).
+      if (placed.kind === "placed") void prepareTopo(placed);
+      drawTopo();
     }
-  } catch (err) {
-    console.warn("[eeg-viewer] electrode projection failed; topomap disabled:", err);
   }
+  function startPlacement(): void {
+    placer?.show();
+  }
+  // The map is drawn in the quality views' worker (worker-client.ts), loaded the first time the
+  // panel draws. One draw is in flight at a time; a newer request waits and replaces any older one.
+  // The page's one client is shared with any quality panel beside the viewer, so the viewer never
+  // ends it: closing the viewer cancels its own draws.
+  let topoClient: SensorFieldClient | null = null;
+  let topoClientLoad: Promise<SensorFieldClient> | null = null;
+  const topoAbort = new AbortController();
+  const topoLayoutKey = `eeg-viewer:${opts.datasetId}:${opts.filePath}`;
+  async function loadTopoClient(): Promise<SensorFieldClient> {
+    if (!topoClient) {
+      topoClientLoad ??= import("../quality-views/worker-client").then((m) =>
+        m.sharedSensorFieldClient(),
+      );
+      topoClient = await topoClientLoad;
+    }
+    return topoClient;
+  }
+  async function prepareTopo(placed: {
+    thetaDeg: Float64Array;
+    radius: Float64Array;
+  }): Promise<void> {
+    try {
+      const client = await loadTopoClient();
+      if (!disposed) {
+        await client.prepare({
+          layoutKey: topoLayoutKey,
+          thetaDeg: placed.thetaDeg,
+          radius: placed.radius,
+        });
+      }
+    } catch (err) {
+      topoClientLoad = null;
+      console.warn("[eeg-viewer] scalp map: the map worker could not be prepared:", err);
+    }
+  }
+  let topoInFlight = false;
+  let topoQueued: TopoRequest | null = null;
 
   // Cursor readout state: the last rendered frame and layout geometry.
   let lastFrame: ViewerFrame | null = null;
@@ -732,7 +850,9 @@ export async function mountEegViewer(
   // intracranial: otherwise there is nothing to look up and no button to show (IS-V1).
   const spatialWanted = !!opts.spatial && store.groups.some((g) => isIeegModality(g.modality));
   const ui = buildDom(slot, store, eventTypes, preloadEnabled, preloadCapMB, spatialWanted);
+  if (scalpInput) placer = scalpPlacer(scalpInput, loadMontage, onPlaced);
   const cleanups: Array<() => void> = [];
+  cleanups.push(() => topoAbort.abort());
   // `fitHeight` hosts get chrome whose height cannot change from one render to
   // the next (`.eegv--fit` in eeg-viewer.css); see `fitScopeHeight`.
   if (opts.fitHeight) ui.root.classList.add("eegv--fit");
@@ -744,6 +864,34 @@ export async function mountEegViewer(
   filters.notch = usableCutoff(Number(ui.notch.value) || null);
   ui.notch.value = String(filters.notch ?? 0);
   applyTransfer(opts.transfer);
+  if (marked) {
+    groupIndex = markedGroup;
+    if (ui.groupSel) ui.groupSel.value = String(markedGroup);
+    chanCount = store.groups[markedGroup].nChannels;
+    const length =
+      WINDOW_CHOICES.find((choice) => choice >= marked.durationS) ??
+      WINDOW_CHOICES[WINDOW_CHOICES.length - 1];
+    windowLengthS = length;
+    ui.win.value = String(length);
+    windowStartS = marked.startS;
+    for (const label of marked.badChannels) floorBad.add(label);
+    shaded = marked.segments.map((s) => ({
+      startS: s.onset,
+      endS: s.onset + s.duration,
+      label: s.label,
+    }));
+    const said = document.createElement("p");
+    said.className = "eegv__marks";
+    said.dataset.eegvMarks = "";
+    const bad = marked.badChannels.length
+      ? `Marked bad by the floor (dimmed): ${marked.badChannels.join(", ")}.`
+      : "The floor marked no channel bad.";
+    const spans = marked.segments.length
+      ? `${marked.segments.length} bad segments of the floor are shaded.`
+      : "";
+    said.textContent = [bad, spans, marked.note].filter(Boolean).join(" ");
+    ui.root.prepend(said);
+  }
   const maybeCtx = ui.canvas.getContext("2d");
   if (!maybeCtx) {
     renderUnavailable(slot, opts, new Error("canvas 2D unavailable"));
@@ -1053,10 +1201,11 @@ export async function mountEegViewer(
     ui.butterflyCheck.checked = butterfly;
     ui.clockCheck.checked = timeClock;
     ui.hideBadCheck.checked = hideBad;
-    // Only reopen the topomap when this recording actually has a scalp layout;
-    // a montage-less or intracranial recording keeps the panel closed.
-    if (t.showTopo && topoLayout && !ui.topoBtn.disabled) {
+    // Only reopen the topomap for a scalp recording; an intracranial one keeps the panel closed.
+    // A scalp recording whose map is refused reopens it, showing the reason.
+    if (t.showTopo && scalpInput && !ui.topoBtn.disabled) {
       showTopo = true;
+      startPlacement();
       ui.topo.style.display = "flex";
       ui.topoBtn.setAttribute("aria-pressed", "true");
       ui.topoBtn.classList.add("eegv__btn--active");
@@ -1368,10 +1517,7 @@ export async function mountEegViewer(
     // shrank within every render, and in a `fitHeight` viewer each wrap of
     // the toolbar moved the plot and started another render.
     const visible = g.channelsByRow.slice(chanStart, visEnd);
-    const hiddenInView =
-      hideBad && badChannels.size > 0
-        ? visible.filter((ch) => badChannels.has(ch.label)).length
-        : 0;
+    const hiddenInView = visible.filter((ch) => hidden(ch.label)).length;
     const chanRange =
       visEnd - chanStart >= g.nChannels
         ? `all ${g.nChannels}`
@@ -1462,7 +1608,7 @@ export async function mountEegViewer(
           ? channelColor(ch.channelType)
           : channelColor(ch.modality);
       const cw = win.channels[i];
-      const dim = badChannels.has(ch.label);
+      const dim = isDimmed(ch.label, badChannels, floorBad);
       if (cw.kind === "line") {
         const line = dcRemove ? removeDcInPlace(cw.line.slice()) : cw.line;
         return { label: ch.label, color, kind: "line" as const, line, dim };
@@ -1476,8 +1622,9 @@ export async function mountEegViewer(
     // the full height) rather than only dimming them in place. Never blank the scope
     // if every visible channel is marked bad. The readout's count was written
     // before the read, from the same rows.
-    if (hideBad && badChannels.size > 0) {
-      const kept = channels.filter((c) => !badChannels.has(c.label));
+    // "Hide bad" hides the floor's marks too, as it hid every bad channel before W6.
+    if (hideBad) {
+      const kept = channels.filter((c) => !hidden(c.label));
       if (kept.length > 0) channels = kept;
     }
 
@@ -1488,6 +1635,7 @@ export async function mountEegViewer(
       windowEndS: end,
       events:
         showEvents && store.events ? eventsInWindow(store.events, eventTypes, start, end) : [],
+      shaded: shaded.filter((span) => span.endS > start && span.startS < end),
       physPerDiv: defaultScaling(modality),
       unitBase: ELECTRIC.has(modality) ? "V" : "T",
       timeClock,
@@ -1685,9 +1833,9 @@ export async function mountEegViewer(
   // --- Topomap -------------------------------------------------------------
   // Scalp field at the cursor time (window centre until the pointer moves). Bad
   // (rejected) channels drop out of the interpolation, so hiding a channel removes
-  // its contribution. Reads from the already-loaded frame (no extra fetch).
-  function drawTopo(): void {
-    if (!showTopo || !topoLayout) return;
+  // its contribution. Reads from the already-loaded frame (no extra fetch). The map
+  // is drawn in the worker; a refusal leaves it undrawn with its sentence.
+  function topoCanvasSize(): number {
     const canvas = ui.topoCanvas;
     const availW = Math.max(80, ui.topo.clientWidth - 8);
     const availH = Math.max(80, lastPlotTop + lastPlotHeight);
@@ -1700,12 +1848,35 @@ export async function mountEegViewer(
       canvas.width = pxW;
       canvas.height = pxW;
     }
-    const tctx = canvas.getContext("2d");
-    if (!tctx) return;
-    tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ui.topoCanvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return cssSize;
+  }
+
+  /** Leave the map undrawn and say why, in the panel's own words. */
+  function showTopoRefusal(sentence: string): void {
+    const cssSize = topoCanvasSize();
+    ui.topoCanvas.getContext("2d")?.clearRect(0, 0, cssSize, cssSize);
+    // No empty square where the map would be: the sentence stands in its place.
+    ui.topoCanvas.hidden = true;
+    ui.topoScale.hidden = true;
+    ui.topoMin.textContent = "";
+    ui.topoMax.textContent = "";
+    ui.topoInfo.textContent = sentence;
+    ui.topoNote.textContent = "";
+  }
+
+  function drawTopo(): void {
+    if (!showTopo || !scalpInput) return;
+    const before = viewOfPlacement(placement);
+    if (before?.kind === "undrawn") {
+      showTopoRefusal(before.sentence);
+      return;
+    }
+    if (placement?.kind !== "placed") return;
     const frame = lastFrame;
     if (!frame || frame.nCols <= 0) {
-      tctx.clearRect(0, 0, cssSize, cssSize);
+      const cssSize = topoCanvasSize();
+      ui.topoCanvas.getContext("2d")?.clearRect(0, 0, cssSize, cssSize);
       return;
     }
     const span = frame.windowEndS - frame.windowStartS;
@@ -1720,26 +1891,81 @@ export async function mountEegViewer(
         Math.round(((t - frame.windowStartS) / Math.max(1e-6, span)) * (frame.nCols - 1)),
       ),
     );
-    const channels: TopoChannel[] = [];
-    for (const ch of frame.channels) {
-      if (ch.dim) continue; // rejected -> no contribution
-      const pos = topoLayout.get(ch.label);
-      if (!pos) continue;
-      const value =
-        ch.kind === "line" ? (ch.line[col] ?? 0) : ((ch.min[col] ?? 0) + (ch.max[col] ?? 0)) / 2;
-      channels.push({ label: ch.label, pos, value });
+    const values = rowValues(
+      placement.labels,
+      frame.channels.map((ch) => ({
+        label: ch.label,
+        dim: ch.dim,
+        value:
+          ch.kind === "line"
+            ? (ch.line[col] ?? Number.NaN)
+            : ((ch.min[col] ?? Number.NaN) + (ch.max[col] ?? Number.NaN)) / 2,
+      })),
+    );
+    requestTopo({ placement, values, t, unitBase: frame.unitBase });
+  }
+
+  function requestTopo(request: TopoRequest): void {
+    if (topoInFlight) {
+      topoQueued = request;
+      return;
     }
-    const { vmax } = renderTopomap(tctx, cssSize, channels, themeColors(ui.root), topoScratch);
-    if (channels.length >= 3) {
-      const rng = formatSi(vmax, frame.unitBase);
-      ui.topoMin.textContent = `−${rng}`;
-      ui.topoMax.textContent = `+${rng}`;
-      ui.topoInfo.textContent = timeClock ? formatClock(t) : `${t.toFixed(2)} s`;
-    } else {
-      ui.topoMin.textContent = "";
-      ui.topoMax.textContent = "";
-      ui.topoInfo.textContent = `${channels.length} located ch`;
+    topoInFlight = true;
+    void runTopo(request).finally(() => {
+      topoInFlight = false;
+      const next = topoQueued;
+      topoQueued = null;
+      if (next && !disposed) requestTopo(next);
+    });
+  }
+
+  async function runTopo(request: TopoRequest): Promise<void> {
+    const placed = request.placement;
+    let outcome: Awaited<ReturnType<SensorFieldClient["draw"]>>;
+    try {
+      const client = await loadTopoClient();
+      outcome = await client.draw(
+        {
+          layoutKey: topoLayoutKey,
+          thetaDeg: placed.thetaDeg,
+          radius: placed.radius,
+          maps: [request.values],
+        },
+        { contours: "none", signal: topoAbort.signal },
+      );
+    } catch (err) {
+      topoClientLoad = null;
+      outcome = { kind: "unavailable", reason: err instanceof Error ? err.message : String(err) };
     }
+    // A newer request replaces this one's picture; a closed panel shows nothing.
+    if (disposed || !showTopo || topoQueued || placement !== placed) return;
+    if (outcome.kind === "unavailable") console.warn("[eeg-viewer] scalp map:", outcome.reason);
+    const view = viewOfDraw(outcome);
+    if (view.kind === "unchanged") return;
+    if (view.kind === "undrawn") {
+      showTopoRefusal(view.sentence);
+      return;
+    }
+    const map = view.map;
+    const cssSize = topoCanvasSize();
+    const tctx = ui.topoCanvas.getContext("2d");
+    if (!tctx || !topoScratch) return;
+    const [low, high] = paintScalpMap(
+      tctx,
+      cssSize,
+      map,
+      placed.thetaDeg,
+      placed.radius,
+      themeColors(ui.root),
+      topoScratch,
+    );
+    ui.topoCanvas.hidden = false;
+    ui.topoScale.hidden = false;
+    ui.topoMin.textContent = formatSi(low, request.unitBase);
+    ui.topoMax.textContent = formatSi(high, request.unitBase);
+    const time = timeClock ? formatClock(request.t) : `${request.t.toFixed(2)} s`;
+    ui.topoInfo.textContent = map.notes.length > 0 ? `${time} · flat field` : time;
+    ui.topoNote.textContent = templateNote(placed) ?? "";
   }
 
   // --- controls ------------------------------------------------------------
@@ -1804,7 +2030,8 @@ export async function mountEegViewer(
   });
   ui.topoBtn.addEventListener("click", () => {
     if (ui.topoBtn.disabled) return;
-    showTopo = !showTopo && !!topoLayout;
+    showTopo = !showTopo && !!scalpInput;
+    if (showTopo) startPlacement();
     ui.topo.style.display = showTopo ? "flex" : "none";
     ui.topoBtn.setAttribute("aria-pressed", String(showTopo));
     ui.topoBtn.classList.toggle("eegv__btn--active", showTopo);
@@ -1925,7 +2152,7 @@ export async function mountEegViewer(
       if (spatial) spatial.setGroup(spatialGroupInfo());
       else if (ui.brainGroup) ui.brainGroup.hidden = !isIeegModality(group().modality);
       // Topomap is scalp-only; disable + hide it when the active group is not scalp.
-      const scalpNow = !!topoLayout && isScalpModality(group().modality);
+      const scalpNow = !!scalpInput && isScalpModality(group().modality);
       ui.topoBtn.disabled = !scalpNow;
       if (!scalpNow && showTopo) {
         showTopo = false;
@@ -2352,6 +2579,8 @@ interface ViewerUi {
   topoInfo: HTMLElement;
   topoMin: HTMLElement;
   topoMax: HTMLElement;
+  topoScale: HTMLElement;
+  topoNote: HTMLElement;
   hp: HTMLSelectElement;
   lp: HTMLSelectElement;
   notch: HTMLSelectElement;
@@ -2457,18 +2686,15 @@ function buildDom(
   topoBtn.innerHTML = topoGlyph();
   // Scalp topomap is only meaningful for EEG/MEG. iEEG (intracranial), EMG, fNIRS,
   // or unrecognized modalities get the toggle disabled, so we never draw a
-  // misleading scalp map for non-scalp electrodes. An estimated (standard-montage)
-  // layout still enables the toggle, but its tooltip flags that it is not the
-  // dataset's own positions; positions from the store say where the converter
-  // found them (topoToggleTitle).
-  const scalp = resolveScalpPositions(store);
-  if (!scalp) {
+  // misleading scalp map for non-scalp electrodes. A scalp recording keeps the
+  // toggle: where its channels go is decided asynchronously (scalp-map.ts), and the
+  // title then says where the positions came from, or why no map is drawn, which the
+  // open panel also says in place of the map (topoToggleTitle).
+  if (!scalpInputOf(store)) {
     topoBtn.disabled = true;
     topoBtn.title = isScalpModality(store.groups[0]?.modality)
-      ? "no locatable channels for a scalp topomap"
+      ? "no channels for a scalp topomap"
       : "scalp topomap is EEG/MEG only";
-  } else {
-    topoBtn.title = topoToggleTitle(scalp, store);
   }
   bar.append(grouped("Topo", topoBtn));
 
@@ -2617,14 +2843,16 @@ function buildDom(
   const topoCanvas = document.createElement("canvas");
   topoCanvas.className = "eegv__topo-canvas";
   topoCanvas.title = "Scalp topography at the cursor time";
-  const topoBar = el("div", "eegv__topo-bar"); // viridis colorbar
-  topoBar.style.background = `linear-gradient(to right, ${VIRIDIS_CSS})`;
+  const topoBar = el("div", "eegv__topo-bar"); // sequential (viridis) colorbar
+  topoBar.style.background = SEQUENTIAL_GRADIENT;
   const topoMin = el("span", "eegv__topo-end");
   const topoMax = el("span", "eegv__topo-end");
   const topoScale = el("div", "eegv__topo-scale");
   topoScale.append(topoMin, topoBar, topoMax);
   const topoInfo = el("div", "eegv__topo-info");
-  topo.append(topoCanvas, topoScale, topoInfo);
+  // Where template positions came from, under the map (empty for a recording's own positions).
+  const topoNote = el("div", "eegv__topo-note");
+  topo.append(topoCanvas, topoScale, topoInfo, topoNote);
   // The Brain panel's box sits in the same row, after the scope and the topomap; its content is
   // the panel's own (panel.ts). Hidden until opened.
   let spatialBox: HTMLElement | null = null;
@@ -2698,6 +2926,8 @@ function buildDom(
     topoInfo,
     topoMin,
     topoMax,
+    topoScale,
+    topoNote,
     hp,
     lp,
     notch,
@@ -2884,27 +3114,34 @@ function isScalpModality(modality: string | undefined): boolean {
 }
 
 const TOPO_TITLE_BASE = "Scalp topomap (split panel)";
-const TOPO_TITLE_MONTAGE =
-  "Scalp topomap - standard 10-20 layout (dataset ships no electrodes.tsv)";
 const TOPO_TITLE_SUBJECT =
   "Scalp topomap - electrode positions from this subject's electrodes file";
 const TOPO_TITLE_DATASET =
   "Scalp topomap - electrode positions from one electrodes file shared by every subject";
 
+/** One map the topomap asks the worker for. */
+interface TopoRequest {
+  readonly placement: Placement & { kind: "placed" };
+  readonly values: Float64Array;
+  readonly t: number;
+  readonly unitBase: "V" | "T";
+}
+
 /**
- * The topomap toggle's tooltip for a scalp resolution. The standard-montage fallback
- * keeps its own sentence. Positions the store carries say where the converter found
- * them: the subject's own electrodes file (`subject`) or one file shared by every
- * subject (`dataset`), with the file named when the store states it. A store that
- * states no source (converted before the converter wrote one) keeps the base title.
- * No sentence calls the positions measured, digitized or template: a per-subject file
- * can hold template coordinates and the store cannot say which.
+ * The topomap toggle's tooltip for a placement. Template positions by name say which montage, and
+ * why the recording's own positions were not used when it has some; a refusal gives its sentence.
+ * Positions the store carries say where the converter found them: the subject's own electrodes
+ * file (`subject`) or one file shared by every subject (`dataset`), with the file named when the
+ * store states it. A store that states no source (converted before the converter wrote one) keeps
+ * the base title. No sentence calls the positions measured or digitized: a per-subject file can
+ * hold template coordinates and the store cannot say which.
  */
 export function topoToggleTitle(
-  scalp: { estimated: boolean },
+  placement: Placement,
   provenance: Pick<RecordingStore, "electrodePositionsSource" | "electrodePositionsFile">,
 ): string {
-  if (scalp.estimated) return TOPO_TITLE_MONTAGE;
+  if (placement.kind === "refused") return `Scalp topomap - ${placementSentence(placement)}`;
+  if (placement.source === "names") return `Scalp topomap - ${templateNote(placement)}`;
   const source = provenance.electrodePositionsSource;
   if (source === null) return TOPO_TITLE_BASE;
   const sentence = source === "subject" ? TOPO_TITLE_SUBJECT : TOPO_TITLE_DATASET;
@@ -2913,31 +3150,23 @@ export function topoToggleTitle(
 }
 
 /**
- * Effective electrode positions for the scalp topomap. Returns null (no topomap) unless
- * the recording is a scalp modality. The coordinates the store carries from its electrodes
- * file win; when the store carries none, fall back to a standard 10-20/10-10 montage
- * matched to the EEG channel labels (the EEGLAB/MNE "apply a named montage" behaviour),
- * keyed by each channel's own label spelling so the render lookup matches. `estimated`
- * is true for the montage fallback so the UI can flag that the layout is not the
- * dataset's own positions.
- * Requires >=3 locatable channels either way, so non-standard label sets (EGI "E1",
- * BioSemi "A1..", numeric) resolve nothing and get no topomap rather than a wrong one.
+ * What the scalp map reads of a recording, or null (no topomap) unless the recording is a scalp
+ * modality with channels: the electrodes file's positions and frame, and the channels of its scalp
+ * groups with their types.
  */
-function resolveScalpPositions(
-  store: RecordingStore,
-): { positions: Record<string, Vec3>; system: string; estimated: boolean } | null {
+export function scalpInputOf(store: RecordingStore): ScalpInput | null {
   if (!isScalpModality(store.groups[0]?.modality)) return null;
-  const declared = store.electrodePositions;
-  if (Object.keys(declared).length >= 3) {
-    return { positions: declared, system: store.electrodeCoordinateSystem, estimated: false };
-  }
-  const labels: string[] = [];
+  const channels: { label: string; channelType: string }[] = [];
   for (const g of store.groups) {
-    if (isScalpModality(g.modality)) for (const c of g.channels) labels.push(c.label);
+    if (!isScalpModality(g.modality)) continue;
+    for (const c of g.channels) channels.push({ label: c.label, channelType: c.channelType });
   }
-  const positions = standardMontageFor(labels);
-  // System "" is non-ALS, so the RAS standard-montage coords pass through alsToRas.
-  return Object.keys(positions).length >= 3 ? { positions, system: "", estimated: true } : null;
+  if (channels.length === 0 && Object.keys(store.electrodePositions).length === 0) return null;
+  return {
+    positions: store.electrodePositions,
+    coordinateSystem: store.electrodeCoordinateSystem,
+    channels,
+  };
 }
 
 /** Inline topomap icon: a head circle with a nose notch at the top. */

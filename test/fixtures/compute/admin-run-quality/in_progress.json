@@ -1,0 +1,139 @@
+{
+  "quality": {
+    "status": 200,
+    "body": {
+      "stamp_id": 11,
+      "dataset_id": "on007826",
+      "version": "v1.0.0",
+      "recipe": "nemar-ica",
+      "recipe_version": "1.0.0-b2",
+      "input": "bids",
+      "stamp_state": "dispatched",
+      "dataset_public": false,
+      "quality": "run_in_progress",
+      "skip": null,
+      "derivative": null,
+      "recordings": {
+        "state": "not_stored",
+        "succeeded": null,
+        "unlisted": 0,
+        "items": [],
+        "next_after": null
+      }
+    }
+  },
+  "run": {
+    "status": 200,
+    "body": {
+      "status": "waiting",
+      "newest_version": null,
+      "run": {
+        "stamp_id": 11,
+        "dataset_id": "on007826",
+        "recipe": "nemar-ica",
+        "version": "v1.0.0",
+        "current_version": false,
+        "recipe_version": "1.0.0-b2",
+        "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+        "input": "bids",
+        "attempt": 1,
+        "stamp_state": "dispatched",
+        "code": null,
+        "job_id": "job_000000000000000000000004",
+        "job_state": null,
+        "executor": null,
+        "runner_id": null,
+        "runner_name": null,
+        "checkpoint": null,
+        "reported_at": null,
+        "reports": 0,
+        "reconciled": false,
+        "outcome": null,
+        "disagreement": false,
+        "created_at": "2026-11-26 05:57:14",
+        "updated_at": "2026-11-26 05:57:14"
+      },
+      "checkpoints": [
+        {
+          "checkpoint": "import",
+          "mark": "waiting",
+          "counts": null,
+          "live": null,
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": null,
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "preprocess",
+          "mark": "waiting",
+          "counts": null,
+          "live": null,
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": null,
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "ica",
+          "mark": "waiting",
+          "counts": null,
+          "live": null,
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": null,
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "iclabel",
+          "mark": "waiting",
+          "counts": null,
+          "live": null,
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": null,
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "quality",
+          "mark": "waiting",
+          "counts": null,
+          "live": null,
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": null,
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "stored",
+          "mark": "waiting",
+          "counts": null,
+          "live": null,
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": null,
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        }
+      ],
+      "listed_codes": []
+    }
+  }
+}

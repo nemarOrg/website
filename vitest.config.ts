@@ -33,6 +33,9 @@ export default defineConfig({
       // Playwright's browser checks (bun run test:e2e) are not unit tests; vitest would pick up
       // their `.spec.ts` names and fail on the Playwright import.
       "e2e/**",
+      // Component renders compile `.astro` files, which this config does not: they run in the
+      // project of vitest.astro.config.ts (vitest.workspace.ts).
+      "test/**/*.astro.test.ts",
     ],
   },
 });

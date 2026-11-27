@@ -15,6 +15,50 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Added
 
+- **Export a quality view as PNG, SVG or its files** (website#588 phase W8, nemar-cli epic #2324).
+  Each view on the Recording quality tab that has files to hand over gets an "Export this view" toggle; its code loads only when it first opens.
+  Image (PNG) at 2, 3 or 4 times, in the light print palette even when the page is dark, with the caption, the drawing, every scalp map the view shows, and printed lines naming the view; the file's text chunks carry the view's digest, its kind and version, and a permalink to `https://nemar.org`, and the color maps' notice when a map or heatmap is shown.
+  The Activations tab exports the window on show as a PNG, with its start, length and notes.
+  Drawing (SVG) is offered for a line view or a histogram, with a title, a description and the same fields as metadata.
+  Each file of the view, or a computed view's input files, is saved as the exact bytes NEMAR recorded, checked again against size and SHA-256 and never re-encoded; a mismatch is said and nothing is saved.
+  A status line says what was saved or why not.
+
+- **The Activations tab on the Recording quality tab** (website#588 phase W7, nemar-cli epic #2324).
+  The browser computes a recording's independent component activations from the serving copy and the matrix the recipe wrote, with no preprocessing, and draws one stacked trace per component through a display-only high-pass at the view's declared cutoff (1 Hz in the current recipe), in windows of 10 seconds with Earlier and Later.
+  Every input is checked first (sizes, SHA-256, rate, window, channels, units); a refusal draws nothing and says why in one sentence, with the input files offered.
+  Repaired bad segments are shaded, and the notes say what was computed and how.
+  The work runs in the map worker and loads only when the tab opens.
+
+- **A run's quality views on the admin Pipelines tab** (website#588 phase W9; nemar-cli epic #2324, nemar-cli ADR 0137 decision 7).
+  A run's page says where its quality derivative stands, one sentence per state (a run in progress, a canary, current, expired with its date, and the rest), whether the dataset is public now, and a run deferred for its serving index.
+  `/admin/pipelines/runs/<id>/quality` lists the run's succeeded recordings and draws one recording's stored views (the spectrum, the component maps and the class histogram), read through a same-origin, administrator-only, never-cached proxy; computed views are listed as drawn on the dataset page once promoted.
+  The dataset's public page is linked only for a current derivative of a dataset that is public now.
+
+- **The Recording quality tab on dataset pages** (website#588 phase W6, nemar-cli epic #2324).
+  Where a dataset's quality summary names a processing recipe, a Recording quality tab shows one recording's quality views: Spectrum, Components, Signal, and "Other views" for any other kind of view.
+  The recording is picked from the signal viewer's list; tabs follow the keyboard pattern (arrows, Home and End).
+  Every view offers a text alternative, a readout of its stored values that a pointer or the keyboard moves, a data table and each of its files to download; scalp maps say where the sensor positions came from and link the color maps' license notice.
+  Each record and file is checked against its SHA-256 before it is read, and a view whose declaration does not match its recorded digest is not drawn.
+  The record's checks are shown: the Signal tab opens the page's viewer on the view's window, with the recording's bad channels dimmed and its bad segments shaded, and "Hide bad" hides them too.
+  A link of the form `#quality/<recording>/<view>` opens the tab on that view, and the address bar follows the visitor's choice.
+  A "Turbo" toggle switches every scalp map and is remembered in this browser.
+  After the page has loaded and the browser is idle, the default recording's first views are fetched ahead at low priority, so the tab opens without waiting; nothing is fetched while a viewer is open, when the browser asks to save data, or on a 2G connection.
+  Every failure has a plain sentence; no raw error word is shown.
+
+- **The Data quality tab on dataset pages** (website#588 phase W5, nemar-cli epic #2324).
+  The "coming soon" placeholder is gone.
+  A public, non-anonymous dataset with a promoted quality summary gets a Data quality tab: per recipe, its version, the dataset version, the counts of recordings discovered, succeeded, failed and skipped, the recordings not processed, and per metric its values, median, observed range, missing count, a histogram with a text alternative naming every bar, and a data table.
+  Every number printed is the stored value's text, never a rounded one.
+  A summary that fails a check draws nothing and says why in one sentence; a dataset without a summary has no tab.
+  The summary is drawn on the server and adds no script; the embed page shows no quality data.
+
+- **The admin Pipelines tab** (website#586; nemar-cli epic #2324 phase 4b, nemar-cli ADR 0134; website ADR 0030 addendum of 2026-11-23).
+  `/admin/pipelines`, after Compute, shows NEMAR's own processing runs recipe by recipe: a coverage card per recipe (eligible datasets whose newest version has a succeeded run of the current recipe version, complete, and at any recipe version) with its failed runs per day, and a placeholder recipe marked as such.
+  Each recipe's grid (`/admin/pipelines/<recipe>`) is the legacy pipeline status table: datasets as rows, the recipe's checkpoints as columns, each cell `passed/total` with the CLI's code (`F<n>`, `x`, `R`, `S`, `W`, `P`, `?`, `-`) and an icon, never color alone; filters by status, recipe version, executor, runner and dataset, and paging by dataset id.
+  A run's page (`/admin/pipelines/runs/<id>`) shows each checkpoint's counts and the failed recordings it lists, with their codes and steps.
+  The admin Overview gains a "Processing recipes" panel with the same cards for the recipes that dispatch.
+  Read only: the pages never ask the API to sync, and say that ended runs and the coverage line can lag until a sync records them. Where the API predates these routes the tab says "not available on this server yet".
+
 - **The admin Compute tab** (website#497, epic website#493 phase E4; nemar-cli epic #2021, website ADR 0030 addendum).
   `/admin/compute`, after Mail, shows the compute access requests awaiting a decision: a row per account with the stated country, affiliation, city, email, ORCID iD, request date, terms version and the purpose (shown as inert text, in full on request).
   An administrator can Grant, Deny, Suspend, Revoke, Lift a suspension or Grant again, each from its own dialog with an optional reason (500 characters).
@@ -63,6 +107,17 @@ The release pull request from `staging` to `main` moves those entries under the 
   `scripts/local-backend.mjs` runs that backend locally with seeded accounts (see `.context/local-backend.md`); the `astro dev` login has seven compute personas (`@nemar.cnone`, `.creq`, `.cactive`, `.csusp`, `.cdenied`, `.crevoked`, `.cpending`).
 
 ### Changed
+
+- **The signal viewer's scalp map is drawn on the quality views' sensor field** (website#588 phases W3 and W2b, nemar-cli epic #2324).
+  The map is drawn in the quality views' worker, on the sequential color map with a min-to-max color axis, EEGLAB's head, nose and ears, and a marker per sensor; a shared offset no longer ripples across the map.
+  The thin-plate spline it used before is removed, so maps differ in shape as well as color.
+  A recording's own positions are used when they are in a known scalp frame.
+  Positions in a frame that is not the scalp (Pixels, ACPC, ScanRAS) are refused, never placed by name; only positions in an unknown frame, flat positions or positions that cover too little of the head fall back to placing the EEG channels by name on a standard montage or a recognized net, with the reason given in the toggle's title.
+  A recording whose positioned channels are all typed `n/a` now gets no map; without positions, untyped channels are still placed by name.
+  A map needs at least 8 sensors, from the recording's own positions or from names.
+  Placement by name is stricter than before: a mix that fits two montages, bipolar names, or an EGI recording placed by name (its cap model is not yet recorded) now shows a sentence instead of a map, and a BioSemi recording goes to the smallest cap its names fill, or is refused when they cover too little of it.
+  A map that cannot be drawn is withheld, and its stated reason stands in its place.
+  The montages' license notices ship with the site.
 
 - **The dataset page's Compute dialog describes `nemar compute`** (website#498, epic website#493 phase E5; website ADR 0030 addendum).
   The "Compute instructions" dialog no longer shows an S3 prefix and a Neuroscience Gateway flow; that route is gone.

@@ -1,0 +1,96 @@
+---
+/**
+ * The dataset quality summary, drawn on the server from `extensions.dataQuality` in the dataset's
+ * metadata.json (nemar-cli ADR 0137 decision 8; website ADR 0035; phase W5 of website#588).
+ *
+ * The page reads and checks the summary with `readQualitySummary` and passes the outcome here: a
+ * summary that is shown is the tree `summaryTree` builds (counts, the recordings not processed,
+ * and per metric its values, median, observed range and histogram), printed with `toHtml`, which
+ * escapes every stored text; a summary refused by a check is its one sentence; nothing shows
+ * nothing. No script runs: every histogram has its text alternative and its data table.
+ *
+ * Styles reach the printed tree through `:global`, since Astro does not scope markup it did not
+ * write; they stay under `.qs-host`.
+ */
+import "../../styles/quality-views.css";
+import { type QualitySummary, summaryTree } from "../../lib/quality-views/dataset-summary";
+import { toHtml } from "../../lib/quality-views/tree";
+
+interface Props {
+  summary: QualitySummary;
+  /** A prefix for the ids of the summary's elements, unique on the page. */
+  idPrefix: string;
+}
+
+const { summary, idPrefix } = Astro.props;
+const tree = summaryTree(summary, idPrefix);
+---
+
+{tree && <div class="qs-host" set:html={toHtml(tree)} />}
+
+<style>
+  .qs-host {
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+  }
+  .qs-host :global(.qs-note),
+  .qs-host :global(.qs-description) {
+    color: var(--color-fg-muted);
+    margin: 0 0 var(--space-3);
+  }
+  .qs-host :global(.qs-refused) {
+    color: var(--color-fg-muted);
+    margin: 0;
+  }
+  .qs-host :global(.qs-recipe) {
+    margin-top: var(--space-5);
+  }
+  .qs-host :global(.qs-recipe h3) {
+    font-size: var(--fs-base);
+    margin: 0 0 var(--space-2);
+  }
+  .qs-host :global(.qs-version) {
+    font-weight: 400;
+    color: var(--color-fg-muted);
+  }
+  .qs-host :global(table) {
+    border-collapse: collapse;
+    margin: 0 0 var(--space-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .qs-host :global(caption) {
+    text-align: start;
+    font-weight: 600;
+    margin-bottom: var(--space-1);
+  }
+  .qs-host :global(th),
+  .qs-host :global(td) {
+    border: 1px solid var(--color-border);
+    padding: var(--space-1) var(--space-2);
+    text-align: start;
+  }
+  .qs-host :global(summary) {
+    cursor: pointer;
+  }
+  .qs-host :global(summary:focus-visible) {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  .qs-host :global(.qs-not-processed) {
+    margin: 0 0 var(--space-4);
+  }
+  .qs-host :global(.qs-stats) {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: var(--space-1) var(--space-3);
+    margin: 0 0 var(--space-2);
+  }
+  .qs-host :global(.qs-stats dt) {
+    color: var(--color-fg-muted);
+  }
+  .qs-host :global(.qs-stats dd) {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+  }
+</style>

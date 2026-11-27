@@ -341,7 +341,9 @@ await setDefaultGrant(50_000, 5_000);
   decisions.refused_notice_required_suspend = await decide("suspend", "admin", id, {
     reason: "pending a review",
   });
-  decisions.refused_notice_required_revoke = await decide("revoke", "admin", id, { notice: "  \n " });
+  decisions.refused_notice_required_revoke = await decide("revoke", "admin", id, {
+    notice: "  \n ",
+  });
   decisions.refused_notice_refused = await decide("grant", "admin", req, { notice: "Welcome." });
   decisions.refused_notice_too_long = await decide("deny", "admin", req, {
     notice: "x".repeat(1001),

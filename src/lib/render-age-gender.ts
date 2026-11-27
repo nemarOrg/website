@@ -1,6 +1,6 @@
 /**
  * Stacked-bar age histogram for the Demographics tab. Reuses the existing
- * `bucketAgesBySex` helper from `./qa.ts` so the bucketing math is unit-
+ * `bucketAgesBySex` helper from `./age-buckets.ts` so the bucketing math is unit-
  * tested in one place. Each bucket renders as one column with three
  * segments stacked bottom-to-top: M (bottom), F (middle), O (top).
  *
@@ -15,7 +15,7 @@
  * blew the 6-unit tick labels up to ~90 px text.
  */
 
-import { bucketAgesBySex, pickAgeBuckets } from "./qa";
+import { bucketAgesBySex, pickAgeBuckets } from "./age-buckets";
 
 // Pixel-coordinate geometry. CELL_W scales with bucket count; PLOT_H + LABEL_H
 // give the chart a fixed 160-pixel height regardless of how many buckets the

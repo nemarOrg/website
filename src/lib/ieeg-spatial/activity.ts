@@ -28,7 +28,7 @@
 
 import { unitToSI } from "../eeg-viewer/dsp";
 import type { WindowData } from "../eeg-viewer/store";
-import { VIRIDIS_CSS, viridisColor } from "../eeg-viewer/topo";
+import { SEQUENTIAL_STOPS, colorAt } from "../quality-views/colormap";
 
 // --- Closed lists and constants ---------------------------------------------
 
@@ -753,6 +753,19 @@ export type ScaleKind = "sequential" | "zscore";
 
 type Rgb = [number, number, number];
 
+/** The sequential (viridis) legend: the quality views' stops, evenly, as the viewer's legend was. */
+const SEQUENTIAL_CSS = SEQUENTIAL_STOPS.map(([, color]) => color).join(", ");
+
+/**
+ * The sequential color at `u` in [0, 1]. The position is computed as the signal viewer's former
+ * `viridisColor` computed it from a signed value, `(2u - 1 + 1) / 2`, so that every color, rounding
+ * ties included, is the one the overlay has always drawn.
+ */
+export function sequentialColor(u: number): Rgb {
+  const c = colorAt(SEQUENTIAL_STOPS, (2 * u - 1 + 1) / 2);
+  return [c[0], c[1], c[2]];
+}
+
 /** Diverging map (blue, near-white, red; ColorBrewer RdBu, 7 classes), low to high. */
 const DIVERGING: readonly Rgb[] = [
   [33, 102, 172],
@@ -830,7 +843,7 @@ export function buildScale(
     const v = values[i];
     if (v !== null && Number.isFinite(v) && (located ? located[i] : true)) used.push(v);
   }
-  const css = kind === "sequential" ? VIRIDIS_CSS : DIVERGING_CSS;
+  const css = kind === "sequential" ? SEQUENTIAL_CSS : DIVERGING_CSS;
   const empty: ActivityScale = {
     kind,
     lo: kind === "zscore" ? -1 : 0,
@@ -866,9 +879,9 @@ export function buildScale(
 export function colorFor(scale: ActivityScale, value: number | null): Rgb | null {
   if (value === null || !Number.isFinite(value)) return null;
   if (scale.kind === "sequential") {
-    if (scale.degenerate) return viridisColor(0);
+    if (scale.degenerate) return sequentialColor(0.5);
     const t = (value - scale.lo) / (scale.hi - scale.lo);
-    return viridisColor(2 * Math.max(0, Math.min(1, t)) - 1);
+    return sequentialColor(Math.max(0, Math.min(1, t)));
   }
   if (scale.degenerate || scale.sd === null || scale.mean === null) return divergingColor(0);
   const z = (value - scale.mean) / scale.sd;

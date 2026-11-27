@@ -156,7 +156,7 @@ export interface LiveViewer extends SessionContext {
 /** Mount options a page adds to every mount the session makes. */
 export type SessionMountOptions = Pick<
   ViewerOptions,
-  "fitHeight" | "scopeOverlay" | "unavailableLink"
+  "fitHeight" | "scopeOverlay" | "unavailableLink" | "qualityMarks"
 >;
 
 /** Where the session is opening or navigating, for hooks that need to say so. */

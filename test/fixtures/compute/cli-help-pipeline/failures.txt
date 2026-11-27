@@ -1,0 +1,19 @@
+Usage: nemar admin compute pipeline failures [options] <stamp-id>
+
+Show one pipeline run's checkpoints and the failures each lists
+
+Options:
+  --json      Print the Worker's answer as JSON
+  -h, --help  display help for command
+
+Shows one pipeline run (by its stamp id, the run column of "pipeline status"): each checkpoint's counts
+and mark, and the failed recordings it lists with their codes and steps. A checkpoint lists at most
+10 (the first ones of the recordings table once the run is reconciled, the most recent ones while it
+reports); "more" says how many of the recordings that stopped at that checkpoint (failed or skipped
+there, not earlier) are not listed. Read only.
+
+Admin or owner. --json prints the Worker's answer as it is.
+
+Exit codes:
+  0  the run was printed.
+  1  the stamp id is wrong or there is no such stamp, or the Worker refused or could not be reached.

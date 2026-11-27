@@ -1,0 +1,515 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-pipeline-fixtures.mjs",
+    "nemar_cli_commit": "146c3efa",
+    "route": "GET /admin/compute/pipeline/coverage",
+    "note": "Real routes over a real migrated database (backend/test/compute-pipeline-grid.test.ts's worlds). Wall-clock stamps are pinned to fixed values, job ids to a stable sequence and trend days to a fixed week."
+  },
+  "default": {
+    "status": 200,
+    "body": {
+      "as_of": "2026-11-20 12:00:00",
+      "days": 30,
+      "recipes": [
+        {
+          "recipe": "nemar-floor",
+          "recipe_version": "1.0.0-b1",
+          "placeholder": false,
+          "auto_dispatch": true,
+          "columns": [
+            "import",
+            "preprocess",
+            "quality",
+            "stored"
+          ],
+          "eligible": 3,
+          "covered": 1,
+          "complete": 1,
+          "covered_any_version": 1,
+          "by_status": {
+            "not_started": 1,
+            "waiting": 0,
+            "running": 0,
+            "stalled": 0,
+            "finished": 1,
+            "failed": 1
+          },
+          "trend": [
+            {
+              "at": "2026-10-22",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-23",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-24",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-25",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-26",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-27",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-28",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-29",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-30",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-31",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-01",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-02",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-03",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-04",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-05",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-06",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-07",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-08",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-09",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-10",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-11",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-12",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-13",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-14",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-15",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-16",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-17",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-18",
+              "value": 1,
+              "total": 1
+            },
+            {
+              "at": "2026-11-19",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-20",
+              "value": 0,
+              "total": 1
+            }
+          ]
+        },
+        {
+          "recipe": "nemar-ica",
+          "recipe_version": "1.0.0-b1",
+          "placeholder": true,
+          "auto_dispatch": false,
+          "columns": [
+            "import",
+            "preprocess",
+            "ica",
+            "iclabel",
+            "stored"
+          ],
+          "eligible": 3,
+          "covered": 0,
+          "complete": 0,
+          "covered_any_version": 0,
+          "by_status": {
+            "not_started": 3,
+            "waiting": 0,
+            "running": 0,
+            "stalled": 0,
+            "finished": 0,
+            "failed": 0
+          },
+          "trend": [
+            {
+              "at": "2026-10-22",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-23",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-24",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-25",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-26",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-27",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-28",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-29",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-30",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-10-31",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-01",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-02",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-03",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-04",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-05",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-06",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-07",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-08",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-09",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-10",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-11",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-12",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-13",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-14",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-15",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-16",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-17",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-18",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-19",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-20",
+              "value": 0,
+              "total": 0
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "days_7": {
+    "status": 200,
+    "body": {
+      "as_of": "2026-11-20 12:00:00",
+      "days": 7,
+      "recipes": [
+        {
+          "recipe": "nemar-floor",
+          "recipe_version": "1.0.0-b1",
+          "placeholder": false,
+          "auto_dispatch": true,
+          "columns": [
+            "import",
+            "preprocess",
+            "quality",
+            "stored"
+          ],
+          "eligible": 3,
+          "covered": 1,
+          "complete": 1,
+          "covered_any_version": 1,
+          "by_status": {
+            "not_started": 1,
+            "waiting": 0,
+            "running": 0,
+            "stalled": 0,
+            "finished": 1,
+            "failed": 1
+          },
+          "trend": [
+            {
+              "at": "2026-11-14",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-15",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-16",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-17",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-18",
+              "value": 1,
+              "total": 1
+            },
+            {
+              "at": "2026-11-19",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-20",
+              "value": 0,
+              "total": 1
+            }
+          ]
+        },
+        {
+          "recipe": "nemar-ica",
+          "recipe_version": "1.0.0-b1",
+          "placeholder": true,
+          "auto_dispatch": false,
+          "columns": [
+            "import",
+            "preprocess",
+            "ica",
+            "iclabel",
+            "stored"
+          ],
+          "eligible": 3,
+          "covered": 0,
+          "complete": 0,
+          "covered_any_version": 0,
+          "by_status": {
+            "not_started": 3,
+            "waiting": 0,
+            "running": 0,
+            "stalled": 0,
+            "finished": 0,
+            "failed": 0
+          },
+          "trend": [
+            {
+              "at": "2026-11-14",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-15",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-16",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-17",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-18",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-19",
+              "value": 0,
+              "total": 0
+            },
+            {
+              "at": "2026-11-20",
+              "value": 0,
+              "total": 0
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "invalid_days": {
+    "status": 400,
+    "body": {
+      "error": "The query is not valid: days: too_big",
+      "code": "invalid_query"
+    }
+  },
+  "member": {
+    "status": 403,
+    "body": {
+      "error": "Admin access required"
+    }
+  }
+}

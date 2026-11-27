@@ -37,6 +37,30 @@
  *                   PUBLIC_API_BASE_URL has the `@nemar.cpending` mock for that screen). The
  *                   loopback guards below are unchanged.
  *
+ *   --seed-pipeline  with LOCAL_BACKEND_JOBS=1, also seeds the admin Pipelines tab (nemar-cli ADR 0134
+ *                   phase 4b, website#586) with the backend's own pipeline fixture helpers, the real
+ *                   dispatch, stamp sync, reconciliation and progress write: eight eligible datasets
+ *                   in a band no live dataset uses, one per row status (not started, waiting, running,
+ *                   stalled, finished with failures, finished clean, failed with no table, running on a
+ *                   runner), and the same SQL the backend's grid test uses for a silent report and a
+ *                   runner job. Open http://localhost:4321/admin/pipelines as `owner`.
+ *
+ *   --seed-quality  with --seed-pipeline (and so LOCAL_BACKEND_JOBS=1): the script's later observer-run
+ *                   step needs the environment those give. Also seeds the dataset page's quality panel (website phase W6, nemar-cli ADR 0137): the
+ *                   dataset row of nemar-ica's real product (`test/fixtures/quality/ica-views` of the
+ *                   checkout, `on007823`), a stored `catalog` derivative of it with the backend's own
+ *                   fixture helpers (`backend/test/helpers/quality-fixture.ts`), and the product under the
+ *                   derivative's key in Miniflare's R2 as the derivatives bucket, so the REAL public
+ *                   quality route answers at http://localhost:8787/data/on007823/quality/v1/nemar-ica/...
+ *                   (the record and every declared file). The record URL is printed. The site's dataset
+ *                   page reads the data plane, so `e2e/quality-panel.spec.ts` (captured answers) is the
+ *                   browser check; this is for looking at the route's answers by hand.
+ *                   For the admin run drill-down (website phase W9) it also seeds, with the same
+ *                   helpers, a later canary run of `on007823` (drawn, and still no public link), an
+ *                   expired canary of a dataset that is not public (`on007825`), a run in progress (`on007826`) and a run deferred for its serving index
+ *                   (`on007827`, a `refused` stamp with `serving_index_deferred`); the stamp ids are
+ *                   printed and written to `.local-backend/quality.json` for `e2e/admin-quality.spec.ts`.
+ *
  *   --seed-compute-jobs  with --seed-compute and LOCAL_BACKEND_JOBS=1, also makes the job page's
  *                   (website phase E3, #496) jobs for `localjobs` through the REAL services and the
  *                   Tapis stand-in: a finished job (three outputs, a log), a running one, a second
@@ -124,6 +148,7 @@ const { default: dailyDoc } = await import(
 // Job rows need the backend's lifecycle fixture (Miniflare's R2 and the Tapis stand-in).
 const WITH_JOBS = process.env.LOCAL_BACKEND_JOBS === "1";
 const SEED_COMPUTE_JOBS = process.argv.includes("--seed-compute-jobs");
+const SEED_PIPELINE = process.argv.includes("--seed-pipeline");
 const lifecycle = WITH_JOBS
   ? await import(join(root, "backend/test/helpers/compute-lifecycle-fixture.ts"))
   : null;
@@ -149,9 +174,9 @@ const STAMPS = { requested: "2026-10-20 09:30:00", granted: "2026-10-24 14:05:00
 const db = fx ? fx.harness.db : freshDb();
 const env = {
   ...(fx ? fx.env() : { DB: realD1(db) }),
-  // Compute runs only in `production` or `development` (the backend's switch), so the job page's seed
-  // needs `development`; both are non-production and fenced from real mail.
-  ENVIRONMENT: SEED_COMPUTE_JOBS ? "development" : "test",
+  // Compute runs only in `production` or `development` (the backend's switch), so the job page's and the
+  // pipeline seeds need `development`; both are non-production and fenced from real mail.
+  ENVIRONMENT: SEED_COMPUTE_JOBS || SEED_PIPELINE ? "development" : "test",
   // Decisions are bookkeeping and read no switch, but minting an observer run does.
   COMPUTE_ENABLED: "1",
   API_BASE_URL: `http://localhost:${PORT}`,
@@ -710,6 +735,218 @@ async function seedComputeJobs() {
 }
 if (SEED_COMPUTE_JOBS) await seedComputeJobs();
 
+/**
+ * The admin Pipelines tab's runs (--seed-pipeline): the backend's own pipeline fixture helpers and
+ * services, as `scripts/capture-compute-pipeline-fixtures.mjs` builds its grid world.
+ */
+if (SEED_PIPELINE && !fx) refuse("--seed-pipeline needs LOCAL_BACKEND_JOBS=1.");
+async function seedPipelineRuns() {
+  const pf = await import(join(root, "backend/test/helpers/compute-pipeline-fixture.ts"));
+  const { dispatchPipelineJob, syncPipelineStamps } = await import(
+    join(root, "backend/src/services/compute-pipeline.ts")
+  );
+  const { recordProgress, stampForJob } = await import(
+    join(root, "backend/src/services/compute-pipeline-progress.ts")
+  );
+  const { findRecipe } = await import(join(root, "shared/compute-recipes.ts"));
+  const { PROGRESS_FORMAT } = await import(join(root, "shared/contract/compute-progress.ts"));
+  const sqlRun = (text, ...binds) =>
+    env.DB.prepare(text)
+      .bind(...binds)
+      .run();
+  const ownerId = db.query("SELECT id FROM users WHERE username = 'localowner'").get()?.id ?? 1;
+  await pf.seedPipelinesAccount(env);
+  await pf.fundPipelines(env);
+  const floor = findRecipe("nemar-floor");
+  const record = JSON.stringify({
+    sj_version: "0.1.0",
+    ...JSON.parse(
+      pf.recipeRecord({
+        recipe: { id: "nemar-floor", version: floor.version },
+        engine: { package: "eegprep", version: floor.engine.split("@")[1] },
+      }),
+    ),
+  });
+  const rec = (n, status, code, step) => {
+    const sub = `sub-${String(n).padStart(2, "0")}`;
+    return [`${sub}/eeg/${sub}_task-rest_eeg.edf`, status, code, step];
+  };
+  const mixed = pf.floorTable([
+    rec(1, "succeeded", null, null),
+    rec(2, "failed", "load_failed", "load"),
+    rec(3, "failed", "step_failed", "bad_channels"),
+    rec(4, "succeeded", null, null),
+  ]);
+  const clean = pf.floorTable([rec(1, "succeeded", null, null), rec(2, "succeeded", null, null)]);
+  const dispatch = async (datasetId) => {
+    const r = await dispatchPipelineJob(env, {
+      recipe: "nemar-floor",
+      datasetId,
+      actor: { kind: "admin", userId: ownerId },
+    });
+    if (!r.ok) throw new Error(`could not dispatch ${datasetId}: ${r.code}`);
+    return r;
+  };
+  const finished = async (datasetId, table) => {
+    const d = await dispatch(datasetId);
+    await pf.finishAtTapis(fx, env, d.jobId, { outputs: pf.floorOutputs(record, table) });
+    await syncPipelineStamps(env);
+    return d;
+  };
+  const reporting = async (datasetId) => {
+    const d = await dispatch(datasetId);
+    await sqlRun("UPDATE compute_jobs SET state = 'running' WHERE id = ?1", d.jobId);
+    const lookup = await stampForJob(env.DB, d.jobId);
+    if (!lookup.ok) throw new Error(lookup.reason);
+    const zero = { passed: 0, failed: 0, skipped: 0, total: 4 };
+    const outcome = await recordProgress(env.DB, {
+      jobId: d.jobId,
+      stamp: lookup.stamp,
+      progress: {
+        format: PROGRESS_FORMAT,
+        checkpoint: "import",
+        counts: { import: { ...zero, passed: 1 }, preprocess: zero, quality: zero },
+        failures: [],
+      },
+      reporter: { executor: "tapis" },
+    });
+    if (outcome !== "accepted")
+      throw new Error(`progress for ${datasetId} not accepted: ${outcome}`);
+    return d;
+  };
+  for (let i = 1; i <= 8; i++) await pf.seedEegDataset(env, `nm09910${i}`);
+  await dispatch("nm099102");
+  await reporting("nm099103");
+  const silent = await reporting("nm099104");
+  await sqlRun(
+    "UPDATE compute_pipeline_progress_runs SET reported_at = datetime('now', '-600 seconds') WHERE stamp_id = ?1",
+    silent.stampId,
+  );
+  await finished("nm099105", mixed);
+  await finished("nm099106", clean);
+  const failed = await dispatch("nm099107");
+  await sqlRun(
+    "UPDATE compute_jobs SET state = 'failed', failure_code = 'runtime_error', ended_at = datetime('now') WHERE id = ?1",
+    failed.jobId,
+  );
+  await syncPipelineStamps(env);
+  const onRunner = await reporting("nm099108");
+  const runnerId = `rnr_${"ab".repeat(12)}`;
+  await sqlRun(
+    `INSERT INTO compute_runners (id, name, pool, cores, memory_mb, gpus, scratch_gb, backend, runtimes, arch,
+       accounting, site, trust, secret_hash, registered_by)
+     VALUES (?1, 'ws_b', 'cpu', 8, 16000, 0, 100, 'local', '["docker"]', 'amd64', 'none', 'sccn', 'lab', ?2, ?3)`,
+    runnerId,
+    "c".repeat(64),
+    ownerId,
+  );
+  await sqlRun(
+    "UPDATE compute_jobs SET executor = 'runner', accounting = 'none', runner_id = ?2 WHERE id = ?1",
+    onRunner.jobId,
+    runnerId,
+  );
+}
+if (SEED_PIPELINE) await seedPipelineRuns();
+
+/**
+ * The quality panel's derivative (--seed-quality): nemar-ica's real product, stored as the derivative
+ * store stores it, under a `catalog` row, as `backend/test/quality-route.test.ts` builds it.
+ */
+const SEED_QUALITY = process.argv.includes("--seed-quality");
+if (SEED_QUALITY && !SEED_PIPELINE)
+  refuse("--seed-quality needs --seed-pipeline (and LOCAL_BACKEND_JOBS=1).");
+const qualityHost = SEED_QUALITY
+  ? new (await import(join(root, "node_modules/miniflare/dist/src/index.js"))).Miniflare({
+      modules: true,
+      script: "export default { fetch() { return new Response('ok') } }",
+      compatibilityDate: "2024-12-01",
+      r2Buckets: ["COMPUTE_DERIVATIVES"],
+    })
+  : null;
+let qualityRecordUrl = null;
+async function seedQuality() {
+  const qf = await import(join(root, "backend/test/helpers/quality-fixture.ts"));
+  const { qualityRecordPath } = await import(join(root, "shared/contract/quality-route.ts"));
+  const bucket = await qualityHost.getR2Bucket("COMPUTE_DERIVATIVES");
+  env.COMPUTE_DERIVATIVES = bucket;
+  env.COMPUTE_DERIVATIVES_BUCKET_NAME = "nemar-compute-derivatives";
+  const datasetId = "on007823";
+  db.query(
+    `INSERT OR IGNORE INTO datasets (dataset_id, name, owner_user_id, status, visibility, is_sandbox, anonymous,
+                                     modalities, first_published_at)
+     VALUES (?, ?, -1, 'active', 'public', 0, 0, 'eeg', '2026-01-01 00:00:00')`,
+  ).run(datasetId, datasetId);
+  const jobId = qf.newJobId();
+  const stampId = await qf.seedIcaStamp(env.DB, { datasetId, jobId });
+  const key = await qf.seedDerivative(env.DB, {
+    datasetId,
+    stampId,
+    jobId,
+    retention: "catalog",
+  });
+  for (const [path, bytes] of qf.productFiles()) await bucket.put(`d/${key}/${path}`, bytes);
+  qualityRecordUrl = `http://localhost:${PORT}/data${qualityRecordPath(datasetId, "nemar-ica", "sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_eeg.edf")}`;
+  qualityStamps.current = stampId;
+
+  // The admin drill-down's runs (website phase W9): a later canary run of the same dataset, an
+  // expired canary of a dataset that is not public, a run in progress and a run deferred for its
+  // serving index, each with the backend's own helpers (the deferral as `servingIndexForRun` records one: a
+  // `refused` stamp with the word). Their ids go to `.local-backend/quality.json`.
+  const privateDataset = (id) =>
+    db
+      .query(
+        `INSERT OR IGNORE INTO datasets (dataset_id, name, owner_user_id, status, visibility, is_sandbox, anonymous,
+                                         modalities, first_published_at)
+         VALUES (?, ?, -1, 'active', 'private', 0, 0, 'eeg', NULL)`,
+      )
+      .run(id, id);
+  // nemar-ica's product names its dataset, so the canary is a later run of the same one: a canary
+  // of a public dataset, which still gets no public link.
+  const canaryJob = qf.newJobId();
+  qualityStamps.canary = await qf.seedIcaStamp(env.DB, {
+    datasetId,
+    jobId: canaryJob,
+    version: "v1.0.1",
+  });
+  const canaryKey = await qf.seedDerivative(env.DB, {
+    datasetId,
+    stampId: qualityStamps.canary,
+    jobId: canaryJob,
+    retention: "canary",
+  });
+  for (const [path, bytes] of qf.productFiles()) await bucket.put(`d/${canaryKey}/${path}`, bytes);
+  privateDataset("on007825");
+  const expiredJob = qf.newJobId();
+  qualityStamps.expired = await qf.seedIcaStamp(env.DB, {
+    datasetId: "on007825",
+    jobId: expiredJob,
+  });
+  await qf.seedDerivative(env.DB, {
+    datasetId: "on007825",
+    stampId: qualityStamps.expired,
+    jobId: expiredJob,
+    retention: "canary",
+    expiresAt: "2026-01-01 00:00:00",
+  });
+  privateDataset("on007826");
+  qualityStamps.in_progress = await qf.seedIcaStamp(env.DB, {
+    datasetId: "on007826",
+    jobId: qf.newJobId(),
+    state: "dispatched",
+  });
+  privateDataset("on007827");
+  qualityStamps.deferred = await qf.seedIcaStamp(env.DB, {
+    datasetId: "on007827",
+    jobId: qf.newJobId(),
+    state: "failed",
+  });
+  db.query(
+    "UPDATE compute_pipeline_stamps SET state = 'refused', refusal_code = 'serving_index_deferred', job_id = NULL WHERE id = ?",
+  ).run(qualityStamps.deferred);
+}
+const qualityStamps = {};
+if (SEED_QUALITY) await seedQuality();
+
 const cookies = {};
 for (const p of [...PERSONAS, ...ADMIN_PERSONAS])
   cookies[p.who] = await signIn(`${p.who}@nemar.test`);
@@ -789,6 +1026,9 @@ await writeFile(join(outDir, "cookies.json"), `${JSON.stringify(cookies, null, 2
 if (SEED_COMPUTE_JOBS) {
   await writeFile(join(outDir, "jobs.json"), `${JSON.stringify(seededJobs, null, 2)}\n`);
 }
+if (SEED_QUALITY) {
+  await writeFile(join(outDir, "quality.json"), `${JSON.stringify(qualityStamps, null, 2)}\n`);
+}
 
 console.log(`nemar-cli backend on http://localhost:${PORT} (in-memory database; restart resets)`);
 console.log("");
@@ -811,6 +1051,21 @@ console.log(
   "Admin Compute tab: sign in as `owner` or `adminself` (a non-owner administrator whose own",
 );
 console.log("request is open) and open http://localhost:4321/admin/compute.");
+if (SEED_PIPELINE) {
+  console.log(
+    "Admin Pipelines tab: sign in as `owner` and open http://localhost:4321/admin/pipelines.",
+  );
+}
+if (qualityRecordUrl) {
+  console.log(`Quality route (real, seeded): curl -s ${qualityRecordUrl}`);
+}
+if (SEED_QUALITY) {
+  console.log(
+    "Run quality drill-down (also in .local-backend/quality.json), open /admin/pipelines/runs/<id>/quality as `owner`:",
+  );
+  for (const [label, id] of Object.entries(qualityStamps))
+    console.log(`  ${label.padEnd(14)} ${id}`);
+}
 console.log(`Owner API key (grant from a terminal): ${OWNER_KEY}`);
 console.log(
   `  curl -s -X POST -H "Authorization: Bearer ${OWNER_KEY}" http://localhost:${PORT}/admin/compute/access/grant/localrequested`,

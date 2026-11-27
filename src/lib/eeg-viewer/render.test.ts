@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { niceTimeStep, traceLayout } from "./render";
+import { type ViewerFrame, niceTimeStep, shadedRects, traceLayout } from "./render";
 
 describe("traceLayout", () => {
   it("stacks N evenly spaced slots with centered baselines", () => {
@@ -29,5 +29,50 @@ describe("niceTimeStep", () => {
   });
   it("guards non-positive spans", () => {
     expect(niceTimeStep(0)).toBe(1);
+  });
+});
+
+describe("shadedRects (the floor's bad segments, website W6)", () => {
+  const frame = (shaded: ViewerFrame["shaded"]): ViewerFrame => ({
+    channels: [],
+    nCols: 100,
+    windowStartS: 10,
+    windowEndS: 20,
+    events: [],
+    physPerDiv: 1,
+    unitBase: "V",
+    shaded,
+  });
+  it("places each span in the window on the plot, clipped to it", () => {
+    const rects = shadedRects(
+      frame([
+        { startS: 12, endS: 14, label: "bad_window" },
+        { startS: 5, endS: 11, label: "edge" },
+        { startS: 19, endS: 30, label: "late" },
+      ]),
+      0,
+      100,
+    );
+    expect(rects.map((r) => r.label)).toEqual(["bad_window", "edge", "late"]);
+    expect(rects[0].x).toBeCloseTo(20);
+    expect(rects[0].width).toBeCloseTo(20);
+    expect(rects[1].x).toBe(0);
+    expect(rects[2].x + rects[2].width).toBe(100);
+  });
+  it("leaves out spans outside the window, and never draws a span narrower than a pixel", () => {
+    const rects = shadedRects(
+      frame([
+        { startS: 0, endS: 10, label: "before" },
+        { startS: 20, endS: 25, label: "after" },
+        { startS: 15, endS: 15.0001, label: "burst" },
+      ]),
+      0,
+      100,
+    );
+    expect(rects.map((r) => r.label)).toEqual(["burst"]);
+    expect(rects[0].width).toBeGreaterThanOrEqual(1);
+  });
+  it("shades nothing without spans", () => {
+    expect(shadedRects(frame(undefined), 0, 100)).toEqual([]);
   });
 });

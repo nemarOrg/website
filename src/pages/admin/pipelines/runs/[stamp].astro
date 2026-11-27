@@ -1,0 +1,492 @@
+---
+/**
+ * One pipeline run (nemar-cli ADR 0134 decision 5; epic nemarOrg/nemar-cli#2324 phase 4b,
+ * website#586): the run's facts, then each checkpoint's counts and mark, and the failed recordings
+ * it lists with their codes and steps, and where the run's quality derivative stands (website
+ * phase W9, #588: one sentence per run-quality word, whether the dataset is public now, an expiry
+ * date, a deferral) with a link to the drill-down. READ ONLY: two API calls, the run and its
+ * quality, the second only once the first has named a run; a server without the quality route
+ * says so and the rest of the page stands.
+ *
+ * One 404 for every id that names no run: a malformed id is answered without calling the API, and
+ * `stamp_not_found` gets the same page. A recording path is text derived from a dataset: it is
+ * escaped, printed as a text node and never put in a link. The job id is text, not a link.
+ */
+import ComputePill from "../../../../components/admin/ComputePill.astro";
+import ComputeSectionError from "../../../../components/admin/ComputeSectionError.astro";
+import StatusIcon from "../../../../components/admin/StatusIcon.astro";
+import AdminLayout from "../../../../layouts/AdminLayout.astro";
+import { adminGate } from "../../../../lib/admin-guard";
+import { getSession } from "../../../../lib/auth";
+import { ComputeAdminApiError, computeAdminErrorText } from "../../../../lib/compute-admin-api";
+import {
+  type PipelineRunDetail,
+  getPipelineRun,
+  isNotAvailable,
+} from "../../../../lib/compute-pipeline-api";
+import { PIPELINE_STAMP_NOT_FOUND } from "../../../../lib/compute-pipeline-contract";
+import {
+  PIPELINE_HELP,
+  PIPELINE_LABELS,
+  countsText,
+  failuresMeaning,
+  unlistedText,
+} from "../../../../lib/compute-pipeline-labels";
+import {
+  PIPELINES_PATH,
+  checkpointAnchor,
+  d1Time,
+  gridHref,
+  outcomeText,
+  parseStampParam,
+  runMarkView,
+  statusPill,
+  wordText,
+} from "../../../../lib/compute-pipeline-view";
+import { displaySafeLine } from "../../../../lib/mail-display";
+import { type RunQuality, getRunQuality } from "../../../../lib/pipeline-quality-api";
+import { PIPELINE_QUALITY_LABELS as QL } from "../../../../lib/pipeline-quality-labels";
+import {
+  deferralOf,
+  deferralText,
+  drillHref,
+  runQualityView,
+} from "../../../../lib/pipeline-quality-view";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
+}
+if (!session) {
+  // adminGate(null, ...) always returns a redirect above; this only narrows `session`.
+  return Astro.redirect("/login");
+}
+Astro.response.headers.set("Cache-Control", "no-store");
+
+const stampId = parseStampParam(Astro.params.stamp);
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+
+type Read =
+  | { ok: true; value: PipelineRunDetail }
+  | { ok: false; notFound: boolean; notAvailable: boolean; reason: string };
+let read: Read;
+if (stampId === null) {
+  read = { ok: false, notFound: true, notAvailable: false, reason: "" };
+} else {
+  read = await getPipelineRun(stampId, { cookieHeader }).then(
+    (value): Read => ({ ok: true, value }),
+    (err: unknown): Read => ({
+      ok: false,
+      notFound: err instanceof ComputeAdminApiError && err.code === PIPELINE_STAMP_NOT_FOUND,
+      notAvailable: isNotAvailable(err),
+      reason: computeAdminErrorText(err),
+    }),
+  );
+}
+if (!read.ok && read.notFound) Astro.response.status = 404;
+
+const detail = read.ok ? read.value : null;
+
+type QualityRead =
+  | { ok: true; value: RunQuality }
+  | { ok: false; notAvailable: boolean; reason: string };
+let qualityRead: QualityRead | null = null;
+if (stampId !== null && read.ok) {
+  qualityRead = await getRunQuality(stampId, null, { cookieHeader }).then(
+    (value): QualityRead => ({ ok: true, value }),
+    (err: unknown): QualityRead => ({
+      ok: false,
+      notAvailable: isNotAvailable(err),
+      reason: computeAdminErrorText(err),
+    }),
+  );
+}
+const quality = qualityRead?.ok && detail ? runQualityView(qualityRead.value) : null;
+const deferral = deferralOf(detail?.run);
+const run = detail?.run;
+const pill = detail ? statusPill(detail.status) : null;
+const title = run ? `${PIPELINE_LABELS.runHeading} #${run.stamp_id}` : PIPELINE_LABELS.runHeading;
+const UNLISTED_ISSUE = "https://github.com/nemarOrg/nemar-cli/issues/2334";
+const facts = run
+  ? [
+      [PIPELINE_LABELS.fieldStamp, `#${run.stamp_id}`],
+      [PIPELINE_LABELS.fieldDataset, displaySafeLine(run.dataset_id)],
+      [PIPELINE_LABELS.fieldVersion, displaySafeLine(run.version)],
+      [PIPELINE_LABELS.fieldRecipe, displaySafeLine(run.recipe)],
+      [PIPELINE_LABELS.fieldRecipeVersion, displaySafeLine(run.recipe_version)],
+      [PIPELINE_LABELS.fieldInput, displaySafeLine(run.input)],
+      [PIPELINE_LABELS.fieldOutcome, outcomeText(run.outcome)],
+      [
+        PIPELINE_LABELS.fieldJob,
+        run.job_id === null ? PIPELINE_LABELS.none : displaySafeLine(run.job_id),
+      ],
+      [
+        PIPELINE_LABELS.fieldJobState,
+        run.job_state === null ? PIPELINE_LABELS.none : wordText(run.job_state),
+      ],
+      [
+        PIPELINE_LABELS.fieldExecutor,
+        displaySafeLine(run.runner_name ?? run.executor ?? PIPELINE_LABELS.none),
+      ],
+      [PIPELINE_LABELS.fieldReports, String(run.reports)],
+      [PIPELINE_LABELS.fieldLastReport, d1Time(run.reported_at)],
+    ]
+  : [];
+---
+
+<AdminLayout title={title} active="pipelines" session={session}>
+  <Fragment slot="lede">{PIPELINE_LABELS.failuresLead} {failuresMeaning()}.</Fragment>
+
+  <div class="prun">
+    <p class="prun__back">
+      <a href={run ? gridHref(run.recipe) : PIPELINES_PATH}>
+        {run ? PIPELINE_LABELS.backToGrid : PIPELINE_LABELS.backToRecipes}
+      </a>
+    </p>
+
+    {
+      !read.ok && read.notFound && (
+        <div class="prun__note" data-pipeline-run-not-found>
+          <p class="prun__note-title">{PIPELINE_LABELS.runNotFoundTitle}</p>
+          <p>{PIPELINE_LABELS.runNotFoundBody}</p>
+        </div>
+      )
+    }
+    {
+      !read.ok && !read.notFound && read.notAvailable && (
+        <div class="prun__note">
+          <p class="prun__note-title">{PIPELINE_LABELS.notAvailableTitle}</p>
+          <p>{PIPELINE_LABELS.notAvailableBody}</p>
+        </div>
+      )
+    }
+    {
+      !read.ok && !read.notFound && !read.notAvailable && (
+        <ComputeSectionError what={PIPELINE_LABELS.whatRun} reason={read.reason} />
+      )
+    }
+
+    {
+      detail && run && pill && (
+        <Fragment>
+          <section class="prun__facts" aria-labelledby="prun-facts-title">
+            <h2 class="visually-hidden" id="prun-facts-title">{PIPELINE_LABELS.runHeading}</h2>
+            <p class="prun__status">
+              <ComputePill tone={pill.tone} icon={pill.icon} label={pill.label} />
+              {!run.current_version && <span class="prun__tag">{PIPELINE_LABELS.olderVersion}</span>}
+            </p>
+            <dl>
+              {facts.map(([k, v]) => (
+                <div class="prun__fact">
+                  <dt>{k}</dt>
+                  <dd>{v}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+
+          <section class="prun__checkpoints" aria-labelledby="prun-cp-title">
+            <h2 id="prun-cp-title">{PIPELINE_LABELS.checkpointsHeading}</h2>
+            {detail.checkpoints.map((cp) => {
+              const view = runMarkView({
+                mark: cp.mark,
+                counts: cp.counts,
+                reconciled: cp.reconciled,
+                disagreement: cp.disagreement,
+                listed: cp.listed,
+              });
+              const anchor = checkpointAnchor(cp.checkpoint);
+              const liveDiffers =
+                cp.live !== null &&
+                (cp.counts === null ||
+                  cp.live.passed !== cp.counts.passed ||
+                  cp.live.failed !== cp.counts.failed ||
+                  cp.live.skipped !== cp.counts.skipped ||
+                  cp.live.total !== cp.counts.total);
+              return (
+                <article class="prun__cp" id={anchor ?? undefined}>
+                  <h3>
+                    {wordText(cp.checkpoint)}{" "}
+                    <span class="prun__mark" data-tone={view.tone}>
+                      <StatusIcon name={view.icon} size={13} />
+                      <span aria-hidden="true">{view.code}</span>
+                      <span class="visually-hidden">{view.spoken}</span>
+                    </span>
+                  </h3>
+                  <p class="prun__counts">
+                    {cp.counts ? countsText(cp.counts) : PIPELINE_LABELS.none}
+                  </p>
+                  {liveDiffers && cp.live && (
+                    <p class="prun__aside">
+                      {PIPELINE_LABELS.liveCounts}: {countsText(cp.live)}
+                    </p>
+                  )}
+                  {cp.disagreement && <p class="prun__aside">{PIPELINE_LABELS.disagreement}</p>}
+                  {cp.failures_unreadable && (
+                    <p class="prun__aside">{PIPELINE_LABELS.failuresUnreadable}</p>
+                  )}
+                  {cp.failures.length > 0 && (
+                    <table>
+                      <thead>
+                        <tr>
+                          <th scope="col">{PIPELINE_LABELS.colPath}</th>
+                          <th scope="col">{PIPELINE_LABELS.colCode}</th>
+                          <th scope="col">{PIPELINE_LABELS.colStep}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cp.failures.map((f) => (
+                          <tr>
+                            <td>
+                              <code>{displaySafeLine(f.path)}</code>
+                            </td>
+                            <td>{displaySafeLine(f.code)}</td>
+                            <td>{f.step === null ? "-" : displaySafeLine(f.step)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {cp.unlisted > 0 && (
+                    <p class="prun__aside">
+                      {unlistedText(cp.unlisted)}{" "}
+                      <a href={UNLISTED_ISSUE} target="_blank" rel="noopener noreferrer">
+                        {PIPELINE_LABELS.allTableIssue}
+                      </a>
+                    </p>
+                  )}
+                </article>
+              );
+            })}
+            <p class="prun__aside">{PIPELINE_HELP.unlisted}.</p>
+          </section>
+
+          <section class="prun__quality" aria-labelledby="prun-quality-title" data-run-quality>
+            <h2 id="prun-quality-title">{QL.heading}</h2>
+            {deferral && (
+              <div class="prun__note" data-run-deferred>
+                <p class="prun__note-title">{QL.deferredTitle}</p>
+                <p>{deferralText(deferral)}</p>
+              </div>
+            )}
+            {qualityRead && !qualityRead.ok && qualityRead.notAvailable && (
+              <div class="prun__note">
+                <p class="prun__note-title">{QL.notAvailableTitle}</p>
+                <p>{QL.notAvailableBody}</p>
+              </div>
+            )}
+            {qualityRead && !qualityRead.ok && !qualityRead.notAvailable && (
+              <ComputeSectionError what={QL.whatQuality} reason={qualityRead.reason} />
+            )}
+            {quality && (
+              <Fragment>
+                <p data-quality-word={quality.word}>
+                  {quality.notPublic && (
+                    <span class="prun__tag" data-quality-not-public>{QL.notPublic}</span>
+                  )}{" "}
+                  {quality.sentence}
+                </p>
+                {quality.detail && <p class="prun__aside">{quality.detail}</p>}
+                {quality.notPublic && <p class="prun__aside">{QL.notPublicBody}</p>}
+                <dl>
+                  {quality.facts.map(([k, v]) => (
+                    <div class="prun__fact">
+                      <dt>{k}</dt>
+                      <dd>{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <p class="prun__links">
+                  <a href={drillHref(run.stamp_id)} data-quality-drill>{QL.open}</a>
+                  {quality.publicHref && (
+                    <a href={quality.publicHref} data-quality-public>{QL.publicLink}</a>
+                  )}
+                </p>
+              </Fragment>
+            )}
+          </section>
+
+          {detail.listed_codes.length > 0 && (
+            <section class="prun__codes" aria-labelledby="prun-codes-title">
+              <h2 id="prun-codes-title">{PIPELINE_LABELS.codesHeading}</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">{PIPELINE_LABELS.colCheckpoint}</th>
+                    <th scope="col">{PIPELINE_LABELS.colCode}</th>
+                    <th scope="col">{PIPELINE_LABELS.colCount}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.listed_codes.map((c) => (
+                    <tr>
+                      <td>{wordText(c.checkpoint)}</td>
+                      <td>{displaySafeLine(c.code)}</td>
+                      <td>{c.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
+        </Fragment>
+      )
+    }
+  </div>
+</AdminLayout>
+
+<style>
+  .prun {
+    display: grid;
+    gap: var(--space-5);
+    min-inline-size: 0;
+  }
+  .prun a {
+    color: var(--color-link);
+  }
+  .prun h2 {
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+  }
+  .prun h3 {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    margin: 0;
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+  }
+  .prun__back,
+  .prun__status,
+  .prun__counts,
+  .prun__aside {
+    margin: 0;
+  }
+  .prun__status {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    margin-block-end: var(--space-3);
+  }
+  .prun__tag {
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--admin-warn-soft);
+    color: var(--admin-warn-text);
+    font-size: var(--fs-xs);
+  }
+  .prun__facts dl {
+    display: grid;
+    gap: var(--space-1) var(--space-5);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+    margin: 0;
+  }
+  .prun__fact {
+    display: grid;
+    gap: 2px;
+  }
+  .prun__fact dt {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+  }
+  .prun__fact dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+  }
+  .prun__quality {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    min-inline-size: 0;
+  }
+  .prun__quality p {
+    margin: 0;
+  }
+  .prun__quality dl {
+    display: grid;
+    gap: var(--space-1) var(--space-5);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr));
+    margin: 0;
+  }
+  .prun__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+  .prun__checkpoints {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .prun__cp {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    min-inline-size: 0;
+    overflow-x: auto;
+  }
+  .prun__counts {
+    font-variant-numeric: tabular-nums;
+  }
+  .prun__aside {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .prun__mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: var(--fw-medium);
+    color: var(--color-fg-muted);
+  }
+  .prun__mark[data-tone="success"] {
+    color: var(--admin-ok-text);
+  }
+  .prun__mark[data-tone="danger"] {
+    color: var(--admin-error-text);
+  }
+  .prun__mark[data-tone="warning"] {
+    color: var(--admin-warn-text);
+  }
+  .prun__mark[data-tone="info"] {
+    color: var(--color-link);
+  }
+  .prun__note {
+    padding: var(--space-4) var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    color: var(--color-fg-muted);
+  }
+  .prun__note p {
+    margin: 0;
+  }
+  .prun__note-title {
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  table {
+    border-collapse: collapse;
+    font-size: var(--fs-sm);
+  }
+  th,
+  td {
+    padding: var(--space-1) var(--space-3);
+    border-block-start: 1px solid var(--color-border);
+    text-align: start;
+    white-space: nowrap;
+  }
+  th {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+  }
+</style>

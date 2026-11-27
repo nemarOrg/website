@@ -19,9 +19,8 @@ import type { APIContext, APIRoute } from "astro";
  * one-line `Location` response the framework would otherwise supply. Every
  * line of route logic -- the visibility gate, the status split, the header
  * set, the body -- is the real code path. This matches the convention the
- * client tests already follow (`src/lib/api.test.ts`,
- * `src/lib/qa-aggregate.test.ts`): assign `globalThis.fetch`, restore it
- * afterwards.
+ * client tests already follow (`src/lib/api.test.ts`): assign
+ * `globalThis.fetch`, restore it afterwards.
  */
 
 /**
