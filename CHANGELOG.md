@@ -143,7 +143,8 @@ The release pull request from `staging` to `main` moves those entries under the 
   The old "coming soon" note and its link are removed.
 
 - **The admin Compute tab's decision dialog asks for a notice to the person** (website#583; nemar-cli#2300).
-  Suspend and Revoke require a "Notice to the person", Deny takes an optional one, and Grant sends none; the confirm button stays disabled until the notice meets the shared rule (at most 1,000 characters), and a refused notice is worded from the shared account copy.
+  Suspend and Revoke require a "Notice to the person", which is emailed to them; Deny takes an optional one and Grant none.
+  The confirm button stays disabled until the notice is at most 1,000 characters with no control characters (tabs and line breaks are allowed), and a refused notice is explained in the same words the CLI uses.
 
 ## [0.2.45] - 2026-11-22
 
@@ -153,10 +154,6 @@ The release pull request from `staging` to `main` moves those entries under the 
   `/unsubscribe/<token>` shows the mail category and masked address with two buttons, one for the category and one for all NEMAR community mail, explains why recalls cannot be turned off, and never acts on load; it is never cached, indexed or measured by analytics.
   Settings gains an "Email" card with switches for news, RFCs and maintenance mail and a locked "Recalls: always on" row.
   The labels and descriptions are the nine `mail.*` account copy keys, transcribed from nemar-cli.
-
-### Changed
-
-- **ADR 0034 (subject anatomy) is accepted** (website#579); the feature shipped in 0.2.44.
 
 ## [0.2.44] - 2026-11-21
 
