@@ -136,7 +136,7 @@ const facts = run
 ---
 
 <AdminLayout title={title} active="pipelines" session={session}>
-  <Fragment slot="lede">{PIPELINE_LABELS.failuresLead} {failuresMeaning()}.</Fragment>
+  <Fragment slot="lede">{`${PIPELINE_LABELS.failuresLead} ${failuresMeaning()}.`}</Fragment>
 
   <div class="prun">
     <p class="prun__back">

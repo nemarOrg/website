@@ -9,7 +9,7 @@
 import { experimental_AstroContainer as AstroContainer } from "astro/container";
 import { describe, expect, it } from "vitest";
 import DatasetTabs from "../src/components/DatasetTabs.astro";
-import { TABS } from "../src/lib/quality-views/panel-model";
+import { HASH_PREFIX, TABS } from "../src/lib/quality-views/panel-model";
 
 const container = await AstroContainer.create();
 const render = (props: Record<string, unknown>) =>
@@ -42,6 +42,10 @@ describe("the Recording quality tab", () => {
     expect(html).toContain("need JavaScript");
     // The panel's tab list is its own: the summary's script binds only `.dtabs__list`.
     expect(html).toContain('class="qp__tabs" role="tablist"');
+    // The tab owns the panel's deep link: a page loaded with `#quality...` opens it
+    // (lib/dataset-tabs.ts), whichever script runs first.
+    const rq = /<button[^>]*data-quality-tab[^>]*>/.exec(html)?.[0] ?? "";
+    expect(rq).toContain(`data-hash-prefix="${HASH_PREFIX}"`);
   });
 
   it("is absent without a version, which the panel needs", async () => {

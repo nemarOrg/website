@@ -48,12 +48,10 @@ export type OverviewResolution =
   | { kind: "enabled"; endpoint: OverviewEndpoint }
   | { kind: "misconfigured"; reason: string };
 
+/** Read by name, never through the whole `import.meta.env`, which Vite would write out in the
+ *  server bundle with build-machine variables (as `osa-widget.ts`'s `envValue` says). */
 function envValue(): string | undefined {
-  const env =
-    typeof import.meta.env !== "undefined"
-      ? (import.meta.env as unknown as Record<string, string | undefined>)
-      : undefined;
-  return env?.PUBLIC_OSA_OVERVIEW_URL;
+  return import.meta.env.PUBLIC_OSA_OVERVIEW_URL;
 }
 
 /**

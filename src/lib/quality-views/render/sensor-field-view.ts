@@ -16,13 +16,13 @@
 
 import { type ColorMapName, lookupTable, paintGrid } from "../colormap";
 import type { BuiltModel, Download, SensorFieldModel } from "../model";
-import { numberText } from "../read";
 import { type Element, h } from "../tree";
 import type { DrawOutcome, DrawnMap, MapResult, SensorFieldClient } from "../worker-client";
 import { contoursOf } from "../worker-client";
 import { type ViewContext, figure, textTable } from "./figure";
 import { readoutWriter, step } from "./interact";
 import { mapFrame, markerPoints, toCanvas } from "./map-frame";
+import { labelText, roundedText } from "./scale";
 import { columnHeader } from "./table";
 import { MAP_SENTENCES, UNUSED_POSITIONS_SENTENCES, sentence } from "./words";
 
@@ -102,13 +102,14 @@ export function nearestMarker(
 export function noteCaption(note: string, valueRange: number, unit: string | null): string {
   if (note === "flat_field") return "all sensors have the same value";
   if (note === "near_flat") {
-    return `all sensors are within ${withUnit(numberText(valueRange), unit)} of each other`;
+    return `all sensors are within ${withUnit(roundedText(valueRange, valueRange), unit)} of each other`;
   }
   return note;
 }
 
-/** A map's text row: its label and the range of its drawn sensors' stored values, by text.
- *  `sentences` words a map not drawn: `mapSentences(placement word)` for a map placed by name. */
+/** A map's text row: its label and the range of its drawn sensors' stored values, each stored text
+ *  rounded to the range's precision when it carries more digits than a label holds (`labelText`;
+ *  the data table keeps the stored texts). `sentences` words a map not drawn: `mapSentences(placement word)` for a map placed by name. */
 export function mapTextRow(
   model: SensorFieldModel,
   map: number,
@@ -124,7 +125,9 @@ export function mapTextRow(
     if (high < 0 || item.values[k] > item.values[high]) high = k;
   });
   if (low < 0) return `${item.label}: no sensor is drawn.`;
-  const at = (k: number) => `${withUnit(item.text[k], model.unit)} at ${model.sensors.labels[k]}`;
+  const span = item.values[high] - item.values[low];
+  const at = (k: number) =>
+    `${withUnit(labelText(item.text[k], item.values[k], span), model.unit)} at ${model.sensors.labels[k]}`;
   return `${item.label}: from ${at(low)} to ${at(high)}.`;
 }
 

@@ -12,8 +12,11 @@ import DatasetQualitySummary from "./quality/DatasetQualitySummary.astro";
  * Both tabs render server-side as static markup; only the demographics
  * panel hydrates client-side. The tabs themselves switch via a tiny
  * delegated click + keydown handler implementing the WAI-ARIA tabs
- * pattern (left/right cycle with wrap, Home/End to jump to ends).
+ * pattern (left/right cycle with wrap, Home/End to jump to ends), and a
+ * tab naming a hash prefix (`data-hash-prefix`) opens on a page loaded
+ * with that hash (`lib/dataset-tabs.ts`).
  */
+import { HASH_PREFIX as QUALITY_HASH_PREFIX } from "../lib/quality-views/panel-model";
 import QualityPanel from "./quality/QualityPanel.astro";
 
 interface Props {
@@ -46,7 +49,7 @@ const idp = `dt-${datasetId}`;
       </button>
     )}
     {recordingQuality && version && (
-      <button class="dtabs__tab" role="tab" id={`${idp}-tab-rq`} aria-controls={`${idp}-panel-rq`} aria-selected="false" tabindex="-1" type="button" data-quality-tab>
+      <button class="dtabs__tab" role="tab" id={`${idp}-tab-rq`} aria-controls={`${idp}-panel-rq`} aria-selected="false" tabindex="-1" type="button" data-quality-tab data-hash-prefix={QUALITY_HASH_PREFIX}>
         Recording quality
       </button>
     )}
@@ -82,6 +85,7 @@ const idp = `dt-${datasetId}`;
   import { fetchParticipants, type ParticipantsData } from "../lib/participants";
   import { renderSexDonutSvg } from "../lib/render-sex-donut";
   import { renderAgeGenderStackedSvg } from "../lib/render-age-gender";
+  import { bindTablist } from "../lib/dataset-tabs";
 
   function escapeHtml(s: string): string {
     return s
@@ -156,67 +160,10 @@ const idp = `dt-${datasetId}`;
     panel.innerHTML = renderDemographics(data);
   }
 
-  /** Activate the tab at `index` within `tabs`, deactivating the others.
-   *  Pure DOM bookkeeping — keyboard nav calls this with `focus=true` to
-   *  move focus alongside the selection (per the ARIA tabs spec for
-   *  automatic activation). */
-  function activateTab(tabs: HTMLButtonElement[], index: number, focus: boolean): void {
-    tabs.forEach((tab, i) => {
-      const active = i === index;
-      tab.setAttribute("aria-selected", active ? "true" : "false");
-      tab.tabIndex = active ? 0 : -1;
-      const panelId = tab.getAttribute("aria-controls");
-      const panel = panelId ? document.getElementById(panelId) : null;
-      if (panel) {
-        if (active) panel.removeAttribute("hidden");
-        else panel.setAttribute("hidden", "");
-      }
-    });
-    if (focus) tabs[index]?.focus();
-  }
-
-  function bindTablist(list: HTMLElement): void {
-    const tabs = Array.from(list.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
-    if (tabs.length === 0) return;
-
-    list.addEventListener("click", (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const tab = target.closest<HTMLButtonElement>('[role="tab"]');
-      if (!tab) return;
-      const idx = tabs.indexOf(tab);
-      if (idx >= 0) activateTab(tabs, idx, false);
-    });
-
-    list.addEventListener("keydown", (event) => {
-      const active = document.activeElement;
-      if (!(active instanceof HTMLElement)) return;
-      const current = tabs.indexOf(active as HTMLButtonElement);
-      if (current < 0) return;
-      let next = current;
-      switch (event.key) {
-        case "ArrowRight":
-          next = (current + 1) % tabs.length;
-          break;
-        case "ArrowLeft":
-          next = (current - 1 + tabs.length) % tabs.length;
-          break;
-        case "Home":
-          next = 0;
-          break;
-        case "End":
-          next = tabs.length - 1;
-          break;
-        default:
-          return;
-      }
-      event.preventDefault();
-      activateTab(tabs, next, true);
-    });
-  }
-
   // The summary's own tab lists only: the quality panel inside one of its panels has its own.
-  document.querySelectorAll<HTMLElement>('.dtabs__list[role="tablist"]').forEach(bindTablist);
+  document
+    .querySelectorAll<HTMLElement>('.dtabs__list[role="tablist"]')
+    .forEach((list) => bindTablist(list));
   document.querySelectorAll<HTMLElement>("[data-demo-defer]").forEach((el) => void hydrateDemographics(el));
 </script>
 
