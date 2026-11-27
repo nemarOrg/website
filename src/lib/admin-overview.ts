@@ -675,6 +675,8 @@ export interface KpiSpec {
   readonly spark: KpiSpark | null;
   /** Section card this figure summarizes. */
   readonly anchor: string | null;
+  /** A page this figure summarizes, when it is not a section of the same page (the Details link). */
+  readonly href?: string;
 }
 
 export type HistoryMap = Readonly<

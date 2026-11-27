@@ -2,7 +2,7 @@
   "name": "nemar-website",
   "packageManager": "bun@1.4.3",
   "type": "module",
-  "version": "0.2.46",
+  "version": "0.2.47",
   "private": true,
   "license": "CC-BY-NC-ND-4.0",
   "description": "nemar.org is the largest archive tool and compute resource for human biosignals",
@@ -24,7 +24,9 @@
     "bump": "./scripts/bump-version.sh",
     "lint": "biome check src e2e playwright.config.ts",
     "format": "biome format --write src",
-    "typecheck": "astro check"
+    "typecheck": "astro check",
+    "check:quality-views-size": "bun scripts/check-quality-views-size.mjs",
+    "test:quality-views-perf": "QUALITY_VIEWS_PERF=gate vitest run test/quality-views-perf.test.ts"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^12.6.7",

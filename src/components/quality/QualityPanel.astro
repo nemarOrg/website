@@ -1,0 +1,262 @@
+---
+/**
+ * The dataset page's per-recording quality panel (website phase W6, #588; nemar-cli ADR 0137
+ * decision 9, website ADR 0035): its markup, drawn on the server, and the two scripts that bring
+ * it to life, each loaded on demand.
+ *
+ * - The panel (`src/lib/quality-views/panel.ts`) loads when its tab first opens, or when the page
+ *   is opened on a `#quality/...` link, which also opens the tab.
+ * - The idle preload (`src/lib/quality-views/preload.ts`) loads after the page's load event, in
+ *   idle time, and warms only the default recording's first windows (the owner's ruling of
+ *   2026-11-25); it shows nothing.
+ *
+ * The stylesheet of the views' figures is imported here, so it ships with the page that draws
+ * them. Without script the panel says that it needs it.
+ */
+import "../../styles/quality-views.css";
+import { TABS } from "../../lib/quality-views/panel-model";
+
+interface Props {
+  datasetId: string;
+  version: string;
+  recipe: string;
+  dataBase: string;
+}
+
+const { datasetId, version, recipe, dataBase } = Astro.props;
+const idp = `qp-${datasetId}`;
+---
+
+<section
+  class="qp"
+  data-quality-panel
+  data-id={datasetId}
+  data-version={version}
+  data-recipe={recipe}
+  data-base={dataBase}
+  aria-label="Quality views of one recording"
+>
+  <div class="qp__bar">
+    <label class="qp__pick">
+      <span>Recording</span>
+      <select data-qp-recording disabled>
+        <option>Loading the recording list…</option>
+      </select>
+    </label>
+    <button type="button" class="qp__turbo" data-qp-turbo aria-pressed="false">Turbo colors</button>
+  </div>
+  <div class="qp__tabs" role="tablist" aria-label="Quality views">
+    {TABS.map((tab, i) => (
+      <button
+        class="qp__tab"
+        role="tab"
+        type="button"
+        id={`${idp}-tab-${tab.id}`}
+        aria-controls={`${idp}-panel-${tab.id}`}
+        aria-selected={i === 0 ? "true" : "false"}
+        tabindex={i === 0 ? 0 : -1}
+        data-qp-tab={tab.id}
+        hidden={tab.id === "other"}
+      >
+        {tab.label}
+      </button>
+    ))}
+  </div>
+  {TABS.map((tab, i) => (
+    <div
+      class="qp__panel"
+      role="tabpanel"
+      id={`${idp}-panel-${tab.id}`}
+      aria-labelledby={`${idp}-tab-${tab.id}`}
+      data-qp-panel={tab.id}
+      hidden={i !== 0}
+    ></div>
+  ))}
+  <p class="qp__status" data-qp-status role="status">Loading the recording's quality views…</p>
+  <noscript><p class="qp__status">The quality views are drawn in the browser and need JavaScript.</p></noscript>
+</section>
+
+<script>
+  import { HASH_PREFIX } from "../../lib/quality-views/panel-model";
+
+  /** Run `work` once the page has loaded and the browser is idle. */
+  function whenIdle(work: () => void): void {
+    const idle = () => {
+      const ric = (globalThis as { requestIdleCallback?: (cb: () => void) => number })
+        .requestIdleCallback;
+      if (ric) ric(work);
+      else setTimeout(work, 500);
+    };
+    if (document.readyState === "complete") idle();
+    else addEventListener("load", idle, { once: true });
+  }
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-quality-panel]")) {
+    const config = {
+      root,
+      datasetId: root.dataset.id ?? "",
+      version: root.dataset.version || null,
+      recipe: root.dataset.recipe ?? "",
+      base: root.dataset.base ?? "",
+    };
+    whenIdle(() => {
+      void import("../../lib/quality-views/preload")
+        .then((m) => m.startIdlePreload(config))
+        .catch(() => {
+          // The preload is a convenience: a chunk that fails to load leaves the panel to do it.
+        });
+    });
+
+    let opened = false;
+    const open = (): void => {
+      if (opened) return;
+      opened = true;
+      root.dataset.qpOpening = "";
+      void import("../../lib/quality-views/panel").then(
+        (m) => {
+          const handle = m.mountQualityPanel(config);
+          void handle.ready().then(() => {
+            root.dataset.qpReady = "";
+          });
+        },
+        () => {
+          const status = root.querySelector<HTMLElement>("[data-qp-status]");
+          if (status) status.textContent = "The quality panel could not be loaded. Reload the page to try again.";
+        },
+      );
+    };
+    const tabpanel = root.closest<HTMLElement>('[role="tabpanel"]');
+    const tab = tabpanel ? document.getElementById(tabpanel.getAttribute("aria-labelledby") ?? "") : null;
+    const showTab = (): void => {
+      if (tabpanel?.hidden) tab?.click();
+      open();
+    };
+    if (!tabpanel || !tabpanel.hidden) open();
+    else {
+      new MutationObserver((_, observer) => {
+        if (tabpanel.hidden) return;
+        observer.disconnect();
+        open();
+      }).observe(tabpanel, { attributes: true, attributeFilter: ["hidden"] });
+    }
+    const followLink = (): void => {
+      if (location.hash === HASH_PREFIX || location.hash.startsWith(`${HASH_PREFIX}/`)) {
+        showTab();
+        root.scrollIntoView({ block: "start" });
+      }
+    };
+    followLink();
+    addEventListener("hashchange", followLink);
+  }
+</script>
+
+<style is:global>
+  .qp {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .qp__bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    align-items: center;
+  }
+  .qp__pick {
+    display: inline-flex;
+    gap: var(--space-2);
+    align-items: center;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+    min-inline-size: 0;
+  }
+  .qp__pick select {
+    font: inherit;
+    max-inline-size: min(36rem, 70vw);
+    color: var(--color-fg);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    padding: 2px var(--space-2);
+  }
+  .qp__turbo,
+  .qp-open {
+    font: inherit;
+    font-size: var(--fs-sm);
+    color: var(--color-fg);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-pill);
+    padding: 2px var(--space-3);
+    cursor: pointer;
+  }
+  .qp-open[aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .qp__turbo[aria-pressed="true"] {
+    background: var(--color-fg);
+    color: var(--color-bg);
+  }
+  .qp__tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    border-block-end: 1px solid var(--color-border);
+  }
+  .qp__tab {
+    appearance: none;
+    font: inherit;
+    font-size: var(--fs-sm);
+    background: none;
+    border: 0;
+    border-block-end: 2px solid transparent;
+    padding: var(--space-2) var(--space-3);
+    color: var(--color-fg-muted);
+    cursor: pointer;
+  }
+  .qp__tab[aria-selected="true"] {
+    color: var(--color-fg);
+    border-block-end-color: var(--color-fg);
+  }
+  .qp__tab:focus-visible,
+  .qp__turbo:focus-visible,
+  .qp-open:focus-visible {
+    outline: 2px solid var(--color-link);
+    outline-offset: 2px;
+  }
+  .qp__status {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    margin: 0;
+  }
+  .qp-view + .qp-view {
+    margin-block-start: var(--space-5);
+  }
+  .qp-activity__nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
+    font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
+  }
+  .qp-activity__plot {
+    position: relative;
+    inline-size: 100%;
+    block-size: 240px;
+  }
+  .qp-activity__plot canvas {
+    position: absolute;
+    inset: 0;
+    inline-size: 100%;
+    block-size: 100%;
+  }
+  .qp-components,
+  .qp-classes,
+  .qp-parameters {
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+    font-variant-numeric: tabular-nums;
+  }
+</style>

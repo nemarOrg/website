@@ -1,0 +1,52 @@
+{
+  "no_record": {
+    "path": "/on007823/quality/v1/nemar-ica/record/sub-CUCOV999/eeg/sub-CUCOV999_task-COVID_eeg.edf",
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "body": "{\"error\":\"quality_not_found\"}"
+  },
+  "dataset_not_public": {
+    "path": "/nm000777/quality/v1/nemar-ica/record/sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_eeg.edf",
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "body": "{\"error\":\"quality_not_found\"}"
+  },
+  "path_invalid": {
+    "path": "/on007823/quality/v1/nemar-ica/record/sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_meg.fif",
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "body": "{\"error\":\"recording_path_invalid\"}"
+  },
+  "not_declared": {
+    "path": "/on007823/quality/v1/nemar-ica/file/0000000000000000000000000000000000000000000000000000000000000002/0000000000000000000000000000000000000000000000000000000000000000/sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_eeg.edf",
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "body": "{\"error\":\"view_not_declared\"}"
+  },
+  "expired": {
+    "path": "/on007823/quality/v1/nemar-ica/file/0000000000000000000000000000000000000000000000000000000000000001/346942799b8897e62236dbda8d4c702fc3628c2e99a006391c0a888dd25d5293/sub-CUCOV076/eeg/sub-CUCOV076_task-COVID_eeg.edf",
+    "status": 410,
+    "headers": {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "body": "{\"error\":\"views_expired\"}"
+  }
+}

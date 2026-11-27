@@ -1,0 +1,581 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-pipeline-fixtures.mjs",
+    "nemar_cli_commit": "146c3efa",
+    "route": "GET /admin/compute/pipeline/runs/<id>",
+    "note": "Real routes over a real migrated database (backend/test/compute-pipeline-grid.test.ts's worlds). Wall-clock stamps are pinned to fixed values, job ids to a stable sequence and trend days to a fixed week."
+  },
+  "reconciled": {
+    "status": 200,
+    "body": {
+      "status": "finished",
+      "newest_version": "1.0.0",
+      "run": {
+        "stamp_id": 1,
+        "dataset_id": "nm099101",
+        "recipe": "nemar-floor",
+        "version": "v1.0.0",
+        "current_version": true,
+        "recipe_version": "1.0.0-b1",
+        "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+        "input": "bids",
+        "attempt": 1,
+        "stamp_state": "succeeded",
+        "code": null,
+        "job_id": "job_000000000000000000000008",
+        "job_state": "finished",
+        "executor": "tapis",
+        "runner_id": null,
+        "runner_name": null,
+        "checkpoint": null,
+        "reported_at": null,
+        "reports": 0,
+        "reconciled": true,
+        "outcome": "reconciled",
+        "disagreement": false,
+        "created_at": "2026-11-20 09:00:00",
+        "updated_at": "2026-11-20 10:00:00"
+      },
+      "checkpoints": [
+        {
+          "checkpoint": "import",
+          "mark": "failed",
+          "counts": {
+            "passed": 3,
+            "failed": 1,
+            "skipped": 0,
+            "total": 4
+          },
+          "live": null,
+          "reconciled": true,
+          "disagreement": false,
+          "reported_at": "2026-11-20 09:30:00",
+          "failures": [
+            {
+              "path": "sub-02/eeg/sub-02_task-rest_eeg.edf",
+              "code": "load_failed",
+              "step": "load"
+            }
+          ],
+          "listed": 1,
+          "unlisted": 0,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "preprocess",
+          "mark": "failed",
+          "counts": {
+            "passed": 2,
+            "failed": 1,
+            "skipped": 1,
+            "total": 4
+          },
+          "live": null,
+          "reconciled": true,
+          "disagreement": false,
+          "reported_at": "2026-11-20 09:30:00",
+          "failures": [
+            {
+              "path": "sub-03/eeg/sub-03_task-rest_eeg.edf",
+              "code": "step_failed",
+              "step": "bad_channels"
+            }
+          ],
+          "listed": 1,
+          "unlisted": 0,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "quality",
+          "mark": "skipped",
+          "counts": {
+            "passed": 2,
+            "failed": 0,
+            "skipped": 2,
+            "total": 4
+          },
+          "live": null,
+          "reconciled": true,
+          "disagreement": false,
+          "reported_at": "2026-11-20 09:30:00",
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "stored",
+          "mark": "pending",
+          "counts": {
+            "passed": 0,
+            "failed": 0,
+            "skipped": 2,
+            "total": 4
+          },
+          "live": {
+            "passed": 0,
+            "failed": 0,
+            "skipped": 2,
+            "total": 4
+          },
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": "2026-11-20 09:30:00",
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        }
+      ],
+      "listed_codes": [
+        {
+          "checkpoint": "import",
+          "code": "load_failed",
+          "count": 1
+        },
+        {
+          "checkpoint": "preprocess",
+          "code": "step_failed",
+          "count": 1
+        }
+      ]
+    }
+  },
+  "live": {
+    "status": 200,
+    "body": {
+      "status": "running",
+      "newest_version": "1.0.0",
+      "run": {
+        "stamp_id": 2,
+        "dataset_id": "nm099102",
+        "recipe": "nemar-floor",
+        "version": "v1.0.0",
+        "current_version": true,
+        "recipe_version": "1.0.0-b1",
+        "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+        "input": "bids",
+        "attempt": 1,
+        "stamp_state": "dispatched",
+        "code": null,
+        "job_id": "job_000000000000000000000009",
+        "job_state": "running",
+        "executor": "tapis",
+        "runner_id": null,
+        "runner_name": null,
+        "checkpoint": "import",
+        "reported_at": "2026-11-20 09:30:00",
+        "reports": 1,
+        "reconciled": false,
+        "outcome": null,
+        "disagreement": false,
+        "created_at": "2026-11-20 09:00:00",
+        "updated_at": "2026-11-20 10:00:00"
+      },
+      "checkpoints": [
+        {
+          "checkpoint": "import",
+          "mark": "running",
+          "counts": {
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0,
+            "total": 4
+          },
+          "live": {
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0,
+            "total": 4
+          },
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": "2026-11-20 09:30:00",
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "preprocess",
+          "mark": "running",
+          "counts": {
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "total": 4
+          },
+          "live": {
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "total": 4
+          },
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": "2026-11-20 09:30:00",
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "quality",
+          "mark": "running",
+          "counts": {
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "total": 4
+          },
+          "live": {
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "total": 4
+          },
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": "2026-11-20 09:30:00",
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "stored",
+          "mark": "running",
+          "counts": null,
+          "live": null,
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": null,
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        }
+      ],
+      "listed_codes": []
+    }
+  },
+  "unreadable": {
+    "status": 200,
+    "body": {
+      "status": "running",
+      "newest_version": "1.0.0",
+      "run": {
+        "stamp_id": 3,
+        "dataset_id": "nm099103",
+        "recipe": "nemar-floor",
+        "version": "v1.0.0",
+        "current_version": true,
+        "recipe_version": "1.0.0-b1",
+        "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+        "input": "bids",
+        "attempt": 1,
+        "stamp_state": "dispatched",
+        "code": null,
+        "job_id": "job_00000000000000000000000a",
+        "job_state": "running",
+        "executor": "tapis",
+        "runner_id": null,
+        "runner_name": null,
+        "checkpoint": "import",
+        "reported_at": "2026-11-20 09:30:00",
+        "reports": 1,
+        "reconciled": false,
+        "outcome": null,
+        "disagreement": false,
+        "created_at": "2026-11-20 09:00:00",
+        "updated_at": "2026-11-20 10:00:00"
+      },
+      "checkpoints": [
+        {
+          "checkpoint": "import",
+          "mark": "running",
+          "counts": {
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0,
+            "total": 4
+          },
+          "live": {
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0,
+            "total": 4
+          },
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": "2026-11-20 09:30:00",
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": true
+        },
+        {
+          "checkpoint": "preprocess",
+          "mark": "running",
+          "counts": {
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "total": 4
+          },
+          "live": {
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "total": 4
+          },
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": "2026-11-20 09:30:00",
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "quality",
+          "mark": "running",
+          "counts": {
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "total": 4
+          },
+          "live": {
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "total": 4
+          },
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": "2026-11-20 09:30:00",
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "stored",
+          "mark": "running",
+          "counts": null,
+          "live": null,
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": null,
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        }
+      ],
+      "listed_codes": []
+    }
+  },
+  "unlisted": {
+    "status": 200,
+    "body": {
+      "status": "finished",
+      "newest_version": "1.0.0",
+      "run": {
+        "stamp_id": 4,
+        "dataset_id": "nm099104",
+        "recipe": "nemar-floor",
+        "version": "v1.0.0",
+        "current_version": true,
+        "recipe_version": "1.0.0-b1",
+        "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+        "input": "bids",
+        "attempt": 1,
+        "stamp_state": "succeeded",
+        "code": null,
+        "job_id": "job_00000000000000000000000b",
+        "job_state": "finished",
+        "executor": "tapis",
+        "runner_id": null,
+        "runner_name": null,
+        "checkpoint": null,
+        "reported_at": null,
+        "reports": 0,
+        "reconciled": true,
+        "outcome": "reconciled",
+        "disagreement": false,
+        "created_at": "2026-11-20 09:00:00",
+        "updated_at": "2026-11-20 10:00:00"
+      },
+      "checkpoints": [
+        {
+          "checkpoint": "import",
+          "mark": "failed",
+          "counts": {
+            "passed": 2,
+            "failed": 12,
+            "skipped": 0,
+            "total": 14
+          },
+          "live": null,
+          "reconciled": true,
+          "disagreement": false,
+          "reported_at": "2026-11-20 09:30:00",
+          "failures": [
+            {
+              "path": "sub-01/eeg/sub-01_task-rest_eeg.edf",
+              "code": "load_failed",
+              "step": "load"
+            },
+            {
+              "path": "sub-02/eeg/sub-02_task-rest_eeg.edf",
+              "code": "load_failed",
+              "step": "load"
+            },
+            {
+              "path": "sub-03/eeg/sub-03_task-rest_eeg.edf",
+              "code": "load_failed",
+              "step": "load"
+            },
+            {
+              "path": "sub-04/eeg/sub-04_task-rest_eeg.edf",
+              "code": "load_failed",
+              "step": "load"
+            },
+            {
+              "path": "sub-05/eeg/sub-05_task-rest_eeg.edf",
+              "code": "load_failed",
+              "step": "load"
+            },
+            {
+              "path": "sub-06/eeg/sub-06_task-rest_eeg.edf",
+              "code": "load_failed",
+              "step": "load"
+            },
+            {
+              "path": "sub-07/eeg/sub-07_task-rest_eeg.edf",
+              "code": "load_failed",
+              "step": "load"
+            },
+            {
+              "path": "sub-08/eeg/sub-08_task-rest_eeg.edf",
+              "code": "load_failed",
+              "step": "load"
+            },
+            {
+              "path": "sub-09/eeg/sub-09_task-rest_eeg.edf",
+              "code": "load_failed",
+              "step": "load"
+            },
+            {
+              "path": "sub-10/eeg/sub-10_task-rest_eeg.edf",
+              "code": "load_failed",
+              "step": "load"
+            }
+          ],
+          "listed": 10,
+          "unlisted": 2,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "preprocess",
+          "mark": "failed",
+          "counts": {
+            "passed": 1,
+            "failed": 1,
+            "skipped": 12,
+            "total": 14
+          },
+          "live": null,
+          "reconciled": true,
+          "disagreement": false,
+          "reported_at": "2026-11-20 09:30:00",
+          "failures": [
+            {
+              "path": "sub-20/eeg/sub-20_task-rest_eeg.edf",
+              "code": "step_failed",
+              "step": "bad_channels"
+            }
+          ],
+          "listed": 1,
+          "unlisted": 0,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "quality",
+          "mark": "skipped",
+          "counts": {
+            "passed": 1,
+            "failed": 0,
+            "skipped": 13,
+            "total": 14
+          },
+          "live": null,
+          "reconciled": true,
+          "disagreement": false,
+          "reported_at": "2026-11-20 09:30:00",
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        },
+        {
+          "checkpoint": "stored",
+          "mark": "pending",
+          "counts": {
+            "passed": 0,
+            "failed": 0,
+            "skipped": 13,
+            "total": 14
+          },
+          "live": {
+            "passed": 0,
+            "failed": 0,
+            "skipped": 13,
+            "total": 14
+          },
+          "reconciled": false,
+          "disagreement": false,
+          "reported_at": "2026-11-20 09:30:00",
+          "failures": [],
+          "listed": 0,
+          "unlisted": 0,
+          "failures_unreadable": false
+        }
+      ],
+      "listed_codes": [
+        {
+          "checkpoint": "import",
+          "code": "load_failed",
+          "count": 10
+        },
+        {
+          "checkpoint": "preprocess",
+          "code": "step_failed",
+          "count": 1
+        }
+      ]
+    }
+  },
+  "stamp_not_found": {
+    "status": 404,
+    "body": {
+      "error": "There is no such pipeline stamp.",
+      "code": "stamp_not_found"
+    }
+  },
+  "bad_id": {
+    "status": 400,
+    "body": {
+      "error": "The query is not valid: stamp: custom",
+      "code": "invalid_query"
+    }
+  },
+  "member": {
+    "status": 403,
+    "body": {
+      "error": "Admin access required"
+    }
+  }
+}

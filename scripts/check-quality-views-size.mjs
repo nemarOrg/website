@@ -1,0 +1,491 @@
+/**
+ * Size budgets of the quality views' browser code (website ADR 0035 decision 1), checked after the
+ * build. THE GATE IS THE REAL SITE BUILD (dist/_astro): each panel tab's first-screen union and every
+ * lazy root at 30 KB on the main thread, the worker with its lazy chunks at 16 KB. The entry build
+ * below is printed for reference and not gated. the sensor-field worker with the lazy chunks one tab loads at most 16 KB gzipped, and the code a page loads on its main
+ * thread to draw views (the lazy chunk and every chunk it imports) at most 30 KB gzipped.
+ *
+ *   bunx astro build && bun scripts/check-quality-views-size.mjs --require-build   (CI)
+ *   bun run check:quality-views-size                                (the same, dist/ optional)
+ *
+ * Two measurements, both gzip at level 9, both of what Vite emitted, each by
+ * `quality-views-size-lib.mjs` (which says what is measured and is tested on its own, in
+ * test/quality-views-size.test.ts):
+ *
+ * 1. The site build in `dist/_astro/`: from each dynamically imported chunk whose static imports
+ *    reach the client (the lazy chunk a page loads to draw views), that chunk and every chunk it
+ *    imports statically, against the main-thread budget; and the module worker those name, against
+ *    the worker budget. So two lazy panels sharing the client are each measured with their own code
+ *    (website#592). The signal viewer imports the client lazily, so the client's own chunk is a
+ *    root. `--require-build` makes a missing `dist/` an error.
+ * 2. Always: the site's own Vite (Astro's copy) builds `worker-client.ts`, `colormap.ts` and the
+ *    renderers with their model (`model.ts`, `kinds.ts`, `render/index.ts`) as an entry, in production mode, with the worker emitted by Vite's worker plugin as the site build
+ *    emits it, and the same two budgets are applied to what it writes: a floor that holds even
+ *    before a panel imports the client.
+ *
+ * Exits 1 when a measurement is over its budget, and prints every measurement either way.
+ */
+
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  BUDGET,
+  dynamicImports,
+  gzipped,
+  kb,
+  lookupIsland,
+  lookupStem,
+  measureChunks,
+  staticClosure,
+} from "./quality-views-size-lib.mjs";
+
+const requireBuild = process.argv.includes("--require-build");
+const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const lib = join(repo, "src/lib/quality-views");
+
+const results = [];
+const notes = [];
+
+/** Every emitted script in `dir`, by name. */
+function scripts(dir) {
+  return new Map(
+    readdirSync(dir)
+      .filter((name) => name.endsWith(".js"))
+      .map((name) => [name, readFileSync(join(dir, name))]),
+  );
+}
+
+/** Measure one directory; `label` names it in the output. */
+function measure(label, dir) {
+  const measured = measureChunks(label, scripts(dir));
+  results.push(...measured.results);
+  notes.push(...measured.notes);
+  return measured;
+}
+
+/**
+ * The panel's first screens in the real site build (website W6), as the entry build's below: the
+ * panel's chunk, each tab's lazy chunks, and every chunk they import statically, gzipped together.
+ * Chunks are found by the name Vite gives them from their module (`lines.<hash>.js`, ...), the
+ * panel's and the export's by a sentence of their own too, and each lookup must find exactly one
+ * chunk (`lookupStem`, `lookupIsland`), so every machine measures the same files. The
+ * idle preload's chunk is left out (it is parsed in idle time before the panel opens), and so are
+ * the island script and Vite's preload helper, which load with the page itself.
+ */
+function siteUnions(dir) {
+  const files = scripts(dir);
+  // The module worker with every lazy chunk it loads, gzipped together, at the worker budget (16 KB,
+  // the owner's ruling for W7): today every tab's worker work is the one lazy chunk.
+  const workers = new Set();
+  for (const bytes of files.values()) {
+    for (const m of bytes
+      .toString("utf8")
+      .matchAll(/new Worker\(\s*new URL\(\s*["']([^"']+\.js)["']/g)) {
+      workers.add(m[1].replace(/^.*\//, ""));
+    }
+  }
+  for (const name of workers) {
+    if (!files.has(name)) continue;
+    const set = staticClosure(
+      [name, ...dynamicImports(files.get(name).toString("utf8"), files)],
+      files,
+    );
+    const all = [...set].map((n) => files.get(n));
+    results.push({
+      label: `site build: worker ${name} with its lazy chunks, ${set.size} files gzipped together`,
+      size: gzipped(Buffer.concat(all)),
+      raw: all.reduce((sum, b) => sum + b.length, 0),
+      budget: BUDGET.worker,
+    });
+  }
+  // Each chunk by its module's name, and the panel's and the export's by a sentence of their own as
+  // well (`lookupStem`). A lookup that finds none, or several, fails the gate and says which, once
+  // per name: never the first in the directory's order (website#608).
+  const found = new Map();
+  const lookup = (key, find) => {
+    if (!found.has(key)) {
+      const { name, error } = find(files);
+      found.set(key, name ?? undefined);
+      if (error) results.push({ label: `site build: ${error}`, size: 1, raw: 0, budget: 0 });
+    }
+    return found.get(key);
+  };
+  const named = (stem) => lookup(stem, (all) => lookupStem(all, stem));
+  // The export (W8): its controls, and the images chunk (PNG and SVG) and the picture's map and
+  // heatmap parts they load as they open. Each is a
+  // lazy root, gated with what it imports statically like every other (`measure` below); none may
+  // load with a first screen (checked below); and what a visitor holds once a view's export is open
+  // is printed, not gated, since exports are made only on request and no first screen loads them.
+  const exportChunks = ["controls", "picture", "maps-part", "heatmap-part"].map((stem) => [
+    stem,
+    named(stem),
+  ]);
+  // A chunk not found has failed the gate already, saying why (`lookup`).
+  for (const [stem, name] of exportChunks) {
+    if (!name) continue;
+    notes.push(
+      `site build: the export's ${stem} chunk ${name}: ${kb(gzipped(files.get(name)))} gzipped on its own.`,
+    );
+  }
+  const exportNames = new Set(exportChunks.map(([, name]) => name).filter(Boolean));
+  // The page's own island script (and Vite's preload helper it imports) loads with the page,
+  // before any panel opens, as the idle preload's chunk does: not the panel's first screen.
+  const island = lookup("island", lookupIsland);
+  const page = island ? staticClosure([island], files) : new Set();
+  for (const [tab, stems] of [
+    ["Spectrum tab", ["panel", "lines", "sensor-field-view", "spectrum"]],
+    ["Components tab", ["panel", "sensor-field-view", "histogram", "components"]],
+    [
+      "Spectrum tab with no idle preload",
+      ["panel", "lines", "sensor-field-view", "spectrum", "quality-api"],
+    ],
+    [
+      "Components tab with no idle preload",
+      ["panel", "sensor-field-view", "histogram", "components", "quality-api"],
+    ],
+    // W7: the Activations tab's own chunk (its checks, the transfer, the trace adapter, the
+    // captions). The transform runs in the worker; the store reader, zarrita and the trace renderer
+    // it loads lazily are the chunks the page already loads for its signal viewer, which do not count
+    // against the tab's budget (the owner's ruling of 2026-11-26): their total is printed, not gated.
+    ["Activations tab", ["panel", "activity"]],
+    ["Activations tab with no idle preload", ["panel", "activity", "quality-api"]],
+  ]) {
+    const roots = stems.map(named);
+    if (roots.some((name) => !name) || !island) {
+      results.push({
+        label: `site build: first screen, ${tab}: not measured, a chunk it needs was not found (above)`,
+        size: 1,
+        raw: 0,
+        budget: 0,
+      });
+      continue;
+    }
+    const set = new Set([...staticClosure(roots, files)].filter((name) => !page.has(name)));
+    for (const name of set) {
+      if (!exportNames.has(name)) continue;
+      results.push({
+        label: `site build: first screen, ${tab}: the export's chunk ${name} loads with it`,
+        size: 1,
+        raw: 0,
+        budget: 0,
+      });
+    }
+    const all = [...set].map((name) => files.get(name));
+    if (exportNames.size === exportChunks.length) {
+      const open = new Set(
+        [...staticClosure([...roots, ...exportNames], files)].filter((name) => !page.has(name)),
+      );
+      const bytes = [...open].map((name) => files.get(name));
+      notes.push(
+        `site build: ${tab} with a view's export open (controls, images, maps and heatmap parts), not gated: ${open.size} files, ${kb(gzipped(Buffer.concat(bytes)))} gzipped together, ${kb(gzipped(Buffer.concat(bytes)) - gzipped(Buffer.concat(all)))} over the first screen.`,
+      );
+    }
+    results.push({
+      label: `site build: first screen, ${tab}, ${set.size} files gzipped together`,
+      size: gzipped(Buffer.concat(all)),
+      raw: all.reduce((sum, b) => sum + b.length, 0),
+      budget: BUDGET.mainThread,
+    });
+    if (stems.includes("activity")) {
+      // The viewer's chunks the tab loads on demand: every chunk the activity chunk imports
+      // dynamically but the transform's own (the page runs it only when the worker cannot start).
+      const lazy = dynamicImports(files.get(named("activity")).toString("utf8"), files).filter(
+        (name) => !name.startsWith("ic-activity."),
+      );
+      const viewer = [...staticClosure(lazy, files)].filter((name) => !set.has(name));
+      const both = [...set, ...viewer].map((name) => files.get(name));
+      notes.push(
+        `site build: ${tab} with the signal viewer's chunks it loads lazily (${viewer.sort().join(", ")}), ${set.size + viewer.length} files gzipped together: ${kb(gzipped(Buffer.concat(both)))}, printed, not gated.`,
+      );
+    }
+  }
+}
+
+// 1. The site build.
+const astroDir = join(repo, "dist", "_astro");
+if (existsSync(astroDir)) {
+  siteUnions(astroDir);
+  const { clients } = measure("site build", astroDir);
+  if (clients.length === 0) {
+    console.error(
+      "site build: no emitted script carries the client, though the viewer imports it.",
+    );
+    process.exit(1);
+  }
+} else if (requireBuild) {
+  console.error("No dist/_astro/: run `bunx astro build` first (--require-build).");
+  process.exit(1);
+} else {
+  notes.push("No dist/: run `bunx astro build` first to measure the site build too.");
+}
+
+// Everything measured so far is the real site build: the gate (website ADR 0035 decision 1, "checked
+// after the build", and its W6 addendum). What follows, the site's own Vite building the modules as
+// an entry, is printed and NOT gated: its unions carry the build's own entry chunk and only a few
+// dozen bytes of headroom, which W7's first commit would break, and no page loads them as built.
+const gatedCount = results.length;
+
+// 2. The site's own Vite, building the client and the color maps as an entry.
+const requireFromAstro = createRequire(join(repo, "node_modules", "astro", "package.json"));
+const vite = await import(pathToFileURL(requireFromAstro.resolve("vite")).href);
+const scratch = mkdtempSync(join(tmpdir(), "quality-views-size-"));
+try {
+  const entry = join(scratch, "measured.ts");
+  writeFileSync(
+    entry,
+    [
+      "worker-client.ts",
+      "colormap.ts",
+      // The model and the renderers' dispatch a panel draws views with (phase W4), so the floor
+      // holds the panel's drawing code before a panel imports it. The guards and the renderer rule
+      // (kinds.ts) run in the worker, and each renderer is a lazy chunk, measured below.
+      "model.ts",
+      "checks.ts",
+      "render/index.ts",
+      // The dataset page's per-recording panel (W6): its island, the route's client and the
+      // record, and the files the idle preload kept (preloaded.ts). Each tab's presets
+      // (extras/) and the Signal tab's checks are lazy chunks of their own, measured below.
+      "preloaded.ts",
+      "panel.ts",
+    ]
+      .map((file) => `export * from ${JSON.stringify(join(lib, file))};\n`)
+      .join("") +
+      // The idle preload (W6) is a chunk of its own that the page loads in idle time at page load,
+      // before the panel opens, so its code is parsed and compiled ahead of the panel's first
+      // screen and is not part of it; it is measured on its own below.
+      `export const idlePreload = () => import(${JSON.stringify(join(lib, "preload.ts"))});\n`,
+  );
+  const outDir = join(scratch, "out");
+  const output = await vite.build({
+    configFile: false,
+    root: repo,
+    logLevel: "warn",
+    publicDir: false,
+    mode: "production",
+    // As the site builds it (astro.config.mjs): the map worker has a lazy chunk.
+    worker: { format: "es" },
+    build: {
+      outDir,
+      assetsDir: "",
+      emptyOutDir: true,
+      rollupOptions: {
+        input: { quality: entry },
+        // An entry's exports are what a page would import; without this they are shaken out.
+        preserveEntrySignatures: "exports-only",
+        output: { entryFileNames: "measured-entry-[hash].js" },
+      },
+    },
+  });
+  const entries = readdirSync(outDir).filter((name) => /^measured-entry-[\w-]+\.js$/.test(name));
+  if (entries.length !== 1) throw new Error(`the entry build wrote ${entries.length} entry chunks`);
+  measure(`Vite ${vite.version} entry build`, outDir);
+  lazyRenderers(
+    `Vite ${vite.version} entry build`,
+    Array.isArray(output) ? output[0] : output,
+    outDir,
+  );
+} finally {
+  rmSync(scratch, { recursive: true, force: true });
+}
+
+/**
+ * Each renderer is a chunk of its own, loaded when its kind is drawn (the owner's ruling on #594):
+ * each is measured with the entry's static set, which is what a page holds once it draws that
+ * kind, against the main-thread budget. Activations (W7, `transforms/`, `activations.ts`) and
+ * exports (W8, `export/`) must be lazy chunks of their own too: none may sit in the entry's static
+ * set, and each such chunk is measured the same way.
+ */
+function lazyRenderers(label, rollup, dir) {
+  const chunks = new Map(
+    rollup.output.filter((o) => o.type === "chunk").map((c) => [c.fileName, c]),
+  );
+  const entry = [...chunks.values()].find((c) => c.isEntry);
+  const closure = (start) => {
+    const seen = new Set();
+    const queue = [start];
+    while (queue.length > 0) {
+      const name = queue.pop();
+      if (seen.has(name) || !chunks.has(name)) continue;
+      seen.add(name);
+      queue.push(...chunks.get(name).imports);
+    }
+    return seen;
+  };
+  const base = closure(entry.fileName);
+  const shell = entry.moduleIds.every((id) => id.endsWith("/measured.ts")) ? entry.fileName : null;
+  const lazyKind =
+    /\/quality-views\/(render\/|export\/|transforms\/|activations\.ts|extras\/|quality-api\.ts)/;
+  // Only when the worker cannot start does the page check views itself (local-checks.ts, which
+  // loads the guards); that set is printed, not gated, since no first screen loads it.
+  const fallbackKind = /\/quality-views\/(local-checks\.ts|guards-computed\.ts)/;
+  const mustBeLazy = /\/quality-views\/(export\/|transforms\/|activations\.ts)/;
+  for (const name of base) {
+    const held = chunks.get(name).moduleIds.filter((id) => mustBeLazy.test(id));
+    if (held.length > 0) {
+      results.push({
+        label: `${label}: ${held.join(", ")} must load lazily, not with the entry (${name})`,
+        size: 1,
+        raw: 0,
+        budget: 0,
+      });
+    }
+  }
+  // Lazy chunks of the entry's set, and theirs in turn (guards-computed loads from local-checks).
+  const lazy = new Set();
+  const visit = (name) => {
+    for (const d of chunks.get(name)?.dynamicImports ?? []) {
+      if (lazy.has(d)) continue;
+      lazy.add(d);
+      for (const member of closure(d)) visit(member);
+    }
+  };
+  for (const name of base) visit(name);
+  const sizeOf = (set) => {
+    let size = 0;
+    let raw = 0;
+    const all = [];
+    for (const member of set) {
+      const bytes = readFileSync(join(dir, member));
+      size += gzipped(bytes);
+      raw += bytes.length;
+      all.push(bytes);
+    }
+    return { size, raw, together: gzipped(Buffer.concat(all)) };
+  };
+  const ownOf = (chunk, kind) =>
+    chunk.moduleIds
+      .filter((id) => kind.test(id))
+      .map((id) => id.replace(/^.*\/quality-views\//, ""));
+  /** The lazy chunk holding a module of this path, by file name. */
+  const holding = (path) =>
+    [...lazy].find((name) =>
+      chunks.get(name)?.moduleIds.some((id) => id.endsWith(`/quality-views/${path}`)),
+    );
+  let measured = 0;
+  for (const name of [...lazy].sort()) {
+    const chunk = chunks.get(name);
+    if (!chunk) continue;
+    if (chunk.moduleIds.some((id) => lazyKind.test(id))) {
+      const { size, raw } = sizeOf(new Set([...base, ...closure(name)]));
+      results.push({
+        label: `${label}: main thread with the lazy ${ownOf(chunk, lazyKind).join(", ")} (${name})`,
+        size,
+        raw,
+        budget: BUDGET.mainThread,
+      });
+      measured++;
+    } else if (chunk.moduleIds.some((id) => fallbackKind.test(id))) {
+      const parents = [...lazy].filter((p) => chunks.get(p)?.dynamicImports.includes(name));
+      const set = new Set([...base, ...closure(name), ...parents.flatMap((p) => [...closure(p)])]);
+      notes.push(
+        `${label}: with the page's own checks (${ownOf(chunk, fallbackKind).join(", ")}), loaded only when the worker cannot start: ${kb(sizeOf(set).size)} gzipped, not gated.`,
+      );
+    }
+  }
+  if (measured === 0) throw new Error(`${label}: no lazy renderer chunk was found`);
+  // What a first screen loads, gated as one union gzipped together (the review of #594): each
+  // tab's renderers with the entry. The sum of each file's own gzip is printed beside it.
+  for (const [tab, paths] of [
+    // With the panel's extras for the tab's presets (W6): the spectrum's maps, the components'
+    // text rows and the classes' counts, each a lazy chunk of its own.
+    [
+      "Spectrum tab (lines, scalp maps, the spectrum's extras)",
+      ["render/lines.ts", "render/sensor-field-view.ts", "extras/spectrum.ts"],
+    ],
+    [
+      "Components tab (scalp maps, histogram, the components' extras)",
+      ["render/sensor-field-view.ts", "render/histogram.ts", "extras/components.ts"],
+    ],
+    // Without the idle preload (a data-saving connection), the panel reads the record itself.
+    [
+      "Spectrum tab with no idle preload (and the record's reader)",
+      ["render/lines.ts", "render/sensor-field-view.ts", "extras/spectrum.ts", "quality-api.ts"],
+    ],
+    [
+      "Components tab with no idle preload (and the record's reader)",
+      [
+        "render/sensor-field-view.ts",
+        "render/histogram.ts",
+        "extras/components.ts",
+        "quality-api.ts",
+      ],
+    ],
+  ]) {
+    // The measurement's own entry chunk (its list of re-exports, which no page loads) is left out
+    // when it holds nothing but the synthetic entry module.
+    const set = new Set([...base].filter((name) => name !== shell));
+    for (const path of paths) {
+      const name = holding(path);
+      if (!name) throw new Error(`${label}: no lazy chunk holds ${path}`);
+      for (const member of closure(name)) set.add(member);
+    }
+    const { size, raw, together } = sizeOf(set);
+    results.push({
+      label: `${label}: first screen, ${tab}, ${set.size} files gzipped together (${kb(size)} as separate files)`,
+      size: together,
+      raw,
+      budget: BUDGET.mainThread,
+    });
+  }
+  // The idle preload on its own: what the page loads in idle time before the panel opens.
+  {
+    const name = holding("preload.ts");
+    if (!name) throw new Error(`${label}: no lazy chunk holds preload.ts`);
+    const { size, raw, together } = sizeOf(closure(name));
+    results.push({
+      label: `${label}: the idle preload (preload.ts with its static imports), gzipped together (${kb(size)} as separate files)`,
+      size: together,
+      raw,
+      budget: BUDGET.mainThread,
+    });
+  }
+  // The module worker with its lazy chunk (the computed presets' schemas), gzipped together,
+  // against the worker budget. The module worker is the file a chunk names in `new Worker(new
+  // URL(...))`; the client's in-thread fallback for a browser without workers is another file.
+  const files = new Map(
+    readdirSync(dir)
+      .filter((f) => f.endsWith(".js"))
+      .map((f) => [f, readFileSync(join(dir, f))]),
+  );
+  const moduleWorkers = new Set();
+  for (const bytes of files.values()) {
+    for (const m of bytes
+      .toString("utf8")
+      .matchAll(/new Worker\(\s*new URL\(\s*["']([^"']+\.js)["']/g)) {
+      moduleWorkers.add(m[1].replace(/^.*\//, ""));
+    }
+  }
+  if (moduleWorkers.size === 0) throw new Error(`${label}: no module worker is named`);
+  for (const workerName of moduleWorkers) {
+    const bytes = files.get(workerName);
+    if (!bytes) throw new Error(`${label}: the worker ${workerName} was not emitted`);
+    const extra = dynamicImports(bytes.toString("utf8"), files);
+    const set = staticClosure([workerName, ...extra], files);
+    const { size, raw, together } = sizeOf(set);
+    results.push({
+      label: `${label}: worker ${workerName} with its lazy ${extra.join(", ") || "(none)"}, gzipped together (${kb(size)} as separate files)`,
+      size: together,
+      raw,
+      budget: BUDGET.worker,
+    });
+    for (const name of extra) {
+      notes.push(
+        `${label}: the worker's lazy chunk ${name}: ${kb(gzipped(files.get(name)))} gzipped on its own.`,
+      );
+    }
+  }
+}
+
+for (const note of notes) console.log(note);
+results.forEach((r, i) => {
+  const over = r.size > r.budget;
+  const gated = i < gatedCount;
+  const mark = over ? (gated ? "OVER" : "over (printed, not gated)") : gated ? "ok  " : "info";
+  console.log(
+    `${mark} ${r.label}: ${kb(r.size)} gzipped (${kb(r.raw)} minified), budget ${kb(r.budget)}`,
+  );
+});
+if (results.slice(0, gatedCount).some((r) => r.size > r.budget)) process.exit(1);

@@ -1,0 +1,1352 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-pipeline-fixtures.mjs",
+    "nemar_cli_commit": "146c3efa",
+    "route": "GET /admin/compute/pipeline/grid",
+    "note": "Real routes over a real migrated database (backend/test/compute-pipeline-grid.test.ts's worlds). Wall-clock stamps are pinned to fixed values, job ids to a stable sequence and trend days to a fixed week."
+  },
+  "all": {
+    "status": 200,
+    "body": {
+      "as_of": "2026-11-20 12:00:00",
+      "stalled_after_seconds": 180,
+      "recipe": "nemar-floor",
+      "columns": [
+        "import",
+        "preprocess",
+        "quality",
+        "stored"
+      ],
+      "summary": {
+        "recipe": "nemar-floor",
+        "recipe_version": "1.0.0-b1",
+        "placeholder": false,
+        "auto_dispatch": true,
+        "columns": [
+          "import",
+          "preprocess",
+          "quality",
+          "stored"
+        ],
+        "eligible": 8,
+        "covered": 2,
+        "complete": 1,
+        "covered_any_version": 2,
+        "by_status": {
+          "not_started": 1,
+          "waiting": 1,
+          "running": 2,
+          "stalled": 1,
+          "finished": 2,
+          "failed": 1
+        }
+      },
+      "matched": {
+        "total": 8,
+        "by_status": {
+          "not_started": 1,
+          "waiting": 1,
+          "running": 2,
+          "stalled": 1,
+          "finished": 2,
+          "failed": 1
+        }
+      },
+      "facets": {
+        "recipe_versions": [
+          "1.0.0-b1"
+        ],
+        "runners": [
+          {
+            "id": "rnr_abababababababababababab",
+            "name": "ws_b"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "dataset_id": "nm099101",
+          "newest_version": "1.0.0",
+          "status": "not_started",
+          "run": null,
+          "cells": {
+            "import": {
+              "mark": "not_started",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "preprocess": {
+              "mark": "not_started",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "quality": {
+              "mark": "not_started",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "stored": {
+              "mark": "not_started",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            }
+          }
+        },
+        {
+          "dataset_id": "nm099102",
+          "newest_version": "1.0.0",
+          "status": "waiting",
+          "run": {
+            "stamp_id": 1,
+            "dataset_id": "nm099102",
+            "recipe": "nemar-floor",
+            "version": "v1.0.0",
+            "current_version": true,
+            "recipe_version": "1.0.0-b1",
+            "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+            "input": "bids",
+            "attempt": 1,
+            "stamp_state": "dispatched",
+            "code": null,
+            "job_id": "job_000000000000000000000001",
+            "job_state": "submitted",
+            "executor": "tapis",
+            "runner_id": null,
+            "runner_name": null,
+            "checkpoint": null,
+            "reported_at": null,
+            "reports": 0,
+            "reconciled": false,
+            "outcome": null,
+            "disagreement": false,
+            "created_at": "2026-11-20 09:00:00",
+            "updated_at": "2026-11-20 10:00:00"
+          },
+          "cells": {
+            "import": {
+              "mark": "waiting",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "preprocess": {
+              "mark": "waiting",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "quality": {
+              "mark": "waiting",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "stored": {
+              "mark": "waiting",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            }
+          }
+        },
+        {
+          "dataset_id": "nm099103",
+          "newest_version": "1.0.0",
+          "status": "running",
+          "run": {
+            "stamp_id": 2,
+            "dataset_id": "nm099103",
+            "recipe": "nemar-floor",
+            "version": "v1.0.0",
+            "current_version": true,
+            "recipe_version": "1.0.0-b1",
+            "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+            "input": "bids",
+            "attempt": 1,
+            "stamp_state": "dispatched",
+            "code": null,
+            "job_id": "job_000000000000000000000002",
+            "job_state": "running",
+            "executor": "tapis",
+            "runner_id": null,
+            "runner_name": null,
+            "checkpoint": "import",
+            "reported_at": "2026-11-20 09:30:00",
+            "reports": 1,
+            "reconciled": false,
+            "outcome": null,
+            "disagreement": false,
+            "created_at": "2026-11-20 09:00:00",
+            "updated_at": "2026-11-20 10:00:00"
+          },
+          "cells": {
+            "import": {
+              "mark": "running",
+              "counts": {
+                "passed": 1,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "preprocess": {
+              "mark": "running",
+              "counts": {
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "quality": {
+              "mark": "running",
+              "counts": {
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "stored": {
+              "mark": "running",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            }
+          }
+        },
+        {
+          "dataset_id": "nm099104",
+          "newest_version": "1.0.0",
+          "status": "stalled",
+          "run": {
+            "stamp_id": 3,
+            "dataset_id": "nm099104",
+            "recipe": "nemar-floor",
+            "version": "v1.0.0",
+            "current_version": true,
+            "recipe_version": "1.0.0-b1",
+            "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+            "input": "bids",
+            "attempt": 1,
+            "stamp_state": "dispatched",
+            "code": null,
+            "job_id": "job_000000000000000000000003",
+            "job_state": "running",
+            "executor": "tapis",
+            "runner_id": null,
+            "runner_name": null,
+            "checkpoint": "import",
+            "reported_at": "2026-11-20 09:30:00",
+            "reports": 1,
+            "reconciled": false,
+            "outcome": null,
+            "disagreement": false,
+            "created_at": "2026-11-20 09:00:00",
+            "updated_at": "2026-11-20 10:00:00"
+          },
+          "cells": {
+            "import": {
+              "mark": "stalled",
+              "counts": {
+                "passed": 1,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "preprocess": {
+              "mark": "stalled",
+              "counts": {
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "quality": {
+              "mark": "stalled",
+              "counts": {
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "stored": {
+              "mark": "stalled",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            }
+          }
+        },
+        {
+          "dataset_id": "nm099105",
+          "newest_version": "1.0.0",
+          "status": "finished",
+          "run": {
+            "stamp_id": 4,
+            "dataset_id": "nm099105",
+            "recipe": "nemar-floor",
+            "version": "v1.0.0",
+            "current_version": true,
+            "recipe_version": "1.0.0-b1",
+            "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+            "input": "bids",
+            "attempt": 1,
+            "stamp_state": "succeeded",
+            "code": null,
+            "job_id": "job_000000000000000000000004",
+            "job_state": "finished",
+            "executor": "tapis",
+            "runner_id": null,
+            "runner_name": null,
+            "checkpoint": null,
+            "reported_at": null,
+            "reports": 0,
+            "reconciled": true,
+            "outcome": "reconciled",
+            "disagreement": false,
+            "created_at": "2026-11-20 09:00:00",
+            "updated_at": "2026-11-20 10:00:00"
+          },
+          "cells": {
+            "import": {
+              "mark": "failed",
+              "counts": {
+                "passed": 3,
+                "failed": 1,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": true,
+              "disagreement": false,
+              "listed": 1
+            },
+            "preprocess": {
+              "mark": "failed",
+              "counts": {
+                "passed": 2,
+                "failed": 1,
+                "skipped": 1,
+                "total": 4
+              },
+              "reconciled": true,
+              "disagreement": false,
+              "listed": 1
+            },
+            "quality": {
+              "mark": "skipped",
+              "counts": {
+                "passed": 2,
+                "failed": 0,
+                "skipped": 2,
+                "total": 4
+              },
+              "reconciled": true,
+              "disagreement": false,
+              "listed": 0
+            },
+            "stored": {
+              "mark": "pending",
+              "counts": {
+                "passed": 0,
+                "failed": 0,
+                "skipped": 2,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            }
+          }
+        },
+        {
+          "dataset_id": "nm099106",
+          "newest_version": "1.0.0",
+          "status": "finished",
+          "run": {
+            "stamp_id": 5,
+            "dataset_id": "nm099106",
+            "recipe": "nemar-floor",
+            "version": "v1.0.0",
+            "current_version": true,
+            "recipe_version": "1.0.0-b1",
+            "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+            "input": "bids",
+            "attempt": 1,
+            "stamp_state": "succeeded",
+            "code": null,
+            "job_id": "job_000000000000000000000005",
+            "job_state": "finished",
+            "executor": "tapis",
+            "runner_id": null,
+            "runner_name": null,
+            "checkpoint": null,
+            "reported_at": null,
+            "reports": 0,
+            "reconciled": true,
+            "outcome": "reconciled",
+            "disagreement": false,
+            "created_at": "2026-11-20 09:00:00",
+            "updated_at": "2026-11-20 10:00:00"
+          },
+          "cells": {
+            "import": {
+              "mark": "passed",
+              "counts": {
+                "passed": 2,
+                "failed": 0,
+                "skipped": 0,
+                "total": 2
+              },
+              "reconciled": true,
+              "disagreement": false,
+              "listed": 0
+            },
+            "preprocess": {
+              "mark": "passed",
+              "counts": {
+                "passed": 2,
+                "failed": 0,
+                "skipped": 0,
+                "total": 2
+              },
+              "reconciled": true,
+              "disagreement": false,
+              "listed": 0
+            },
+            "quality": {
+              "mark": "passed",
+              "counts": {
+                "passed": 2,
+                "failed": 0,
+                "skipped": 0,
+                "total": 2
+              },
+              "reconciled": true,
+              "disagreement": false,
+              "listed": 0
+            },
+            "stored": {
+              "mark": "pending",
+              "counts": {
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "total": 2
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            }
+          }
+        },
+        {
+          "dataset_id": "nm099107",
+          "newest_version": "1.0.0",
+          "status": "failed",
+          "run": {
+            "stamp_id": 6,
+            "dataset_id": "nm099107",
+            "recipe": "nemar-floor",
+            "version": "v1.0.0",
+            "current_version": true,
+            "recipe_version": "1.0.0-b1",
+            "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+            "input": "bids",
+            "attempt": 1,
+            "stamp_state": "failed",
+            "code": "runtime_error",
+            "job_id": "job_000000000000000000000006",
+            "job_state": "failed",
+            "executor": "tapis",
+            "runner_id": null,
+            "runner_name": null,
+            "checkpoint": null,
+            "reported_at": null,
+            "reports": 0,
+            "reconciled": true,
+            "outcome": "table_missing",
+            "disagreement": false,
+            "created_at": "2026-11-20 09:00:00",
+            "updated_at": "2026-11-20 10:00:00"
+          },
+          "cells": {
+            "import": {
+              "mark": "no_counts",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "preprocess": {
+              "mark": "no_counts",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "quality": {
+              "mark": "no_counts",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "stored": {
+              "mark": "no_counts",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            }
+          }
+        },
+        {
+          "dataset_id": "nm099108",
+          "newest_version": "1.0.0",
+          "status": "running",
+          "run": {
+            "stamp_id": 7,
+            "dataset_id": "nm099108",
+            "recipe": "nemar-floor",
+            "version": "v1.0.0",
+            "current_version": true,
+            "recipe_version": "1.0.0-b1",
+            "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+            "input": "bids",
+            "attempt": 1,
+            "stamp_state": "dispatched",
+            "code": null,
+            "job_id": "job_000000000000000000000007",
+            "job_state": "running",
+            "executor": "runner",
+            "runner_id": "rnr_abababababababababababab",
+            "runner_name": "ws_b",
+            "checkpoint": "import",
+            "reported_at": "2026-11-20 09:30:00",
+            "reports": 1,
+            "reconciled": false,
+            "outcome": null,
+            "disagreement": false,
+            "created_at": "2026-11-20 09:00:00",
+            "updated_at": "2026-11-20 10:00:00"
+          },
+          "cells": {
+            "import": {
+              "mark": "running",
+              "counts": {
+                "passed": 1,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "preprocess": {
+              "mark": "running",
+              "counts": {
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "quality": {
+              "mark": "running",
+              "counts": {
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "stored": {
+              "mark": "running",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            }
+          }
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "page_one": {
+    "status": 200,
+    "body": {
+      "as_of": "2026-11-20 12:00:00",
+      "stalled_after_seconds": 180,
+      "recipe": "nemar-floor",
+      "columns": [
+        "import",
+        "preprocess",
+        "quality",
+        "stored"
+      ],
+      "summary": {
+        "recipe": "nemar-floor",
+        "recipe_version": "1.0.0-b1",
+        "placeholder": false,
+        "auto_dispatch": true,
+        "columns": [
+          "import",
+          "preprocess",
+          "quality",
+          "stored"
+        ],
+        "eligible": 8,
+        "covered": 2,
+        "complete": 1,
+        "covered_any_version": 2,
+        "by_status": {
+          "not_started": 1,
+          "waiting": 1,
+          "running": 2,
+          "stalled": 1,
+          "finished": 2,
+          "failed": 1
+        }
+      },
+      "matched": {
+        "total": 8,
+        "by_status": {
+          "not_started": 1,
+          "waiting": 1,
+          "running": 2,
+          "stalled": 1,
+          "finished": 2,
+          "failed": 1
+        }
+      },
+      "facets": {
+        "recipe_versions": [
+          "1.0.0-b1"
+        ],
+        "runners": [
+          {
+            "id": "rnr_abababababababababababab",
+            "name": "ws_b"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "dataset_id": "nm099101",
+          "newest_version": "1.0.0",
+          "status": "not_started",
+          "run": null,
+          "cells": {
+            "import": {
+              "mark": "not_started",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "preprocess": {
+              "mark": "not_started",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "quality": {
+              "mark": "not_started",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "stored": {
+              "mark": "not_started",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            }
+          }
+        },
+        {
+          "dataset_id": "nm099102",
+          "newest_version": "1.0.0",
+          "status": "waiting",
+          "run": {
+            "stamp_id": 1,
+            "dataset_id": "nm099102",
+            "recipe": "nemar-floor",
+            "version": "v1.0.0",
+            "current_version": true,
+            "recipe_version": "1.0.0-b1",
+            "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+            "input": "bids",
+            "attempt": 1,
+            "stamp_state": "dispatched",
+            "code": null,
+            "job_id": "job_000000000000000000000001",
+            "job_state": "submitted",
+            "executor": "tapis",
+            "runner_id": null,
+            "runner_name": null,
+            "checkpoint": null,
+            "reported_at": null,
+            "reports": 0,
+            "reconciled": false,
+            "outcome": null,
+            "disagreement": false,
+            "created_at": "2026-11-20 09:00:00",
+            "updated_at": "2026-11-20 10:00:00"
+          },
+          "cells": {
+            "import": {
+              "mark": "waiting",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "preprocess": {
+              "mark": "waiting",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "quality": {
+              "mark": "waiting",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "stored": {
+              "mark": "waiting",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            }
+          }
+        }
+      ],
+      "next_after": "nm099102"
+    }
+  },
+  "page_two": {
+    "status": 200,
+    "body": {
+      "as_of": "2026-11-20 12:00:00",
+      "stalled_after_seconds": 180,
+      "recipe": "nemar-floor",
+      "columns": [
+        "import",
+        "preprocess",
+        "quality",
+        "stored"
+      ],
+      "summary": {
+        "recipe": "nemar-floor",
+        "recipe_version": "1.0.0-b1",
+        "placeholder": false,
+        "auto_dispatch": true,
+        "columns": [
+          "import",
+          "preprocess",
+          "quality",
+          "stored"
+        ],
+        "eligible": 8,
+        "covered": 2,
+        "complete": 1,
+        "covered_any_version": 2,
+        "by_status": {
+          "not_started": 1,
+          "waiting": 1,
+          "running": 2,
+          "stalled": 1,
+          "finished": 2,
+          "failed": 1
+        }
+      },
+      "matched": {
+        "total": 8,
+        "by_status": {
+          "not_started": 1,
+          "waiting": 1,
+          "running": 2,
+          "stalled": 1,
+          "finished": 2,
+          "failed": 1
+        }
+      },
+      "facets": {
+        "recipe_versions": [
+          "1.0.0-b1"
+        ],
+        "runners": [
+          {
+            "id": "rnr_abababababababababababab",
+            "name": "ws_b"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "dataset_id": "nm099103",
+          "newest_version": "1.0.0",
+          "status": "running",
+          "run": {
+            "stamp_id": 2,
+            "dataset_id": "nm099103",
+            "recipe": "nemar-floor",
+            "version": "v1.0.0",
+            "current_version": true,
+            "recipe_version": "1.0.0-b1",
+            "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+            "input": "bids",
+            "attempt": 1,
+            "stamp_state": "dispatched",
+            "code": null,
+            "job_id": "job_000000000000000000000002",
+            "job_state": "running",
+            "executor": "tapis",
+            "runner_id": null,
+            "runner_name": null,
+            "checkpoint": "import",
+            "reported_at": "2026-11-20 09:30:00",
+            "reports": 1,
+            "reconciled": false,
+            "outcome": null,
+            "disagreement": false,
+            "created_at": "2026-11-20 09:00:00",
+            "updated_at": "2026-11-20 10:00:00"
+          },
+          "cells": {
+            "import": {
+              "mark": "running",
+              "counts": {
+                "passed": 1,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "preprocess": {
+              "mark": "running",
+              "counts": {
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "quality": {
+              "mark": "running",
+              "counts": {
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "stored": {
+              "mark": "running",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            }
+          }
+        },
+        {
+          "dataset_id": "nm099104",
+          "newest_version": "1.0.0",
+          "status": "stalled",
+          "run": {
+            "stamp_id": 3,
+            "dataset_id": "nm099104",
+            "recipe": "nemar-floor",
+            "version": "v1.0.0",
+            "current_version": true,
+            "recipe_version": "1.0.0-b1",
+            "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+            "input": "bids",
+            "attempt": 1,
+            "stamp_state": "dispatched",
+            "code": null,
+            "job_id": "job_000000000000000000000003",
+            "job_state": "running",
+            "executor": "tapis",
+            "runner_id": null,
+            "runner_name": null,
+            "checkpoint": "import",
+            "reported_at": "2026-11-20 09:30:00",
+            "reports": 1,
+            "reconciled": false,
+            "outcome": null,
+            "disagreement": false,
+            "created_at": "2026-11-20 09:00:00",
+            "updated_at": "2026-11-20 10:00:00"
+          },
+          "cells": {
+            "import": {
+              "mark": "stalled",
+              "counts": {
+                "passed": 1,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "preprocess": {
+              "mark": "stalled",
+              "counts": {
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "quality": {
+              "mark": "stalled",
+              "counts": {
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "stored": {
+              "mark": "stalled",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            }
+          }
+        }
+      ],
+      "next_after": "nm099104"
+    }
+  },
+  "status_failed": {
+    "status": 200,
+    "body": {
+      "as_of": "2026-11-20 12:00:00",
+      "stalled_after_seconds": 180,
+      "recipe": "nemar-floor",
+      "columns": [
+        "import",
+        "preprocess",
+        "quality",
+        "stored"
+      ],
+      "summary": {
+        "recipe": "nemar-floor",
+        "recipe_version": "1.0.0-b1",
+        "placeholder": false,
+        "auto_dispatch": true,
+        "columns": [
+          "import",
+          "preprocess",
+          "quality",
+          "stored"
+        ],
+        "eligible": 8,
+        "covered": 2,
+        "complete": 1,
+        "covered_any_version": 2,
+        "by_status": {
+          "not_started": 1,
+          "waiting": 1,
+          "running": 2,
+          "stalled": 1,
+          "finished": 2,
+          "failed": 1
+        }
+      },
+      "matched": {
+        "total": 1,
+        "by_status": {
+          "not_started": 0,
+          "waiting": 0,
+          "running": 0,
+          "stalled": 0,
+          "finished": 0,
+          "failed": 1
+        }
+      },
+      "facets": {
+        "recipe_versions": [
+          "1.0.0-b1"
+        ],
+        "runners": [
+          {
+            "id": "rnr_abababababababababababab",
+            "name": "ws_b"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "dataset_id": "nm099107",
+          "newest_version": "1.0.0",
+          "status": "failed",
+          "run": {
+            "stamp_id": 6,
+            "dataset_id": "nm099107",
+            "recipe": "nemar-floor",
+            "version": "v1.0.0",
+            "current_version": true,
+            "recipe_version": "1.0.0-b1",
+            "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+            "input": "bids",
+            "attempt": 1,
+            "stamp_state": "failed",
+            "code": "runtime_error",
+            "job_id": "job_000000000000000000000006",
+            "job_state": "failed",
+            "executor": "tapis",
+            "runner_id": null,
+            "runner_name": null,
+            "checkpoint": null,
+            "reported_at": null,
+            "reports": 0,
+            "reconciled": true,
+            "outcome": "table_missing",
+            "disagreement": false,
+            "created_at": "2026-11-20 09:00:00",
+            "updated_at": "2026-11-20 10:00:00"
+          },
+          "cells": {
+            "import": {
+              "mark": "no_counts",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "preprocess": {
+              "mark": "no_counts",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "quality": {
+              "mark": "no_counts",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "stored": {
+              "mark": "no_counts",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            }
+          }
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "runner": {
+    "status": 200,
+    "body": {
+      "as_of": "2026-11-20 12:00:00",
+      "stalled_after_seconds": 180,
+      "recipe": "nemar-floor",
+      "columns": [
+        "import",
+        "preprocess",
+        "quality",
+        "stored"
+      ],
+      "summary": {
+        "recipe": "nemar-floor",
+        "recipe_version": "1.0.0-b1",
+        "placeholder": false,
+        "auto_dispatch": true,
+        "columns": [
+          "import",
+          "preprocess",
+          "quality",
+          "stored"
+        ],
+        "eligible": 8,
+        "covered": 2,
+        "complete": 1,
+        "covered_any_version": 2,
+        "by_status": {
+          "not_started": 1,
+          "waiting": 1,
+          "running": 2,
+          "stalled": 1,
+          "finished": 2,
+          "failed": 1
+        }
+      },
+      "matched": {
+        "total": 1,
+        "by_status": {
+          "not_started": 0,
+          "waiting": 0,
+          "running": 1,
+          "stalled": 0,
+          "finished": 0,
+          "failed": 0
+        }
+      },
+      "facets": {
+        "recipe_versions": [
+          "1.0.0-b1"
+        ],
+        "runners": [
+          {
+            "id": "rnr_abababababababababababab",
+            "name": "ws_b"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "dataset_id": "nm099108",
+          "newest_version": "1.0.0",
+          "status": "running",
+          "run": {
+            "stamp_id": 7,
+            "dataset_id": "nm099108",
+            "recipe": "nemar-floor",
+            "version": "v1.0.0",
+            "current_version": true,
+            "recipe_version": "1.0.0-b1",
+            "engine": "eegprep@0.5.0+edf694c8344b9c4c68672eac3acf9a819f1462a8",
+            "input": "bids",
+            "attempt": 1,
+            "stamp_state": "dispatched",
+            "code": null,
+            "job_id": "job_000000000000000000000007",
+            "job_state": "running",
+            "executor": "runner",
+            "runner_id": "rnr_abababababababababababab",
+            "runner_name": "ws_b",
+            "checkpoint": "import",
+            "reported_at": "2026-11-20 09:30:00",
+            "reports": 1,
+            "reconciled": false,
+            "outcome": null,
+            "disagreement": false,
+            "created_at": "2026-11-20 09:00:00",
+            "updated_at": "2026-11-20 10:00:00"
+          },
+          "cells": {
+            "import": {
+              "mark": "running",
+              "counts": {
+                "passed": 1,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "preprocess": {
+              "mark": "running",
+              "counts": {
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "quality": {
+              "mark": "running",
+              "counts": {
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "total": 4
+              },
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            },
+            "stored": {
+              "mark": "running",
+              "counts": null,
+              "reconciled": false,
+              "disagreement": false,
+              "listed": 0
+            }
+          }
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "empty_filter": {
+    "status": 200,
+    "body": {
+      "as_of": "2026-11-20 12:00:00",
+      "stalled_after_seconds": 180,
+      "recipe": "nemar-floor",
+      "columns": [
+        "import",
+        "preprocess",
+        "quality",
+        "stored"
+      ],
+      "summary": {
+        "recipe": "nemar-floor",
+        "recipe_version": "1.0.0-b1",
+        "placeholder": false,
+        "auto_dispatch": true,
+        "columns": [
+          "import",
+          "preprocess",
+          "quality",
+          "stored"
+        ],
+        "eligible": 8,
+        "covered": 2,
+        "complete": 1,
+        "covered_any_version": 2,
+        "by_status": {
+          "not_started": 1,
+          "waiting": 1,
+          "running": 2,
+          "stalled": 1,
+          "finished": 2,
+          "failed": 1
+        }
+      },
+      "matched": {
+        "total": 0,
+        "by_status": {
+          "not_started": 0,
+          "waiting": 0,
+          "running": 0,
+          "stalled": 0,
+          "finished": 0,
+          "failed": 0
+        }
+      },
+      "facets": {
+        "recipe_versions": [
+          "1.0.0-b1"
+        ],
+        "runners": [
+          {
+            "id": "rnr_abababababababababababab",
+            "name": "ws_b"
+          }
+        ]
+      },
+      "rows": [],
+      "next_after": null
+    }
+  },
+  "invalid_query": {
+    "status": 400,
+    "body": {
+      "error": "The query is not valid: status: invalid_enum_value",
+      "code": "invalid_query"
+    }
+  },
+  "runner_with_tapis": {
+    "status": 400,
+    "body": {
+      "error": "The query is not valid: runner: custom",
+      "code": "invalid_query"
+    }
+  },
+  "recipe_unknown": {
+    "status": 422,
+    "body": {
+      "error": "There is no such recipe.",
+      "code": "recipe_unknown"
+    }
+  },
+  "member": {
+    "status": 403,
+    "body": {
+      "error": "Admin access required"
+    }
+  },
+  "signed_out": {
+    "status": 401,
+    "body": {
+      "error": "Missing Authorization header"
+    }
+  }
+}

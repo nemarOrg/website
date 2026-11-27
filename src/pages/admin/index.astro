@@ -1,10 +1,14 @@
 ---
 import OverviewGrid from "../../components/admin/OverviewGrid.astro";
+import PipelineCoveragePanel from "../../components/admin/PipelineCoveragePanel.astro";
 import UsagePanel from "../../components/admin/UsagePanel.astro";
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import { adminGate } from "../../lib/admin-guard";
 import { OVERVIEW_HISTORY_KEYS } from "../../lib/admin-overview";
 import { getSession } from "../../lib/auth";
+import { computeAdminErrorText } from "../../lib/compute-admin-api";
+import { getPipelineCoverage, isNotAvailable } from "../../lib/compute-pipeline-api";
+import { PIPELINE_LABELS } from "../../lib/compute-pipeline-labels";
 import {
   type MetricHistory,
   fetchMetricHistory,
@@ -29,6 +33,8 @@ if (!session) {
   // non-null for AdminLayout's required `session` prop below.
   return Astro.redirect("/login");
 }
+// The Overview now carries an admin API read (the pipeline coverage panel): no cache keeps it.
+Astro.response.headers.set("Cache-Control", "no-store");
 
 // Histories cost one subrequest each, so this is a deliberately small,
 // curated set (OVERVIEW_HISTORY_KEYS): the four headline cards' trends, plus
@@ -47,8 +53,13 @@ if (!session) {
 // The usage panel reads the public dashboard's range endpoints for the last
 // 30 complete UTC days. They send no CORS headers, so they are fetched here,
 // server-side, under the default fail-soft deadline, never from browser JS.
+//
+// The pipeline coverage panel (nemar-cli ADR 0134, website#586) reads the API's own admin route, not
+// the observability snapshot, so it does not depend on it and fails on its own. It joins the same
+// Promise.all, adding no serial latency, and sends no `days`: the Worker's default applies.
 const usageRange = last30DaysUtc();
-const [snapshot, historyResults, usageSeries, usageAudience] = await Promise.all([
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+const [snapshot, historyResults, usageSeries, usageAudience, pipelineCoverage] = await Promise.all([
   fetchObservabilitySnapshot(),
   Promise.all(
     OVERVIEW_HISTORY_KEYS.map((key) =>
@@ -57,6 +68,15 @@ const [snapshot, historyResults, usageSeries, usageAudience] = await Promise.all
   ),
   fetchUsageTimeseries(usageRange),
   fetchUsageAudience(usageRange),
+  getPipelineCoverage(undefined, { cookieHeader }).then(
+    (value) => ({ ok: true as const, value }),
+    (err: unknown) => ({
+      ok: false as const,
+      notAvailable: isNotAvailable(err),
+      what: PIPELINE_LABELS.whatCoverage,
+      reason: computeAdminErrorText(err),
+    }),
+  ),
 ]);
 
 const history: Record<string, MetricHistory | null> = Object.fromEntries(
@@ -73,6 +93,12 @@ const usage = usageKpis(usageRange, usageSeries, usageAudience);
   </Fragment>
 
   <OverviewGrid snapshot={snapshot} history={history}>
+    <PipelineCoveragePanel
+      result={pipelineCoverage}
+      heading={PIPELINE_LABELS.overviewHeading}
+      lede={PIPELINE_LABELS.overviewLede}
+      headingId="pipeline-coverage-title"
+    />
     <UsagePanel range={usageRange} kpis={usage} />
   </OverviewGrid>
 </AdminLayout>

@@ -34,7 +34,6 @@ Caveat worth knowing before you rely on a staging soak: `test.nemar.org` resolve
 
 Open `nemarOrg/nemar-cli` issues block parts of this repo (rendering still degrades gracefully without them):
 
-- `#511` — `/qa/*` route for Phase 3 charts + Vis modal
 - `#512` — OpenNeuro import doesn't backfill modalities/tasks
 - `#513` — File downloads return SHA-named instead of BIDS-shaped
 - `#653` — `license` field on catalog rows → Discover license tier filter (color works today; filtering is inactive until this lands)

@@ -1,0 +1,176 @@
+---
+/**
+ * The pipeline grid (nemar-cli ADR 0134 decision 5; epic nemarOrg/nemar-cli#2324 phase 4b,
+ * website#586): datasets as rows, the recipe's checkpoints as columns, each cell `passed/total`
+ * with the CLI's code and an icon, never color alone, and the full phrase for a screen reader.
+ *
+ * The table scrolls sideways inside a focusable, labeled region with a sticky header and first
+ * column. Every backend word is a text node (the view models escape it); a cell links to the run's
+ * section only when it has failures or skips to show, and no backend string is ever in a link.
+ */
+import type { PipelineGridPage } from "../../lib/compute-pipeline-api";
+import { PIPELINE_LABELS } from "../../lib/compute-pipeline-labels";
+import {
+  cellHref,
+  cellView,
+  executorText,
+  runHref,
+  statusPill,
+  wordText,
+} from "../../lib/compute-pipeline-view";
+import { displaySafeLine } from "../../lib/mail-display";
+import ComputePill from "./ComputePill.astro";
+import StatusIcon from "./StatusIcon.astro";
+
+interface Props {
+  page: PipelineGridPage;
+  caption: string;
+}
+
+const { page, caption } = Astro.props;
+---
+
+<div class="pipeline-grid" role="region" tabindex="0" aria-labelledby="pipeline-grid-caption">
+  <table>
+    <caption id="pipeline-grid-caption">{caption}</caption>
+    <thead>
+      <tr>
+        <th scope="col">{PIPELINE_LABELS.colDataset}</th>
+        <th scope="col">{PIPELINE_LABELS.colVersion}</th>
+        <th scope="col">{PIPELINE_LABELS.colRun}</th>
+        <th scope="col">{PIPELINE_LABELS.colExecutor}</th>
+        <th scope="col">{PIPELINE_LABELS.colStatus}</th>
+        {page.columns.map((col) => <th scope="col">{wordText(col)}</th>)}
+      </tr>
+    </thead>
+    <tbody>
+      {
+        page.rows.map((row) => {
+          const pill = statusPill(row.status);
+          const version = row.run ? row.run.version : (row.newest_version ?? "-");
+          return (
+            <tr>
+              <th scope="row" class="pipeline-grid__dataset">
+                {displaySafeLine(row.dataset_id)}
+              </th>
+              <td>
+                {displaySafeLine(version)}
+                {row.run && !row.run.current_version && (
+                  <span class="pipeline-grid__tag">{PIPELINE_LABELS.olderVersion}</span>
+                )}
+              </td>
+              <td>{row.run ? <a href={runHref(row.run.stamp_id)}>#{row.run.stamp_id}</a> : "-"}</td>
+              <td>{executorText(row)}</td>
+              <td>
+                <ComputePill tone={pill.tone} icon={pill.icon} label={pill.label} />
+              </td>
+              {page.columns.map((col) => {
+                const cell = cellView(Object.hasOwn(row.cells, col) ? row.cells[col] : null);
+                const href = cellHref(row, col);
+                const body = (
+                  <span class="pipeline-cell" data-tone={cell.tone}>
+                    <StatusIcon name={cell.icon} size={13} />
+                    <span aria-hidden="true">
+                      {cell.counts}
+                      {cell.counts && cell.code ? " " : ""}
+                      {cell.code}
+                    </span>
+                    <span class="visually-hidden">{cell.spoken}</span>
+                  </span>
+                );
+                return <td>{href ? <a href={href}>{body}</a> : body}</td>;
+              })}
+            </tr>
+          );
+        })
+      }
+    </tbody>
+  </table>
+</div>
+
+<style>
+  .pipeline-grid {
+    overflow-x: auto;
+    max-inline-size: 100%;
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+  }
+  .pipeline-grid:focus-visible {
+    outline: 2px solid var(--color-link);
+    outline-offset: 2px;
+  }
+  table {
+    inline-size: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
+  }
+  caption {
+    padding: var(--space-3) var(--space-4);
+    text-align: start;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+  }
+  th,
+  td {
+    padding: var(--space-2) var(--space-3);
+    border-block-start: 1px solid var(--color-border);
+    text-align: start;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  thead th {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 2;
+    background: var(--admin-surface);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+  }
+  .pipeline-grid__dataset,
+  thead th:first-child {
+    position: sticky;
+    inset-inline-start: 0;
+    z-index: 1;
+    background: var(--admin-surface);
+  }
+  thead th:first-child {
+    z-index: 3;
+  }
+  .pipeline-grid__dataset {
+    font-family: var(--font-mono);
+    font-weight: var(--fw-medium);
+  }
+  .pipeline-grid__tag {
+    margin-inline-start: var(--space-2);
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--admin-warn-soft);
+    color: var(--admin-warn-text);
+    font-size: var(--fs-xs);
+  }
+  a {
+    color: var(--color-link);
+  }
+  .pipeline-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-fg-muted);
+  }
+  .pipeline-cell[data-tone="success"] {
+    color: var(--admin-ok-text);
+  }
+  .pipeline-cell[data-tone="danger"] {
+    color: var(--admin-error-text);
+  }
+  .pipeline-cell[data-tone="warning"] {
+    color: var(--admin-warn-text);
+  }
+  .pipeline-cell[data-tone="info"] {
+    color: var(--color-link);
+  }
+</style>

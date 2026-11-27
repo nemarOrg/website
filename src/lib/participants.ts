@@ -5,7 +5,7 @@
  * else in the TSV is ignored.
  *
  * Sex tokens are normalized to the same `"M" | "F" | "O" | null` alphabet
- * `bucketAgesBySex` in `./qa.ts` already consumes, so the new renderers can
+ * `bucketAgesBySex` in `./age-buckets.ts` already consumes, so the new renderers can
  * pass parsed output through without further translation.
  */
 

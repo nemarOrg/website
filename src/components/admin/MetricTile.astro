@@ -22,8 +22,8 @@ const deltaIcon = spec.delta && spec.delta.direction !== "none" ? spec.delta.dir
   <div class="kpi__head">
     <h3 class="kpi__label">{spec.label}</h3>
     {
-      spec.anchor && (
-        <a class="kpi__more" href={`#${spec.anchor}`}>
+      (spec.href || spec.anchor) && (
+        <a class="kpi__more" href={spec.href ?? `#${spec.anchor}`}>
           Details
           <StatusIcon name="chevron" size={13} />
         </a>
