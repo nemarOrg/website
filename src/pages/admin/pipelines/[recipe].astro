@@ -96,7 +96,7 @@ const datasetPattern = COMPUTE_DATASET_ID_RE.source.replace(/^\^|\$$/g, "");
 
 <AdminLayout title={title} active="pipelines" session={session}>
   <Fragment slot="lede">
-    {PIPELINE_LABELS.gridLead} {PIPELINE_HELP.grid}: {PIPELINE_HELP.columns}.
+    {`${PIPELINE_LABELS.gridLead} ${PIPELINE_HELP.grid}: ${PIPELINE_HELP.columns}.`}
   </Fragment>
 
   <div class="pgrid">
