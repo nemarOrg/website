@@ -10,7 +10,8 @@
  *    recording's channels draws none (`positions_unmatched`, the viewer's word); and positions
  *    none of whose rows is typed EEG draw none (`no_eeg_sensors`). The store's `OTHER` (a channels
  *    file type of `n/a`) is untyped, so such rows are not EEG: the strict rule of ADR 0137's
- *    amendment, which the viewer keeps until neuroschema 0.6.1 rules on untyped rows.
+ *    amendment, which the viewer keeps until neuroschema rules on untyped rows
+ *    (nemarOrg/neuroschema#38).
  * 2. When the layout refuses them (`frame_unknown`, `positions_flat`, `positions_partial`), the
  *    drawn rows (the positioned rows typed EEG) are placed by name instead, and the reason the
  *    positions were not used is kept (`unused_positions`) and shown. Positioned rows of other
