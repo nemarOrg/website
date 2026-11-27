@@ -129,7 +129,7 @@ const idp = `qp-${datasetId}`;
     const tab = tabpanel ? document.getElementById(tabpanel.getAttribute("aria-labelledby") ?? "") : null;
     const isLink = (): boolean =>
       location.hash === HASH_PREFIX || location.hash.startsWith(`${HASH_PREFIX}/`);
-    // The click does nothing when this script runs before DatasetTabs' has bound its tab list; that
+    // The click does nothing when this script runs before DatasetTabs' script has bound its tab list; that
     // one then opens the tab for a `#quality` hash itself (lib/dataset-tabs.ts), and the observer
     // below opens the panel and brings it into view.
     const showTab = (): void => {
