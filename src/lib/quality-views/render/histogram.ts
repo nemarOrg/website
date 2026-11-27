@@ -19,7 +19,7 @@ import { numberText } from "../read";
 import { type Child, type Element, h } from "../tree";
 import { type ViewContext, figure, textTable } from "./figure";
 import { readoutWriter, step } from "./interact";
-import { fraction } from "./scale";
+import { fraction, roundedText } from "./scale";
 
 export const HISTOGRAM_SIZE = { width: 480, height: 240 } as const;
 const MARGIN = { left: 56, right: 12, top: 12, bottom: 44 } as const;
@@ -204,7 +204,10 @@ export function histogramSvg(
   const bars = histogramBars(model, plotW, plotH);
   const marked = mark ? markedIndex(model, mark.value) : null;
   const density = model.heights === "density";
-  const top = density ? numberText(model.max_density ?? 0) : String(model.max_count);
+  // The density is worked out, not stored: printed at the precision of its own size.
+  const top = density
+    ? roundedText(model.max_density ?? 0, model.max_density ?? 0)
+    : String(model.max_count);
   const children: Child[] = [
     h("line", { class: "qv-axis", x1: 0, y1: plotH, x2: plotW, y2: plotH }),
     h("line", { class: "qv-axis", x1: 0, y1: 0, x2: 0, y2: plotH }),

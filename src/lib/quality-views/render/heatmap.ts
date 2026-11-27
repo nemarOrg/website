@@ -14,6 +14,7 @@ import type { Download, HeatmapModel } from "../model";
 import { type Element, h } from "../tree";
 import { type ViewContext, figure, textTable } from "./figure";
 import { readoutWriter, step } from "./interact";
+import { labelText } from "./scale";
 import { columnHeader } from "./table";
 
 /** Labels printed along an axis, at most; the data table holds every one. */
@@ -79,7 +80,8 @@ export function heatmapDrawing(model: HeatmapModel): Element {
   );
 }
 
-/** The stored text of the cell holding the first value that `pick` prefers. */
+/** The stored text of the cell holding the first value that `pick` prefers, rounded to the color
+ *  scale's span when it carries more digits than a legend holds (`labelText`). */
 function cellText(model: HeatmapModel, better: (a: number, b: number) => boolean): string {
   let at: [number, number] = [0, 0];
   model.values.forEach((row, r) => {
@@ -87,13 +89,14 @@ function cellText(model: HeatmapModel, better: (a: number, b: number) => boolean
       if (better(v, model.values[at[0]][at[1]])) at = [r, c];
     });
   });
-  return model.text[at[0]][at[1]];
+  const span = model.limits.max - model.limits.min;
+  return labelText(model.text[at[0]][at[1]], model.values[at[0]][at[1]], span);
 }
 
 /**
- * The legend's ends, every number a stored cell's text: under `minmax` the smallest and the largest
- * cell; under `absmax` the sign words and the cell of the largest magnitude, which the scale is
- * centered on.
+ * The legend's ends, every number a stored cell's text (rounded as `cellText` rounds): under
+ * `minmax` the smallest and the largest cell; under `absmax` the sign words and the cell of the
+ * largest magnitude, which the scale is centered on.
  */
 export function heatmapLegend(model: HeatmapModel): {
   readonly low: string;
