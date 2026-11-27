@@ -13,6 +13,8 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.47] - 2026-11-27
+
 ### Added
 
 - **Export a quality view as PNG, SVG or its files** (website#588 phase W8, nemar-cli epic #2324).
@@ -58,6 +60,28 @@ The release pull request from `staging` to `main` moves those entries under the 
   A run's page (`/admin/pipelines/runs/<id>`) shows each checkpoint's counts and the failed recordings it lists, with their codes and steps.
   The admin Overview gains a "Processing recipes" panel with the same cards for the recipes that dispatch.
   Read only: the pages never ask the API to sync, and say that ended runs and the coverage line can lag until a sync records them. Where the API predates these routes the tab says "not available on this server yet".
+
+### Changed
+
+- **The signal viewer's scalp map is drawn on the quality views' sensor field** (website#588 phases W3 and W2b, nemar-cli epic #2324).
+  The map is drawn in the quality views' worker, on the sequential color map with a min-to-max color axis, EEGLAB's head, nose and ears, and a marker per sensor; a shared offset no longer ripples across the map.
+  The thin-plate spline it used before is removed, so maps differ in shape as well as color.
+  A recording's own positions are used when they are in a known scalp frame.
+  Positions in a frame that is not the scalp (Pixels, ACPC, ScanRAS) are refused, never placed by name; only positions in an unknown frame, flat positions or positions that cover too little of the head fall back to placing the EEG channels by name on a standard montage or a recognized net, with the reason given in the toggle's title.
+  A recording whose positioned channels are all typed `n/a` now gets no map; without positions, untyped channels are still placed by name.
+  A map needs at least 8 sensors, from the recording's own positions or from names.
+  Placement by name is stricter than before: a mix that fits two montages, bipolar names, or an EGI recording placed by name (its cap model is not yet recorded) now shows a sentence instead of a map, and a BioSemi recording goes to the smallest cap its names fill, or is refused when they cover too little of it.
+  A map that cannot be drawn is withheld, and its stated reason stands in its place.
+  The montages' license notices ship with the site.
+
+### Fixed
+
+- **The publication queue suggests the live approve command** (website#585, fixes website#582).
+  It now suggests `nemar admin repo publish approve <id>` (with `--resume` for a stuck request) in place of `nemar admin publish approve <id>`, a stub that has exited 1 since nemar-cli 0.10.34.
+
+## [0.2.46] - 2026-11-22
+
+### Added
 
 - **The admin Compute tab** (website#497, epic website#493 phase E4; nemar-cli epic #2021, website ADR 0030 addendum).
   `/admin/compute`, after Mail, shows the compute access requests awaiting a decision: a row per account with the stated country, affiliation, city, email, ORCID iD, request date, terms version and the purpose (shown as inert text, in full on request).
@@ -108,17 +132,6 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Changed
 
-- **The signal viewer's scalp map is drawn on the quality views' sensor field** (website#588 phases W3 and W2b, nemar-cli epic #2324).
-  The map is drawn in the quality views' worker, on the sequential color map with a min-to-max color axis, EEGLAB's head, nose and ears, and a marker per sensor; a shared offset no longer ripples across the map.
-  The thin-plate spline it used before is removed, so maps differ in shape as well as color.
-  A recording's own positions are used when they are in a known scalp frame.
-  Positions in a frame that is not the scalp (Pixels, ACPC, ScanRAS) are refused, never placed by name; only positions in an unknown frame, flat positions or positions that cover too little of the head fall back to placing the EEG channels by name on a standard montage or a recognized net, with the reason given in the toggle's title.
-  A recording whose positioned channels are all typed `n/a` now gets no map; without positions, untyped channels are still placed by name.
-  A map needs at least 8 sensors, from the recording's own positions or from names.
-  Placement by name is stricter than before: a mix that fits two montages, bipolar names, or an EGI recording placed by name (its cap model is not yet recorded) now shows a sentence instead of a map, and a BioSemi recording goes to the smallest cap its names fill, or is refused when they cover too little of it.
-  A map that cannot be drawn is withheld, and its stated reason stands in its place.
-  The montages' license notices ship with the site.
-
 - **The dataset page's Compute dialog describes `nemar compute`** (website#498, epic website#493 phase E5; website ADR 0030 addendum).
   The "Compute instructions" dialog no longer shows an S3 prefix and a Neuroscience Gateway flow; that route is gone.
   For a published, non-anonymous `nm` or `on` dataset it gives copyable commands to request access, do a dry run, submit a job against the dataset's version, follow it and fetch its results, with links to Settings and `/compute`.
@@ -128,6 +141,19 @@ The release pull request from `staging` to `main` moves those entries under the 
   Until compute opens, the production build shows the shared "not open yet" sentence in place of the commands.
   Any other dataset gets one sentence saying NEMAR compute cannot read it.
   The old "coming soon" note and its link are removed.
+
+- **The admin Compute tab's decision dialog asks for a notice to the person** (website#583; nemar-cli#2300).
+  Suspend and Revoke require a "Notice to the person", which is emailed to them; Deny takes an optional one and Grant none.
+  The confirm button stays disabled until the notice is at most 1,000 characters with no control characters (tabs and line breaks are allowed), and a refused notice is explained in the same words the CLI uses.
+
+## [0.2.45] - 2026-11-22
+
+### Added
+
+- **The mail unsubscribe page and the Settings Email card** (website#580, website#573; nemar-cli epic #2260).
+  `/unsubscribe/<token>` shows the mail category and masked address with two buttons, one for the category and one for all NEMAR community mail, explains why recalls cannot be turned off, and never acts on load; it is never cached, indexed or measured by analytics.
+  Settings gains an "Email" card with switches for news, RFCs and maintenance mail and a locked "Recalls: always on" row.
+  The labels and descriptions are the nine `mail.*` account copy keys, transcribed from nemar-cli.
 
 ## [0.2.44] - 2026-11-21
 
