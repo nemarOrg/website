@@ -189,8 +189,18 @@ export function devConnectOrigins(env: {
   return origins;
 }
 
+// Each key read by name, never the whole `import.meta.env`: a bare reference makes Vite write the
+// object out in the production bundle with every build-machine variable whose name appears in this
+// file (PATH among them). Read by name, `DEV` is the literal `false` in a production build and
+// this whole branch is dropped.
 const DEV_CONNECT_ORIGINS: readonly string[] =
-  typeof import.meta.env !== "undefined" ? devConnectOrigins(import.meta.env) : [];
+  import.meta.env.DEV === true
+    ? devConnectOrigins({
+        DEV: true,
+        PUBLIC_API_BASE_URL: import.meta.env.PUBLIC_API_BASE_URL,
+        PUBLIC_DATA_BASE_URL: import.meta.env.PUBLIC_DATA_BASE_URL,
+      })
+    : [];
 
 /**
  * The upload page PUTs file bytes straight to S3 via presigned URLs
