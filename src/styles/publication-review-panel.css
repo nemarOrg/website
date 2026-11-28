@@ -320,3 +320,184 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* The decision card (nemarOrg/nemar-cli#2456; nemar-cli ADR 0142, decision 4), drawn first in the
+   panel from `lib/decision-card.ts`. A cue is a badge that carries its word ("Green", "Amber",
+   "Red") beside its color, and a bar on the part it heads, so the cue is never color alone. */
+.pubreq-review-card {
+  display: grid;
+  gap: var(--space-3);
+  min-inline-size: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--admin-surface);
+}
+.pubreq-review-card__title {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.pubreq-review-card__part {
+  display: grid;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  padding-inline-start: var(--space-3);
+  box-shadow: inset 3px 0 0 var(--color-border);
+}
+.pubreq-review-card__part.pubreq-review-card--green {
+  box-shadow: inset 3px 0 0 var(--admin-ok);
+}
+.pubreq-review-card__part.pubreq-review-card--amber {
+  box-shadow: inset 3px 0 0 var(--admin-warn);
+}
+.pubreq-review-card__part.pubreq-review-card--red {
+  box-shadow: inset 3px 0 0 var(--admin-error);
+}
+.pubreq-review-card__heading {
+  margin: 0;
+  color: var(--admin-text-3);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pubreq-review-card__text {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.pubreq-review-card__text--muted {
+  color: var(--color-fg-muted);
+}
+.pubreq-review-card__next,
+.pubreq-review-card__authors,
+.pubreq-review-card__screen,
+.pubreq-review-card__autodeny {
+  display: grid;
+  gap: var(--space-1);
+  min-inline-size: 0;
+}
+.pubreq-review-card__next-text {
+  font-weight: var(--fw-semibold);
+}
+.pubreq-review-card__authors.pubreq-review-card--red .pubreq-review-card__text {
+  color: var(--admin-error-text);
+}
+.pubreq-review-card__cue-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+  font-weight: var(--fw-semibold);
+  overflow-wrap: anywhere;
+}
+.pubreq-review-card__cue {
+  padding: 1px var(--space-2);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pubreq-review-card__cue--green {
+  background: var(--admin-ok-soft);
+  color: var(--admin-ok-text);
+}
+.pubreq-review-card__cue--amber {
+  background: var(--admin-warn-soft);
+  color: var(--admin-warn-text);
+}
+.pubreq-review-card__cue--red {
+  background: var(--admin-error-soft);
+  color: var(--admin-error-text);
+}
+.pubreq-review-card__fields {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+}
+.pubreq-review-card__row {
+  display: grid;
+  grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);
+  gap: var(--space-2);
+}
+.pubreq-review-card__row > dt {
+  color: var(--color-fg-muted);
+}
+.pubreq-review-card__row > dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.pubreq-review-card__also,
+.pubreq-review-card__qlist {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pubreq-review-card__also > li {
+  overflow-wrap: anywhere;
+}
+/* The dataset's own words: the enrichment beside dataset_description.json. */
+.pubreq-review-card__sides {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.pubreq-review-card__side {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  min-inline-size: 0;
+}
+.pubreq-review-card__file {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+}
+.pubreq-review-card__q {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  overflow-wrap: anywhere;
+}
+.pubreq-review-card__q-name {
+  flex: 1 1 16rem;
+  min-inline-size: 0;
+}
+.pubreq-review-card__answer {
+  font-weight: var(--fw-semibold);
+}
+.pubreq-review-card__answer--pass {
+  color: var(--admin-ok-text);
+}
+.pubreq-review-card__answer--fail {
+  color: var(--admin-error-text);
+}
+.pubreq-review-card__answer--unknown {
+  color: var(--admin-warn-text);
+}
+.pubreq-review-card__q-finding {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  flex-basis: 100%;
+}
+@media (max-width: 640px) {
+  .pubreq-review-card__sides {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pubreq-review-card__row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}
+@media (forced-colors: active) {
+  .pubreq-review-card__part {
+    border-inline-start: 3px solid CanvasText;
+  }
+}
