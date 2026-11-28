@@ -1,4 +1,3 @@
-import { cardTree } from "./decision-card";
 /**
  * The drawing of the administrator approval page's review panel, as plain data (website#459).
  *
@@ -13,6 +12,7 @@ import { cardTree } from "./decision-card";
  * (`test/client-bundle-guard.test.ts`). The few words this module owns have no counterpart in the
  * mirrored copy table and name no terminal (`PANEL_WORDS`).
  */
+import { cardTree } from "./decision-card";
 import {
   ACK_MAX,
   type ApproveControl,
