@@ -381,7 +381,7 @@ function lineageNodes(which: string, l: CardLineageView | null): PanelNode[] {
 
 function section(heading: string, className: string, children: PanelNode[]): PanelNode {
   return node("section", `${C}__part ${className}`, undefined, [
-    node("h5", `${C}__heading`, heading),
+    node("h6", `${C}__heading`, heading),
     ...children,
   ]);
 }
@@ -396,8 +396,7 @@ export function cardTree(card: DecisionCardView, approveOffered: boolean): Panel
   // The next action.
   const contradicted = card.action === "approve" && !approveOffered;
   parts.push(
-    node("div", `${C}__next`, undefined, [
-      node("span", `${C}__label`, CARD_WORDS.next),
+    section(CARD_WORDS.next, `${C}__next`, [
       p(contradicted ? CARD_WORDS.approveWithheld : card.sentence, `${C}__text ${C}__next-text`),
     ]),
   );
@@ -467,7 +466,7 @@ export function cardTree(card: DecisionCardView, approveOffered: boolean): Panel
     empty: string,
   ) =>
     node("div", `${C}__side`, undefined, [
-      node("h6", `${C}__file`, title),
+      p(title, `${C}__file`),
       entries === null || entries.length === 0
         ? p(empty, `${C}__text ${C}__text--muted`)
         : dl(entries.map(([k, v]) => row(k, v))),
@@ -494,8 +493,7 @@ export function cardTree(card: DecisionCardView, approveOffered: boolean): Panel
       a.placeholders > 0 ? `, ${a.placeholders} placeholder${a.placeholders === 1 ? "" : "s"}` : "";
     const flagged = a.flagged.length > 0 ? ` (flagged: ${a.flagged.join("; ")})` : "";
     parts.push(
-      node("div", `${C}__authors${a.placeholders > 0 ? ` ${C}--red` : ""}`, undefined, [
-        node("span", `${C}__label`, CARD_WORDS.authors),
+      section(CARD_WORDS.authors, `${C}__authors${a.placeholders > 0 ? ` ${C}--red` : ""}`, [
         p(`${a.count}${ph}${flagged}`),
       ]),
     );
@@ -532,19 +530,9 @@ export function cardTree(card: DecisionCardView, approveOffered: boolean): Panel
   const screenChildren: PanelNode[] = [p(card.screen.headline)];
   if (card.screen.headLine)
     screenChildren.push(p(card.screen.headLine, "pubreq-review-tone--warn"));
-  parts.push(
-    node("div", `${C}__screen`, undefined, [
-      node("span", `${C}__label`, CARD_WORDS.screen),
-      ...screenChildren,
-    ]),
-  );
+  parts.push(section(CARD_WORDS.screen, `${C}__screen`, screenChildren));
   if (card.autoDeny) {
-    parts.push(
-      node("div", `${C}__autodeny`, undefined, [
-        node("span", `${C}__label`, CARD_WORDS.autoDeny),
-        p(card.autoDeny),
-      ]),
-    );
+    parts.push(section(CARD_WORDS.autoDeny, `${C}__autodeny`, [p(card.autoDeny)]));
   }
 
   return node("section", C, undefined, [node("h5", `${C}__title`, CARD_WORDS.heading), ...parts]);

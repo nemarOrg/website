@@ -354,8 +354,7 @@
 .pubreq-review-card__part.pubreq-review-card--red {
   box-shadow: inset 3px 0 0 var(--admin-error);
 }
-.pubreq-review-card__heading,
-.pubreq-review-card__label {
+.pubreq-review-card__heading {
   margin: 0;
   color: var(--admin-text-3);
   font-size: var(--fs-xs);
