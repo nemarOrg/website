@@ -242,3 +242,90 @@ describe("depositor text is text", () => {
     }
   });
 });
+
+describe("every string field is made plain", () => {
+  const BAD = [0x202e, 0x200b, 0x1b, 0x07, 0x2028, 0x2029].map((c) => String.fromCharCode(c));
+
+  /** The path of every string in a card, at any depth. */
+  function stringPaths(x: unknown, at: (string | number)[] = []): (string | number)[][] {
+    if (typeof x === "string") return [at];
+    if (Array.isArray(x)) return x.flatMap((v, i) => stringPaths(v, [...at, i]));
+    if (x !== null && typeof x === "object") {
+      return Object.entries(x).flatMap(([k, v]) => stringPaths(v, [...at, k]));
+    }
+    return [];
+  }
+  function setAt(root: Record<string, unknown>, path: (string | number)[], value: string) {
+    let cur = root as Record<string | number, unknown>;
+    for (const key of path.slice(0, -1)) cur = cur[key] as Record<string | number, unknown>;
+    const last = path[path.length - 1];
+    cur[last] = value;
+  }
+  /** Every string the drawing holds: its words and its attribute values. */
+  const drawn = (nodes: readonly PanelNode[]): string[] =>
+    all(nodes).flatMap((n) => [
+      ...(n.text === undefined ? [] : [n.text]),
+      ...Object.values(n.attrs ?? {}),
+    ]);
+
+  it("finds the fields to walk (the loop below is not vacuous)", () => {
+    expect(stringPaths(card("red_license_review_again")).length).toBeGreaterThan(40);
+  });
+
+  for (const name of Object.keys(CARDS.cards) as CardName[]) {
+    it(`no control, format or separator character survives in ${name}`, () => {
+      for (const path of stringPaths(card(name))) {
+        for (const bad of BAD) {
+          const c = card(name);
+          const original = path.reduce<unknown>(
+            (o, k) => (o as Record<string | number, unknown>)[k],
+            c,
+          ) as string;
+          // A captured card with one string field replaced: the openly altered input.
+          setAt(c, path, `${original}${bad}x`);
+          const view = readDecisionCard(c);
+          if (view === null) continue;
+          for (const text of drawn([cardTree(view, true)])) {
+            expect(
+              text.includes(bad),
+              `${path.join(".")} U+${bad.charCodeAt(0).toString(16)}`,
+            ).toBe(false);
+          }
+        }
+      }
+    });
+  }
+
+  it("an answer word this page does not know is drawn with the unknown class", () => {
+    // A captured card with one answer replaced: the openly altered input.
+    const c = card("green_approve");
+    (c.questions as Record<string, unknown>[])[0].answer = "maybe so";
+    const answers = byClass(
+      [cardTree(readDecisionCard(c) as NonNullable<ReturnType<typeof readDecisionCard>>, true)],
+      "pubreq-review-card__answer",
+    );
+    expect(answers[0].attrs?.class).toBe(
+      "pubreq-review-card__answer pubreq-review-card__answer--unknown",
+    );
+  });
+
+  it("each part of the card is under a heading, one level below the card's title", () => {
+    const c = cardNode(
+      tree(withCard("detail-pass", card("red_license_review_again"))),
+    ) as PanelNode;
+    expect(c.children?.[0]).toMatchObject({ tag: "h5", text: CARD_WORDS.heading });
+    const headings = all([c])
+      .filter((n) => n.tag === "h6")
+      .map((n) => n.text);
+    expect(headings).toEqual([
+      CARD_WORDS.next,
+      CARD_WORDS.license,
+      CARD_WORDS.name,
+      "The dataset's own words (written by the depositor), as reviewed",
+      CARD_WORDS.authors,
+      CARD_WORDS.questions,
+      CARD_WORDS.screen,
+      CARD_WORDS.autoDeny,
+    ]);
+  });
+});
