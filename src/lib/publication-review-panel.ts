@@ -1,3 +1,4 @@
+import { cardTree } from "./decision-card";
 /**
  * The drawing of the administrator approval page's review panel, as plain data (website#459).
  *
@@ -300,6 +301,8 @@ export function panelTree(model: PanelModel, opts: PanelTreeOptions): PanelNode[
   const nodes: PanelNode[] = [titleTree(opts.datasetId, opts.panelId)];
   if (opts.error) nodes.push(errorTree(opts.error, opts.reloadHref));
   if (opts.notice) nodes.push(node("p", "pubreq-review__notice", opts.notice));
+  // The decision card first, license first within it (nemar-cli ADR 0142, decision 4).
+  if (model.card) nodes.push(cardTree(model.card, model.approve.kind === "offered"));
   if (model.headline) nodes.push(node("p", toneClass(model.headline.tone), model.headline.text));
   if (model.screen) {
     nodes.push(
