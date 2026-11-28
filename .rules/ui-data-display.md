@@ -7,7 +7,8 @@ Each rule carries a short **why**; a pull request that breaks one says why in it
 
 This file extends, and never overrides, [`design-language.md`](design-language.md),
 which owns the shape families (pills, chips, underline tabs), the tokens and the theming pattern.
-The drawing rulings are Architecture Decision Record (ADR) 0007 (hand-rolled charts) and ADR 0035 (quality views drawn in the browser from view data);
+Drawing is governed by Architecture Decision Record (ADR) 0007 (hand-rolled charts, accepted)
+and ADR 0035 (proposed: quality views drawn in the browser from view data);
 where this file and an ADR disagree, the ADR wins.
 
 ---
@@ -25,7 +26,8 @@ Most bad data screens skip the first two.
    The level decides the surface (rule 2), and one surface holds one level.
 3. **Inventory the elements and their states.**
    List every element the view can show, then every state each can be in:
-   measured, partial, not applicable, not supported, not processed, failed, withheld, stale.
+   measured, partial, not applicable, not supported, not processed, failed, withheld, stale
+   (glyphs and words in the state table under rule 9).
    Design the empty and partial screens at the same time as the full one, from the same layout (rule 9).
 4. **Pick the form from the data, not from taste.**
    Proportion of a bounded whole: a ring or donut.
@@ -115,10 +117,15 @@ which breaks the comparison the small multiples exist for.
 
 ### 6. Subtlety on every front
 
+- This rule covers data tiles and charts.
+  Elsewhere, the StatusBadge family and the status tags of `design-language.md` stay as they are for account, publish and import status.
 - Fewer borders, chips and badges.
-  Tiles sit on a faint ground without outlines; a state is a glyph and a word, not a boxed chip.
+  Tiles sit on a faint ground without outlines; a state inside a tile is a glyph and a word, not a boxed chip.
   Chips stay for taxonomy, as `design-language.md` defines them.
-- Quiet colors; an accent is used sparingly, for the one thing that must be seen first.
+- Quiet colors, checkably:
+  the accent color goes only on the single emphasized datum of each tile;
+  every other mark and label uses the foreground, muted and subtle tokens;
+  state colors (success, warning, danger) go only on a state glyph or a status mark, never on a tile's ground or border.
 - Explanatory text moves into (i) tips; the page keeps the data and a one-line caption at most.
 - One emphasis per tile: one large number or one chart leads, everything else is secondary.
 - Consistent spacing from the `--space-*` tokens; data first, chrome last.
@@ -130,7 +137,9 @@ When everything is emphasized nothing is, and the visitor cannot find the answer
 
 - Balance the layout across the overall width and within each section.
   Do not leave an empty grid column: move a compact card beside the others instead of below them.
-- Keep the first row short, so people reach the second row faster.
+- Keep the first row short, so people reach the second row faster:
+  it is one row of tiles, at most about 300 px tall at 1280 px,
+  with legends, breakdown lists and prose moved below it or behind a disclosure.
 - Put breakdowns behind a disclosure: "11 failed" opens the per-code list on hover, focus or click.
   All data stays reachable, by keyboard and touch too, and in the data table.
 
@@ -166,6 +175,23 @@ These forms were reviewed on NEMAR's quality views and read quickly at small siz
   not processed is a dashed outline with ○ (a checker exists and has not run);
   not supported is a dotted outline on a hatched ground with ⊘ (no checker exists for this modality, and nothing is pending).
 - Gray is never the only cue: every state has a glyph and a word, readable without hover.
+- Use this state table.
+  It mirrors the proposed shared quality-state vocabulary;
+  once that vocabulary lands in the backend contract and is copied here with a drift test, the contract's words win.
+
+  | State | Glyph and word | Look | Meaning |
+  |---|---|---|---|
+  | measured | the value itself | normal text and marks | the checker ran on this version |
+  | partial | the value with "n of N" | normal, coverage beside it | measured on fewer than all applicable items |
+  | not applicable | – "not applicable" | muted text, no outline | does not apply to this modality or design |
+  | not supported | ⊘ "not supported for this modality yet" | dotted outline on a hatched ground | no checker exists; nothing is pending |
+  | not processed | ○ "not processed yet" | dashed outline | a checker exists and has not run |
+  | not computable | ◇ "not computable" with its fix | warning-tinted outline | the checker ran; a prerequisite was missing |
+  | failed | ! "failed" with its public code | danger-tinted outline | the checker ran and failed |
+  | unknown | ? "could not be determined" | italic, muted | the checker could not decide |
+  | withheld | ▣ "withheld" with the rule's name | filled muted chip | a value exists; a rule keeps it off this page |
+  | stale (qualifier) | ↻ "computed on 1.1.0, current is 1.2.0" | warning-tinted italic | from an older dataset or checker version |
+
 - Coverage, "412 of 430 recordings", sits beside every aggregate.
 
 **Why:** a hidden element and a zero both lie, one by omission and one by assertion.
@@ -218,9 +244,11 @@ a page that scrolls sideways on a phone is broken for most first visits.
 ### 13. Draw from data; store no figure images
 
 - NEMAR stores no figure image (nemar-cli ADR 0137, website ADR 0035): the browser draws every view from its data.
-- Charts are hand-built Scalable Vector Graphics (SVG), server-drawn where static (ADR 0007),
-  or canvas (or WebGL) where the data are dense or live, as in the signal viewer.
-  No chart library.
+- Quality views are drawn in the browser from their view data (ADR 0035 decision 1, proposed).
+- Server-drawn hand-built Scalable Vector Graphics (SVG) is limited to the static dashboard charts of ADR 0007
+  (for example, the compute usage chart).
+- Canvas (or WebGL) is for dense or live data, as in the signal viewer.
+- No chart library anywhere.
 
 **Why:** a drawing from data follows the theme, can be read aloud, can be checked against its numbers,
 and redraws when the data change; a stored image can do none of these.
@@ -244,7 +272,8 @@ Short, and consistent with the rules above.
   Show the median with the range or the histogram, never a lone mean.
 - **Color-blind-safe palettes.**
   Categorical colors from a tested set (the viewer's Okabe-Ito channel colors, the tag color bible);
-  sequential maps for magnitudes, diverging maps for signed values around zero; never jet or a rainbow.
+  sequential maps for magnitudes, diverging maps for signed values around zero.
+  Never a rainbow map (jet, turbo) as the default; the turbo toggle of ADR 0035 decision 7 is the one opt-in exception.
   Never let hue alone carry meaning: add a glyph, a label or a pattern.
 - **Contrast.**
   Text at least 4.5:1, graphical marks and focus rings at least 3:1 against their ground (WCAG 1.4.3 and 1.4.11), in both themes.
@@ -270,15 +299,23 @@ Run through this before opening the pull request for any data display.
 - [ ] Pipeline versions appear once, in the "How this was computed" footer.
 - [ ] Units are human; no bare "count", "fraction" or "nat"; no needless decimals; tabular numerals.
 - [ ] No title, label or tick wraps badly; no widowed unit; sibling label blocks have equal height.
-- [ ] Borders, chips, badges and accent colors were cut to the minimum; one emphasis per tile.
-- [ ] The layout is balanced across the width and within sections; no empty grid column; the first row is short.
+- [ ] Borders, chips and badges were cut to the minimum; one emphasis per tile, and the accent color only on that datum.
+- [ ] The layout is balanced across the width and within sections; no empty grid column; the first row is one row of tiles, at most about 300 px tall at 1280 px.
 - [ ] Breakdowns are behind a disclosure reachable by hover, focus and touch, and in the data table.
 - [ ] Every chart has an inline key for its encodings, a caption, an `aria-label` from stored values and a data table.
+- [ ] Rings and donuts show bounded percentages only; no unbounded metric is drawn as a ring.
+- [ ] No rainbow map by default; the ADR 0035 turbo toggle is opt-in.
 - [ ] The empty state keeps the same layout, grayed, with one banner; no hidden element, no zero fill, no repeated state text.
-- [ ] Not supported looks different from not processed; every state has a glyph and a word.
+- [ ] Every state uses its glyph, word and look from the state table; not supported looks different from not processed.
 - [ ] Coverage (n of N) sits beside every aggregate.
 - [ ] Each visualization fills its container and redraws on resize.
 - [ ] Selectable lists work with the keyboard; disabled controls are `aria-disabled` with a visible reason.
+- [ ] A linked view has a static default and turns live only on cursor move, returning to the default when the cursor leaves.
+- [ ] A source toggle is a radio group inside one renderer, keeps place, scale and selection, and shows an unavailable option with `aria-disabled` and its state word.
+- [ ] The (i) tip opens on hover and focus, stays while hovered, and closes with Escape (WCAG 1.4.13).
+- [ ] Hit targets follow `design-language.md` and are never below 24 px.
+- [ ] Live values are not announced to screen readers; a text readout carries the selected value.
+- [ ] Contrast is at least 4.5:1 for text and 3:1 for graphical marks and focus rings, in both themes.
 - [ ] No stored figure image; hand-built SVG or canvas; no chart library.
 - [ ] Only tokens from `src/styles/tokens.css`; both theme branches present.
 - [ ] Checked at 1280 px and 390 px, in light and dark, with no horizontal page scroll at 390 px.
