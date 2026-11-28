@@ -96,6 +96,7 @@ src/
     data-api.ts / data-base.ts        data.nemar.org client (landing/metadata/manifest/README fetch)
     auth.ts auth-dev.ts auth-proxy.ts orcid-proxy.ts   session types/helpers, dev mock session, backend proxies
     dashboard-api.ts admin-api.ts collaborators-api.ts upload-client.ts   authenticated API clients
+    decision-card.ts                  reads the API review detail's `decision_card` (nemar-cli ADR 0142) and draws it first in the approval panel; decides nothing, never prints its terminal command
     mail-admin-api.ts                 admin Mail client (browser-safe): tickets, queues, away window, reply failure classes, badge count, staff directory
     mail-admin-contract.ts            hand copy of nemar-cli shared/contract/mail-admin.ts (drift-tested, test/mail-admin-contract-drift.test.ts)
     compute-api.ts compute-contract.ts   browser-safe client for GET /compute/me, /me/usage, /me/jobs (guards copy out only the keys read; a rejected body is a `shape` error, never zeros) and the hand copy of the vocabulary it needs, the one place the job-state and front-door words live here (drift-tested, test/compute-user-contract-drift.test.ts; extractors in test/compute-contract-drift.ts)
