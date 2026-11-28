@@ -99,11 +99,9 @@ function isValidOsaDatasetAnnouncement(value: unknown): value is OsaDatasetAnnou
  * already loaded and exposes one. Call this from the dataset page as soon as the dataset id is
  * known, and again whenever the Zarr answer changes.
  *
- * A no-op outside a browser (`typeof window === "undefined"`) -- the same *kind* of existence
- * guard `resolveOsaWidget`'s `envValue` uses for `import.meta.env` (a different global, checked
- * for a different reason), not the same guard. This module is imported by a page script that
- * only ever runs client-side, but a no-op rather than a throw costs nothing and matches the rest
- * of this codebase's degrade posture.
+ * A no-op outside a browser (`typeof window === "undefined"`). This module is imported by a page
+ * script that only ever runs client-side, but a no-op rather than a throw costs nothing and
+ * matches the rest of this codebase's degrade posture.
  *
  * The call into `setDataset` is wrapped in its own try/catch: this function runs as the FIRST
  * statement of `hydrateTree` (`src/pages/dataset/[id].astro`), before any `await`, so an

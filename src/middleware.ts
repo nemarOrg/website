@@ -58,6 +58,8 @@ import { privateIfPublicHtml, withStaleDataHeaders } from "./lib/response-cache-
  *     page that loads the codecs) so every other page keeps the strict policy.
  *   - style-src 'unsafe-inline'   — Astro inline scoped <style> blocks.
  *   - connect-src *.nemar.org       — api/data/dashboard/zarr client fetches.
+ *   - connect-src the PUBLIC_API_BASE_URL and PUBLIC_DATA_BASE_URL origins, in `astro dev`
+ *     only (devConnectOrigins): a local backend. Never in a production build.
  *   - connect-src S3 upload hosts (only on /upload — see routeNeedsS3Upload):
  *     presigned PUTs go straight to the bucket, never through our origin.
  *   - img-src 'self' data:          — all images are local; markdown emits no <img>.
@@ -156,6 +158,49 @@ export function routeBypassesEdgeCache(pathname: string): boolean {
 // deposit's repository is private and its raw URL 404s, so the allowance has
 // no consumer left. Do not re-add it without a fetch that needs it.
 const CONNECT_SRC_BASE = "connect-src 'self' https://*.nemar.org";
+
+/**
+ * In `astro dev` only, the origins of `PUBLIC_API_BASE_URL` and `PUBLIC_DATA_BASE_URL`: with them
+ * pointing at a local backend (`http://127.0.0.1:8787`, which the quality client's `lenientBase`
+ * supports), every browser fetch to it would otherwise be refused by `connect-src`. Empty whenever
+ * `env.DEV` is not `true`, so a production build (where Vite writes `DEV` as `false`) ships the
+ * policy unchanged. An origin `https://*.nemar.org` already admits, or a base that is not an
+ * http(s) URL, adds nothing; `URL.origin` is a serialized origin, so no value can add a directive.
+ */
+export function devConnectOrigins(env: {
+  readonly DEV?: unknown;
+  readonly PUBLIC_API_BASE_URL?: unknown;
+  readonly PUBLIC_DATA_BASE_URL?: unknown;
+}): string[] {
+  if (env.DEV !== true) return [];
+  const origins: string[] = [];
+  for (const base of [env.PUBLIC_API_BASE_URL, env.PUBLIC_DATA_BASE_URL]) {
+    if (typeof base !== "string" || base === "") continue;
+    let url: URL;
+    try {
+      url = new URL(base);
+    } catch {
+      continue;
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+    if (url.protocol === "https:" && /\.nemar\.org$/.test(url.hostname)) continue;
+    if (!origins.includes(url.origin)) origins.push(url.origin);
+  }
+  return origins;
+}
+
+// Each key read by name, never the whole `import.meta.env`: a bare reference makes Vite write the
+// object out in the production bundle with every build-machine variable whose name appears in this
+// file (PATH among them). Read by name, `DEV` is the literal `false` in a production build and
+// this whole branch is dropped.
+const DEV_CONNECT_ORIGINS: readonly string[] =
+  import.meta.env.DEV === true
+    ? devConnectOrigins({
+        DEV: true,
+        PUBLIC_API_BASE_URL: import.meta.env.PUBLIC_API_BASE_URL,
+        PUBLIC_DATA_BASE_URL: import.meta.env.PUBLIC_DATA_BASE_URL,
+      })
+    : [];
 
 /**
  * The upload page PUTs file bytes straight to S3 via presigned URLs
@@ -285,14 +330,22 @@ const OSA_FRAME_SRC = `frame-src 'self' ${OSA_NOTEBOOK_ORIGINS.join(" ")}`;
  */
 export function contentSecurityPolicy(
   pathname: string,
-  opts: { forbidFraming?: boolean; formActionOrigin?: string | null } = {},
+  opts: {
+    forbidFraming?: boolean;
+    formActionOrigin?: string | null;
+    /** Extra connect-src origins; {@link devConnectOrigins} of the build's env by default. */
+    devConnectOrigins?: readonly string[];
+  } = {},
 ): string {
   const scriptSrc = routeNeedsUnsafeEval(pathname)
     ? `${SCRIPT_SRC_BASE} 'unsafe-eval'`
     : SCRIPT_SRC_BASE;
+  const devOrigins = opts.devConnectOrigins ?? DEV_CONNECT_ORIGINS;
+  const connectBase =
+    devOrigins.length > 0 ? `${CONNECT_SRC_BASE} ${devOrigins.join(" ")}` : CONNECT_SRC_BASE;
   const connectSrc = routeNeedsS3Upload(pathname)
-    ? `${CONNECT_SRC_BASE} ${S3_UPLOAD_HOSTS} ${OSA_WIDGET_CDN} ${OSA_API_HOSTS}`
-    : `${CONNECT_SRC_BASE} ${OSA_WIDGET_CDN} ${OSA_API_HOSTS}`;
+    ? `${connectBase} ${S3_UPLOAD_HOSTS} ${OSA_WIDGET_CDN} ${OSA_API_HOSTS}`
+    : `${connectBase} ${OSA_WIDGET_CDN} ${OSA_API_HOSTS}`;
   const frameAncestors = routeAllowsFraming(pathname)
     ? "frame-ancestors *"
     : opts.forbidFraming || isOidcAuthorizeRoute(pathname)

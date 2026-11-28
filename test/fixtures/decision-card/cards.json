@@ -1,0 +1,452 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli buildDecisionCard (backend/src/services/decision-card.ts), the Worker's real builder, run on the inputs of nemar-cli test/helpers/decision-card-fixtures.ts (detailOf, SNAPSHOT, GATE_CLEAR, reasonView)",
+    "nemar_cli_commit": "d1c777cc (v0.10.57, origin/main)",
+    "captured_on": "2026-11-27",
+    "scenario": "red_license_review_again is the golden fixture of nemar-cli test/decision-card-display.unit.test.ts; green_approve is a clean version-3 review with a matching LICENSE; name_differs is a review whose name_upstream is differs with the name_differs_from_upstream reason; not_as_reviewed has no review and no snapshot, so the card reads the fields NEMAR holds now",
+    "request": "the decision_card field of GET /admin/publish/:id/review",
+    "note": "dataset id nm000480 and every name are the helper's inert values; no real person or credential"
+  },
+  "cards": {
+    "red_license_review_again": {
+      "v": 1,
+      "metadata": {
+        "as_reviewed": true,
+        "note": null,
+        "label": "written by the depositor",
+        "enrichment_source": "2026-11-20 10:00:00",
+        "enrichment": {
+          "title": "Resting EEG in sixty adults",
+          "description": "Eyes-open and eyes-closed resting EEG.",
+          "description_cut": false,
+          "license": "CC-BY-4.0",
+          "creators": ["Ada Lovelace"],
+          "keywords": ["EEG", "resting state"],
+          "funding": ["NIH (R01-1)"]
+        },
+        "dataset_description": {
+          "name": "Resting EEG",
+          "license": "CC-BY-4.0",
+          "authors": ["Ada Lovelace", "TBD"]
+        },
+        "version": "1.0.0",
+        "anonymous": false
+      },
+      "license": {
+        "cue": "red",
+        "reason": "The LICENSE file names another license than the License field.",
+        "reasons": [
+          "The LICENSE file names another license than the License field.",
+          "The upstream data's license could not be read."
+        ],
+        "field": {
+          "label": "written by the depositor",
+          "text": "CC-BY-4.0"
+        },
+        "license_file": {
+          "state": "matches_other",
+          "spdx": "CC-BY-NC-4.0",
+          "additions": true,
+          "expression": null
+        },
+        "matcher": "scancode-32.5.0+spdx-3.27",
+        "lineage": {
+          "outcome": "unresolved",
+          "credited": false,
+          "resolved_at": "2026-11-20 09:00:00",
+          "declared_licenses": {
+            "label": "as the source's registry declares it",
+            "licenses": []
+          },
+          "permission_covers": false
+        },
+        "fresh_lineage": {
+          "outcome": "compatible",
+          "credited": false,
+          "resolved_at": "2026-11-27T13:00:00.000Z",
+          "declared_licenses": {
+            "label": "as the source's registry declares it",
+            "licenses": ["10.5281/zenodo.123456: Creative Commons Attribution 4.0 International"]
+          },
+          "permission_covers": false
+        },
+        "permission_recorded": false
+      },
+      "authors": {
+        "names": [
+          {
+            "name": "Ada Lovelace",
+            "placeholder": false
+          },
+          {
+            "name": "TBD",
+            "placeholder": true
+          }
+        ],
+        "count": 2,
+        "placeholders": 1
+      },
+      "questions": [
+        {
+          "question": "complete_and_honest",
+          "label": "the README is complete and agrees with the dataset",
+          "answer": "pass",
+          "strongest": {
+            "source": "model",
+            "severity": "note",
+            "label": "other",
+            "note": "The README could say more about the montage.",
+            "note_label": "written by the model; the depositor's text can steer it"
+          }
+        },
+        {
+          "question": "meets_standards",
+          "label": "the submission standards and the ethics and provenance statements are met",
+          "answer": "pass",
+          "strongest": null
+        },
+        {
+          "question": "authors_and_license",
+          "label": "the authors and the license are real and consistent",
+          "answer": "unknown",
+          "strongest": {
+            "source": "platform",
+            "severity": "fact",
+            "label": "The LICENSE file names another license than the License field.",
+            "note": null,
+            "note_label": null
+          }
+        },
+        {
+          "question": "name_adequate",
+          "label": "the name describes the dataset",
+          "answer": "pass",
+          "strongest": null
+        }
+      ],
+      "identifier_screen": {
+        "headline": "Identifier screen: clear",
+        "tone": "ok",
+        "head": "current",
+        "head_line": null
+      },
+      "upstream_name": {
+        "result": "matches",
+        "cue": "green",
+        "line": "The Name is the upstream dataset's title.",
+        "titles": {
+          "label": "as the source's registry declares it",
+          "titles": ["Resting EEG"]
+        }
+      },
+      "auto_deny": {
+        "state": "disagreed",
+        "line": "Automated review disagreed: the confirming run did not confirm the first run's fail, so a person decides."
+      },
+      "next_action": {
+        "action": "review_again",
+        "sentence": "Review the request again: the upstream data's license resolves now, and the review read it unresolved.",
+        "command": "nemar admin dataset publish start nm000480 --again"
+      }
+    },
+    "green_approve": {
+      "v": 1,
+      "metadata": {
+        "as_reviewed": true,
+        "note": null,
+        "label": "written by the depositor",
+        "enrichment_source": "2026-11-20 10:00:00",
+        "enrichment": {
+          "title": "Resting EEG in sixty adults",
+          "description": "Eyes-open and eyes-closed resting EEG.",
+          "description_cut": false,
+          "license": "CC-BY-4.0",
+          "creators": ["Ada Lovelace"],
+          "keywords": ["EEG", "resting state"],
+          "funding": ["NIH (R01-1)"]
+        },
+        "dataset_description": {
+          "name": "Resting EEG",
+          "license": "CC-BY-4.0",
+          "authors": ["Ada Lovelace"]
+        },
+        "version": "1.0.0",
+        "anonymous": false
+      },
+      "license": {
+        "cue": "green",
+        "reason": "The License field, the LICENSE file and the upstream data's license agree.",
+        "reasons": [],
+        "field": {
+          "label": "written by the depositor",
+          "text": "CC-BY-4.0"
+        },
+        "license_file": {
+          "state": "matches",
+          "spdx": "CC-BY-4.0",
+          "additions": false,
+          "expression": null
+        },
+        "matcher": "scancode-32.5.0+spdx-3.27",
+        "lineage": {
+          "outcome": "compatible",
+          "credited": false,
+          "resolved_at": "2026-11-27 12:00:00",
+          "declared_licenses": {
+            "label": "as the source's registry declares it",
+            "licenses": []
+          },
+          "permission_covers": false
+        },
+        "fresh_lineage": null,
+        "permission_recorded": false
+      },
+      "authors": {
+        "names": [
+          {
+            "name": "Ada Lovelace",
+            "placeholder": false
+          }
+        ],
+        "count": 2,
+        "placeholders": 0
+      },
+      "questions": [
+        {
+          "question": "complete_and_honest",
+          "label": "the README is complete and agrees with the dataset",
+          "answer": "pass",
+          "strongest": null
+        },
+        {
+          "question": "meets_standards",
+          "label": "the submission standards and the ethics and provenance statements are met",
+          "answer": "pass",
+          "strongest": null
+        },
+        {
+          "question": "authors_and_license",
+          "label": "the authors and the license are real and consistent",
+          "answer": "pass",
+          "strongest": null
+        },
+        {
+          "question": "name_adequate",
+          "label": "the name describes the dataset",
+          "answer": "pass",
+          "strongest": null
+        }
+      ],
+      "identifier_screen": {
+        "headline": "Identifier screen: clear",
+        "tone": "ok",
+        "head": "current",
+        "head_line": null
+      },
+      "upstream_name": {
+        "result": null,
+        "cue": "amber",
+        "line": "No review on record compared the Name with the upstream dataset's title.",
+        "titles": {
+          "label": "as the source's registry declares it",
+          "titles": []
+        }
+      },
+      "auto_deny": null,
+      "next_action": {
+        "action": "approve",
+        "sentence": "Approve the request: nothing on record withholds its approval.",
+        "command": "nemar admin dataset publish approve nm000480"
+      }
+    },
+    "name_differs": {
+      "v": 1,
+      "metadata": {
+        "as_reviewed": true,
+        "note": null,
+        "label": "written by the depositor",
+        "enrichment_source": "2026-11-20 10:00:00",
+        "enrichment": {
+          "title": "Resting EEG in sixty adults",
+          "description": "Eyes-open and eyes-closed resting EEG.",
+          "description_cut": false,
+          "license": "CC-BY-4.0",
+          "creators": ["Ada Lovelace"],
+          "keywords": ["EEG", "resting state"],
+          "funding": ["NIH (R01-1)"]
+        },
+        "dataset_description": {
+          "name": "Resting EEG",
+          "license": "CC-BY-4.0",
+          "authors": ["Ada Lovelace", "TBD"]
+        },
+        "version": "1.0.0",
+        "anonymous": false
+      },
+      "license": {
+        "cue": "green",
+        "reason": "The License field, the LICENSE file and the upstream data's license agree.",
+        "reasons": [],
+        "field": {
+          "label": "written by the depositor",
+          "text": "CC-BY-4.0"
+        },
+        "license_file": {
+          "state": "matches",
+          "spdx": "CC-BY-4.0",
+          "additions": false,
+          "expression": null
+        },
+        "matcher": "scancode-32.5.0+spdx-3.27",
+        "lineage": {
+          "outcome": "compatible",
+          "credited": false,
+          "resolved_at": "2026-11-27 12:00:00",
+          "declared_licenses": {
+            "label": "as the source's registry declares it",
+            "licenses": []
+          },
+          "permission_covers": false
+        },
+        "fresh_lineage": null,
+        "permission_recorded": false
+      },
+      "authors": {
+        "names": [
+          {
+            "name": "Ada Lovelace",
+            "placeholder": false
+          },
+          {
+            "name": "TBD",
+            "placeholder": true
+          }
+        ],
+        "count": 2,
+        "placeholders": 0
+      },
+      "questions": [
+        {
+          "question": "complete_and_honest",
+          "label": "the README is complete and agrees with the dataset",
+          "answer": "pass",
+          "strongest": null
+        },
+        {
+          "question": "meets_standards",
+          "label": "the submission standards and the ethics and provenance statements are met",
+          "answer": "pass",
+          "strongest": null
+        },
+        {
+          "question": "authors_and_license",
+          "label": "the authors and the license are real and consistent",
+          "answer": "pass",
+          "strongest": null
+        },
+        {
+          "question": "name_adequate",
+          "label": "the name describes the dataset",
+          "answer": "pass",
+          "strongest": null
+        }
+      ],
+      "identifier_screen": {
+        "headline": "Identifier screen: clear",
+        "tone": "ok",
+        "head": "current",
+        "head_line": null
+      },
+      "upstream_name": {
+        "result": "differs",
+        "cue": "red",
+        "line": "The Name is not the upstream dataset's title; it should be, and a version and an author-year naming the dataset's authors may follow it.",
+        "titles": {
+          "label": "as the source's registry declares it",
+          "titles": ["Resting EEG of healthy adults"]
+        }
+      },
+      "auto_deny": null,
+      "next_action": {
+        "action": "ask_depositor",
+        "sentence": "Ask the depositor to change the Name: it should be the upstream dataset's title, as its registry gives it, and a version and an author-year naming the dataset's authors may follow it.",
+        "command": "nemar admin dataset publish next"
+      }
+    },
+    "not_as_reviewed": {
+      "v": 1,
+      "metadata": {
+        "as_reviewed": false,
+        "note": "Not as reviewed: no review has read these fields yet, so these are the fields NEMAR holds now.",
+        "label": "written by the depositor",
+        "enrichment_source": "2026-11-20 10:00:00",
+        "enrichment": {
+          "title": "Resting EEG in sixty adults",
+          "description": "Eyes-open and eyes-closed resting EEG.",
+          "description_cut": false,
+          "license": "CC-BY-4.0",
+          "creators": ["Ada Lovelace"],
+          "keywords": ["EEG", "resting state"],
+          "funding": ["NIH (R01-1)"]
+        },
+        "dataset_description": {
+          "name": "Resting EEG",
+          "license": "CC-BY-4.0",
+          "authors": ["Ada Lovelace", "TBD"]
+        },
+        "version": null,
+        "anonymous": false
+      },
+      "license": {
+        "cue": "amber",
+        "reason": "No review on record has identified the LICENSE file.",
+        "reasons": ["No review on record has identified the LICENSE file."],
+        "field": {
+          "label": "written by the depositor",
+          "text": "CC-BY-4.0"
+        },
+        "license_file": null,
+        "matcher": null,
+        "lineage": null,
+        "fresh_lineage": null,
+        "permission_recorded": false
+      },
+      "authors": {
+        "names": [
+          {
+            "name": "Ada Lovelace",
+            "placeholder": false
+          },
+          {
+            "name": "TBD",
+            "placeholder": true
+          }
+        ],
+        "count": 2,
+        "placeholders": 1
+      },
+      "questions": [],
+      "identifier_screen": {
+        "headline": "Identifier screen: clear",
+        "tone": "ok",
+        "head": "current",
+        "head_line": null
+      },
+      "upstream_name": {
+        "result": null,
+        "cue": "amber",
+        "line": "No review on record compared the Name with the upstream dataset's title.",
+        "titles": {
+          "label": "as the source's registry declares it",
+          "titles": []
+        }
+      },
+      "auto_deny": null,
+      "next_action": {
+        "action": "approve",
+        "sentence": "Approve the request: nothing on record withholds its approval.",
+        "command": "nemar admin dataset publish approve nm000480"
+      }
+    }
+  }
+}

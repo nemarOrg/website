@@ -13,6 +13,21 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+### Fixed
+
+- **Readable numbers on quality-view drawings** (nemar-cli ADR 0134 views).
+  The Spectrum's axis ticks, the scalp maps' text rows, a heatmap's legend and a density histogram's top tick printed values at full binary64 precision (`-29.811042743271745`), and the long y ticks were clipped at the chart's left edge.
+  A number on a drawing now keeps three significant digits of the range it sits in (`-29.8`, `3.48 dB`), and a stored text already that short prints as stored.
+  The readouts, the data tables and the downloads keep the stored texts exactly.
+- **A quality deep link opens Recording quality.**
+  A fresh load of `/dataset/<id>#quality/<recording>/<view>` selected the inner view tab but left the page on Demographics, because the panel's script clicked the outer tab before the tab list had bound its click.
+  The tab list now opens the tab that owns the hash itself, whichever script runs first.
+- **Missing space on the admin Pipelines pages.**
+  "This page showsone recipe's runs" and the run page's lede lost the space Astro drops between two expressions in a slotted Fragment; a test now refuses that pattern in every slotted Fragment.
+- **Local backend in `astro dev`.**
+  With `PUBLIC_API_BASE_URL` or `PUBLIC_DATA_BASE_URL` pointing at a local backend, the Content-Security-Policy refused every browser fetch to it.
+  In dev only, their origins are added to `connect-src`; a production build's policy is unchanged.
+
 ## [0.2.47] - 2026-11-27
 
 ### Added

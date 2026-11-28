@@ -127,6 +127,11 @@ const idp = `qp-${datasetId}`;
     };
     const tabpanel = root.closest<HTMLElement>('[role="tabpanel"]');
     const tab = tabpanel ? document.getElementById(tabpanel.getAttribute("aria-labelledby") ?? "") : null;
+    const isLink = (): boolean =>
+      location.hash === HASH_PREFIX || location.hash.startsWith(`${HASH_PREFIX}/`);
+    // The click does nothing when this script runs before DatasetTabs' script has bound its tab list; that
+    // one then opens the tab for a `#quality` hash itself (lib/dataset-tabs.ts), and the observer
+    // below opens the panel and brings it into view.
     const showTab = (): void => {
       if (tabpanel?.hidden) tab?.click();
       open();
@@ -137,10 +142,11 @@ const idp = `qp-${datasetId}`;
         if (tabpanel.hidden) return;
         observer.disconnect();
         open();
+        if (isLink()) root.scrollIntoView({ block: "start" });
       }).observe(tabpanel, { attributes: true, attributeFilter: ["hidden"] });
     }
     const followLink = (): void => {
-      if (location.hash === HASH_PREFIX || location.hash.startsWith(`${HASH_PREFIX}/`)) {
+      if (isLink()) {
         showTab();
         root.scrollIntoView({ block: "start" });
       }

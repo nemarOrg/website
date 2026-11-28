@@ -1100,6 +1100,7 @@ describe("panelModel", () => {
         approve: { kind: "unavailable", text: COPY["approve.unavailable"] },
         overrideLabel: null,
         ackPrompt: null,
+        card: null,
       });
     });
 

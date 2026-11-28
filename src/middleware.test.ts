@@ -20,6 +20,7 @@ import {
   SECURITY_HEADERS,
   applySecurityHeaders,
   contentSecurityPolicy,
+  devConnectOrigins,
   isOidcAuthorizeRoute,
   isPublicCacheable,
   onRequest,
@@ -1191,6 +1192,73 @@ describe("security headers", () => {
     expect(scriptSrc).toContain("https://cdn.jsdelivr.net");
     expect(scriptSrc).not.toContain("workers.dev");
     expect(scriptSrc).not.toContain("widget.osc.earth");
+  });
+
+  it("admits a local backend's origins in connect-src in dev only, never in production", () => {
+    const local = {
+      PUBLIC_API_BASE_URL: "http://127.0.0.1:8787",
+      PUBLIC_DATA_BASE_URL: "http://127.0.0.1:8787/data",
+    };
+    const connectOf = (csp: string) => csp.split("; ").find((d) => d.startsWith("connect-src"))!;
+    // A production build: Vite writes DEV as false, so the bases add nothing and every route's
+    // policy is the one without dev origins, byte for byte.
+    for (const DEV of [false, undefined, "true"]) {
+      expect(devConnectOrigins({ DEV, ...local })).toEqual([]);
+    }
+    for (const path of ["/", "/discover", "/dataset/nm000232", "/upload", "/oauth/authorize"]) {
+      const production = contentSecurityPolicy(path, {
+        devConnectOrigins: devConnectOrigins({ DEV: false, ...local }),
+      });
+      expect(production).toBe(contentSecurityPolicy(path, { devConnectOrigins: [] }));
+      expect(production).not.toContain("127.0.0.1");
+      expect(connectOf(production)).not.toMatch(/ http:/);
+    }
+    // astro dev with a local backend: its origin (once), after the base sources.
+    const dev = devConnectOrigins({ DEV: true, ...local });
+    expect(dev).toEqual(["http://127.0.0.1:8787"]);
+    expect(
+      connectOf(contentSecurityPolicy("/dataset/nm000232", { devConnectOrigins: dev })),
+    ).toMatch(/^connect-src 'self' https:\/\/\*\.nemar\.org http:\/\/127\.0\.0\.1:8787 /);
+    // Two hosts, a host *.nemar.org already admits, and values that are no http(s) origin.
+    expect(
+      devConnectOrigins({
+        DEV: true,
+        PUBLIC_API_BASE_URL: "http://localhost:8787/",
+        PUBLIC_DATA_BASE_URL: "https://data.nemar.org",
+      }),
+    ).toEqual(["http://localhost:8787"]);
+    expect(
+      devConnectOrigins({
+        DEV: true,
+        PUBLIC_API_BASE_URL: "not a url; script-src *",
+        PUBLIC_DATA_BASE_URL: "javascript:alert(1)",
+      }),
+    ).toEqual([]);
+  });
+
+  it("reads the local bases by name when the module loads, whatever the shell exports", async () => {
+    // Hermetic: the shell running the tests may export a local base; stub both, then load the
+    // module afresh, since the dev origins are read once at load.
+    const load = async (base: string) => {
+      vi.stubEnv("PUBLIC_API_BASE_URL", base);
+      vi.stubEnv("PUBLIC_DATA_BASE_URL", base);
+      vi.resetModules();
+      return import("./middleware");
+    };
+    try {
+      const unset = await load("");
+      expect(unset.SECURITY_HEADERS["Content-Security-Policy"]).toBe(
+        unset.contentSecurityPolicy("/", { devConnectOrigins: [] }),
+      );
+      // Vitest runs with DEV true, as astro dev does: a local base is admitted.
+      const local = await load("http://127.0.0.1:8787");
+      expect(local.SECURITY_HEADERS["Content-Security-Policy"]).toContain(
+        "connect-src 'self' https://*.nemar.org http://127.0.0.1:8787 ",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 
   it("widens connect-src with the S3 hosts only on the upload route", () => {

@@ -26,6 +26,7 @@ import {
   heatmapLegend,
   heatmapPixels,
   heatmapReadout,
+  heatmapTable,
   renderHeatmap,
 } from "../src/lib/quality-views/render/heatmap";
 import {
@@ -48,14 +49,19 @@ import {
   linesPlot,
   linesReadout,
   linesSvg,
+  linesTable,
   rowAtPointer,
+  xTickTexts,
   yTickTexts,
 } from "../src/lib/quality-views/render/lines";
+import { labelText, roundedText, significantDigits } from "../src/lib/quality-views/render/scale";
 import {
   LEGEND_NOTE,
   fieldDrawInput,
+  fieldTable,
   mapTextRow,
   markerReadout,
+  noteCaption,
   placementStatement,
   sensorReadout,
 } from "../src/lib/quality-views/render/sensor-field-view";
@@ -278,11 +284,14 @@ describe("scalp maps", () => {
         const row = mapTextRow(model, m);
         expect(row.startsWith(item.label)).toBe(true);
         if (item.word === null) {
-          // Every number in the row is a stored text of the map.
+          // Every number in the row is a stored text of the map, or one rounded for the label.
+          const drawn = item.values.filter((_, k) => model.sensors.drawn[k]);
+          const span = Math.max(...drawn) - Math.min(...drawn);
+          const printed = item.text.map((t, k) => labelText(t, item.values[k], span));
           const numbers = row.match(/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g) ?? [];
           for (const n of numbers.filter((x) => !model.maps.items[m].label.includes(x))) {
             if (!model.sensors.labels.some((label) => label.includes(n))) {
-              expect(item.text).toContain(n);
+              expect([...item.text, ...printed]).toContain(n);
             }
           }
         }
@@ -701,5 +710,132 @@ describe("the review's repros (#594, round 2): mounting and the keys", () => {
       expect(drawing.attrs["aria-roledescription"], kind).toBe(roleDescription);
       expect(textOf(elements(tree, "qv-keys")[0]), kind).toMatch(/^Keys: /);
     }
+  });
+});
+
+describe("numbers on a drawing are rounded to the drawing's precision", () => {
+  it("rounds to three significant digits of the span, never -0", () => {
+    // The spectrum's axis and the scalp maps of website's browser check.
+    expect(roundedText(-29.811042743271745, 48.6)).toBe("-29.8");
+    expect(roundedText(18.801075851290445, 48.6)).toBe("18.8");
+    expect(roundedText(-3.4706225147472876, 6.95)).toBe("-3.47");
+    expect(roundedText(3.4803197825169043, 6.95)).toBe("3.48");
+    expect(roundedText(-0.0001, 48.6)).toBe("0.0");
+    expect(roundedText(0, 0)).toBe("0");
+    // Very small and very large magnitudes in exponent form.
+    expect(roundedText(1.234567e-12, 2e-12)).toBe("1.23e-12");
+    expect(roundedText(-4.56789e7, 1e7)).toBe("-4.57e+7");
+    // A span far below the value (a nearly flat map): the shortest form at six digits.
+    expect(roundedText(1.5000000001, 1e-10)).toBe("1.5");
+    expect(roundedText(Number.NaN, 1)).toBe("NaN");
+  });
+
+  it("keeps a short stored text as stored", () => {
+    expect(significantDigits("-0.0120")).toBe(3);
+    expect(significantDigits("8.8E1")).toBe(2);
+    expect(significantDigits("-29.811042743271745")).toBe(17);
+    expect(labelText("1.25e1", 12.5, 40)).toBe("1.25e1");
+    expect(labelText("-2.0", -2, 90)).toBe("-2.0");
+    expect(labelText("-29.811042743271745", -29.811042743271745, 48.6)).toBe("-29.8");
+  });
+
+  const longLines = async (): Promise<LinesModel> => {
+    const base = (await built(byName("lines_spectrum"))).model as LinesModel;
+    const series = base.series.items.map((item, s) => {
+      const values = item.values.map((_, r) => -29.811042743271745 + 48.6 * ((r + s) % 2));
+      return { ...item, values, text: values.map((v) => String(v)) };
+    });
+    const x = { ...base.x, text: base.x.values.map((v) => String(v + 1e-9)) };
+    const all = series.flatMap((item) => item.values);
+    return {
+      ...base,
+      x,
+      y: { ...base.y, min: Math.min(...all), max: Math.max(...all) },
+      series: { ...base.series, items: series },
+    };
+  };
+
+  it("lines: the ticks are rounded, the readout and the data table keep the stored text", async () => {
+    const model = await longLines();
+    expect(yTickTexts(model)).toEqual({ min: "-29.8", max: "18.8" });
+    for (const t of xTickTexts(model, [0, model.x.values.length - 1])) {
+      expect(significantDigits(t)).toBeLessThanOrEqual(4);
+    }
+    const html = toHtml(linesSvg(model));
+    expect(html).toContain(">-29.8<");
+    expect(html).not.toContain("29.811042743271745");
+    expect(linesReadout(model, 0, 0)).toContain("-29.811042743271745");
+    const table = textOf(linesTable(model, "caption"));
+    expect(table).toContain("-29.811042743271745");
+    expect(table).toContain(model.x.text[0]);
+  });
+
+  it("scalp maps: the text row is rounded, the data table keeps the stored text", async () => {
+    const c = vectors.cases.find((x) => x.view.kind === "nemar.sensor-field")!;
+    const base = (await built(c, true)).model as SensorFieldModel;
+    const item = base.maps.items.find((x) => x.word === null)!;
+    const n = item.values.length;
+    const values = item.values.map((_, k) => -3.4706225147472876 + (6.95 * k) / (n - 1));
+    const model: SensorFieldModel = {
+      ...base,
+      maps: { ...base.maps, items: [{ ...item, values, text: values.map((v) => String(v)) }] },
+    };
+    const row = mapTextRow(model, 0);
+    expect(row).not.toMatch(/\d{6,}/);
+    expect(row).toContain("-3.47");
+    const table = textOf(fieldTable(model, "caption"));
+    expect(table).toContain("-3.4706225147472876");
+    for (const text of model.maps.items[0].text) expect(table).toContain(text);
+  });
+
+  it("scalp maps: a near-flat note prints its range rounded", () => {
+    expect(noteCaption("near_flat", 0.0123456789, "µV")).toBe(
+      "all sensors are within 0.0123 µV of each other",
+    );
+  });
+
+  it("heatmap: the legend is rounded, the readout and the table keep the stored text", () => {
+    // The stored texts, longer than the values' shortest forms.
+    const text = [
+      ["-2.0123456789012345", "15.5"],
+      ["4.25", "87.98765432101234"],
+    ];
+    const values = text.map((row) => row.map(Number));
+    const model = {
+      type: "heatmap",
+      rows: { dim: "component", type: "string", unit: null, labels: ["IC1", "IC2"] },
+      columns: {
+        dim: "class",
+        type: "string",
+        unit: null,
+        labels: ["brain", "eye"],
+        names: ["brain", "eye"],
+      },
+      unit: "%",
+      values,
+      text,
+      limits: { rule: "minmax", min: values[0][0], max: values[1][1] },
+    } as import("../src/lib/quality-views/model").HeatmapModel;
+    expect(heatmapLegend(model)).toEqual({ low: "-2.0 %", high: "88.0 %", note: null });
+    const absmax = heatmapLegend({
+      ...model,
+      limits: { rule: "absmax", min: -values[1][1], max: values[1][1] },
+    });
+    expect(absmax.note).toBe("centered on 0; largest magnitude 88 %");
+    expect(heatmapReadout(model, 0, 0)).toBe("IC1, brain: -2.0123456789012345 %");
+    const table = textOf(heatmapTable(model, "caption"));
+    expect(table).toContain("-2.0123456789012345");
+    expect(table).toContain("87.98765432101234");
+  });
+
+  it("histogram: a density axis prints its top tick rounded", async () => {
+    const c = vectors.cases.find(
+      (x) => x.view.kind === "nemar.histogram" && x.name.startsWith("histogram"),
+    )!;
+    const base = (await built(c)).model as HistogramModel;
+    const model: HistogramModel = { ...base, heights: "density", max_density: 0.0123456789 };
+    const html = toHtml(histogramSvg(model));
+    expect(html).toContain(">0.0123<");
+    expect(html).not.toContain("0.0123456789");
   });
 });

@@ -170,12 +170,20 @@ function isKnownNotebookUrl(value: string): boolean {
   );
 }
 
+/** Each key read by name, never the whole `import.meta.env`: a bare reference (a `typeof` guard or
+ *  a lookup by a variable key) makes Vite write the object out in the server bundle with every
+ *  build-machine variable whose name appears in this file (PATH among them). */
 function envValue(name: OsaEnvKey): string | undefined {
-  const env =
-    typeof import.meta.env !== "undefined"
-      ? (import.meta.env as unknown as Record<string, string | undefined>)
-      : undefined;
-  return env?.[name];
+  switch (name) {
+    case "PUBLIC_OSA_WIDGET_SRC":
+      return import.meta.env.PUBLIC_OSA_WIDGET_SRC;
+    case "PUBLIC_OSA_WIDGET_INTEGRITY":
+      return import.meta.env.PUBLIC_OSA_WIDGET_INTEGRITY;
+    case "PUBLIC_OSA_API_ENDPOINT":
+      return import.meta.env.PUBLIC_OSA_API_ENDPOINT;
+    case "PUBLIC_OSA_NOTEBOOK_URL":
+      return import.meta.env.PUBLIC_OSA_NOTEBOOK_URL;
+  }
 }
 
 /**

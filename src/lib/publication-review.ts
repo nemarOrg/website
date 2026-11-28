@@ -25,6 +25,7 @@
  * `publication-review-copy.test.ts` greps for exactly that; a template literal would hide it.
  */
 import type { PublicationRequest } from "./admin-api";
+import { type DecisionCardView, readDecisionCard } from "./decision-card";
 import { PUBLICATION_REVIEW_COPY, type PublicationReviewCopyKey } from "./publication-review-copy";
 
 /** One word of the mirrored table. */
@@ -130,6 +131,11 @@ export interface PublicationReviewDetail {
   /** The headline and tone only; the description's lines and next step are not typed. */
   readonly description: { readonly headline: string; readonly tone: Tone };
   readonly review: PublicationReviewRecord | null;
+  /**
+   * The administrator's decision card (nemar-cli ADR 0142, decision 4), read by
+   * `lib/decision-card.ts`; absent from a Worker before the card, and null without one.
+   */
+  readonly decision_card?: unknown;
 }
 
 /** What `readFailure` extracts from a failed answer; every field but the status is optional. */
@@ -517,6 +523,8 @@ export interface PanelModel {
   /** The label of the confirmation box, present exactly when the control needs the confirmation. */
   readonly overrideLabel: string | null;
   readonly ackPrompt: string | null;
+  /** The decision card, or null when the detail carries none this page reads. */
+  readonly card: DecisionCardView | null;
 }
 
 const RANK: Record<string, number> = { nothing: 0, screen_acknowledgment: 1, override: 2 };
@@ -555,6 +563,7 @@ export function panelModel(
     approve,
     overrideLabel: null,
     ackPrompt: null,
+    card: null,
   };
   if (detail === null) return empty;
   // `isCurrentWorker` is total and checks every part read below, so nothing here can throw.
@@ -608,6 +617,7 @@ export function panelModel(
       approve.kind === "offered" && approve.needsOverride ? say("approve.override_control") : null,
     ackPrompt:
       approve.kind === "offered" && approve.needsAck ? say("screen_gate.acknowledge") : null,
+    card: readDecisionCard(detail.decision_card),
   };
 }
 

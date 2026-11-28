@@ -2,16 +2,17 @@
  * `nemar.lines` version 1 (neuroschema 0.6.0 `docs/views/generic-kinds.md`): each series as straight
  * segments between its stored points in row order, on one x axis and one y axis.
  *
- * Every number on screen is a stored cell's text: the axis ticks print stored x texts and the
- * texts of the smallest and largest stored values, and a pointer, or a key, reads one stored row,
- * never a value between rows (`snapRow`).
+ * Every number on screen comes from a stored cell: the axis ticks print stored x texts and the
+ * texts of the smallest and largest stored values, each rounded to the axis's precision when it
+ * carries more digits than a tick can hold (`labelText`), and a pointer, or a key, reads one
+ * stored row's texts unrounded, never a value between rows (`snapRow`).
  */
 
 import { type Download, type LinesModel, snapRow } from "../model";
 import { type Element, h } from "../tree";
 import { type ViewContext, figure, textTable } from "./figure";
 import { readoutWriter, step } from "./interact";
-import { fraction, lerp } from "./scale";
+import { fraction, labelText, lerp } from "./scale";
 import { columnHeader } from "./table";
 
 export const LINES_SIZE = { width: 640, height: 320 } as const;
@@ -50,7 +51,8 @@ export function xTickRows(rows: number): number[] {
   return Array.from({ length: X_TICKS }, (_, i) => Math.round((i * (rows - 1)) / (X_TICKS - 1)));
 }
 
-/** The stored text of the smallest and of the largest value, as the y axis prints them. */
+/** The stored text of the smallest and of the largest value, as the y axis prints them: rounded
+ *  to the axis's span when the stored text carries more digits than a tick holds (`labelText`). */
 export function yTickTexts(model: LinesModel): { min: string; max: string } {
   let min = "";
   let max = "";
@@ -60,7 +62,15 @@ export function yTickTexts(model: LinesModel): { min: string; max: string } {
       if (max === "" && v === model.y.max) max = item.text[r];
     });
   }
-  return { min, max };
+  const span = model.y.max - model.y.min;
+  return { min: labelText(min, model.y.min, span), max: labelText(max, model.y.max, span) };
+}
+
+/** The x texts under the axis at stored rows `rows`, each rounded as `yTickTexts` rounds. */
+export function xTickTexts(model: LinesModel, rows: readonly number[]): string[] {
+  const xs = model.x.values;
+  const span = xs[xs.length - 1] - xs[0];
+  return rows.map((r) => labelText(model.x.text[r], xs[r], span));
 }
 
 /** The series nearest a plot y at stored row `row` (the hovered series). */
@@ -109,7 +119,9 @@ export function linesSvg(model: LinesModel): Element {
         .join(" "),
     }),
   );
-  const xTicks = xTickRows(model.x.values.length).map((r) =>
+  const xRows = xTickRows(model.x.values.length);
+  const xTexts = xTickTexts(model, xRows);
+  const xTicks = xRows.map((r, i) =>
     h(
       "text",
       {
@@ -118,7 +130,7 @@ export function linesSvg(model: LinesModel): Element {
         y: plot.height + 16,
         "text-anchor": "middle",
       },
-      model.x.text[r],
+      xTexts[i],
     ),
   );
   return h(
