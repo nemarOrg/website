@@ -289,6 +289,11 @@ Remember: this is a frontend over established backends. The interesting decision
 - Page-level tests run against the live dev server or a deploy preview via `/browse`.
 - See `.rules/testing.md` for the full policy.
 
+### Data displays follow `.rules/ui-data-display.md`
+- Augment the existing viewer and pages; never build a parallel viewer or chrome.
+- Human display names declared once, human units, honest empty states (same layout, grayed, one banner), coverage beside every aggregate.
+- Run its pre-merge checklist, at 1280 px and 390 px, in both themes.
+
 ### Theme-aware UI is non-negotiable
 - Every visual decision uses tokens from `src/styles/tokens.css`. Light and dark are equal citizens.
 - Theme bootstrap script in `src/layouts/Base.astro` prevents FOUC. Don't move it.
@@ -373,5 +378,8 @@ host helpers, the cache namespace, and the security headers, which are code you 
 
 `.rules/` holds the detailed standards, including the **NO MOCK policy** in
 `.rules/testing.md`.
+Before building anything that shows data (a chart, a quality view, the signal viewer),
+read `.rules/design-language.md` for shapes, tokens and theming,
+and `.rules/ui-data-display.md` for the data-display rules and the pre-merge checklist.
 
 **ADRs stay next to the code they bind** and are not moving to the documentation site.

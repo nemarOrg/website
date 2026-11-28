@@ -13,6 +13,14 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+### Added
+
+- **Rules for data displays** (`.rules/ui-data-display.md`), linked from `AGENTS.md` and `.rules/design-language.md`.
+  Binding rules, each with its reason, for charts, quality views and the signal viewer:
+  augment the existing surfaces, one level per surface, human names and units declared once, typography, restraint, balance, chart keys, honest empty states with coverage, interaction patterns, accessibility and theming, and drawing from data.
+  It adds a design-reasoning sequence, best practices from data-visualization guidance and a pre-merge checklist.
+  Documentation only; no change to the site.
+
 ### Fixed
 
 - **Readable numbers on quality-view drawings** (nemar-cli ADR 0134 views).
