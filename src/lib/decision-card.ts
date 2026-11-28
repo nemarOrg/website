@@ -109,8 +109,11 @@ export interface DecisionCardView {
 type Rec = Record<string, unknown>;
 const isRecord = (x: unknown): x is Rec => typeof x === "object" && x !== null && !Array.isArray(x);
 
-/** Control (Cc) and format (Cf) characters, the bidirectional overrides among them. */
-const UNSAFE = /[\p{Cc}\p{Cf}]/gu;
+/**
+ * Control (Cc) and format (Cf) characters, the bidirectional overrides among them, and the line and
+ * paragraph separators (Zl, Zp): the set nemar-cli's `terminal-text.ts` removes.
+ */
+const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
 
 /** A string made plain, or "" for anything that is not a string. */
 export function plain(x: unknown): string {
