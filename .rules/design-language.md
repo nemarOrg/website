@@ -298,3 +298,7 @@ Before adding a new interactive element:
 
 When in doubt, match an existing pattern before inventing a new one. The
 goal of this document is consistency, not novelty.
+
+For anything that shows data (charts, quality views, the signal viewer),
+[`ui-data-display.md`](ui-data-display.md) adds the rules for names, units,
+empty states, layout balance and interaction, with a pre-merge checklist.
